@@ -1,0 +1,26 @@
+# Rust
+/target/
+src-tauri/target/
+**/*.rs.bk
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Tauri bundles and updater artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# Logs and env
+*.log
+.env
+.env.*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

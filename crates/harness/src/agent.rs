@@ -1,0 +1,1160 @@
+//! Orchestrator loop: model ⇄ sandboxed tools, with guardrails.
+//! Denials and suppressions feed back as tool results; never retry silently.
+
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+
+use anyhow::{bail, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+
+use crate::client::{ChatMessage, LlmClient, StreamCollector, StreamEvent};
+use crate::permissions::{ApprovalKey, Decision, PermissionEngine, Scope};
+use crate::tools::ToolRegistry;
+
+pub const DEFAULT_MAX_TURNS: usize = 40;
+pub const DEFAULT_SUBAGENT_MAX_TURNS: usize = 25;
+
+/// Shared shell guidance so workers use the right idioms.
+pub fn os_shell_snippet() -> String {
+    if cfg!(windows) {
+        "You run on Windows. Shell commands execute via PowerShell (`powershell -NoProfile -Command ...`): use Windows syntax (Get-ChildItem, Get-Content, Select-String; separate statements with `;`) — never sh/bash syntax (`ls -la`, `&&`, `grep`, `/dev/null`, leading `/` paths).".to_string()
+    } else {
+        "You run on a POSIX system. Shell commands execute via `sh -c ...`: use POSIX syntax (ls, cat, grep; separate statements with `&&` or `;`) — never PowerShell syntax.".to_string()
+    }
+}
+
+// ── Subagents ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubagentKind {
+    Coder,
+    Researcher,
+}
+
+impl SubagentKind {
+    pub fn parse(s: &str) -> Result<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "coder" => Ok(Self::Coder),
+            "researcher" => Ok(Self::Researcher),
+            other => anyhow::bail!("Unknown agent type '{other}' (expected 'coder' or 'researcher')"),
+        }
+    }
+
+    fn prompt(&self) -> String {
+        let base: &'static str = match self {
+            Self::Coder => {
+                "You are a focused implementation subagent. You execute exactly one coding task inside a sandboxed project directory, then report back. \
+                You cannot spawn further subagents. \
+                Read relevant files before editing; make small, exact edits with edit_file; create files with write_file; \
+                verify with search_content or find_files. Anything but allowlisted read-only commands needs user approval — if denied, adapt instead of retrying. \
+                Do not expand the task scope. If the goal is ambiguous, make the most reasonable assumption and note it. \
+                Your final message is the only thing the orchestrator sees: report what changed (files and a one-line summary each), what you verified, and anything left undone."
+            }
+            Self::Researcher => {
+                "You are an investigation subagent. You answer exactly one question about a sandboxed project directory, then report back. \
+                You cannot create or modify anything. \
+                Use find_files and search_content with specific patterns; read only what is needed; verify claims by reading the actual code. \
+                Your final message is the only thing the orchestrator sees: state the answer directly, with concrete file:line references as evidence, then stop. \
+                When asked to verify a claim, end your report with a verdict block: `Verdict: confirmed | refuted | uncertain`, one evidence line each."
+            }
+        };
+        format!("{base} {}", os_shell_snippet())
+    }
+
+    fn allowed_tools(&self) -> &'static [&'static str] {
+        match self {
+            Self::Coder => &[
+                "read_file",
+                "write_file",
+                "edit_file",
+                "find_files",
+                "search_content",
+                "exec",
+            ],
+            Self::Researcher => &["read_file", "find_files", "search_content", "exec"],
+        }
+    }
+}
+
+pub struct Subagents<'a> {
+    pub jail: Arc<crate::sandbox::PathJail>,
+    pub max_turns: usize,
+    /// None inherits the orchestrator's model.
+    pub model: Option<String>,
+    pub exec_enabled: bool,
+    /// The worker model's own context window; None inherits the parent's.
+    pub context_limit: Option<u64>,
+    /// External worker provider; None uses the orchestrator's client.
+    pub client: Option<&'a LlmClient>,
+}
+
+// ── Events ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AgentEvent {
+    ToolCall { call_id: String, tool: String, args: String },
+    ToolResult { call_id: String, ok: bool, output: String },
+    SubagentSpawned { call_id: String, kind: String, goal: String },
+    SubagentFinished { call_id: String, kind: String, summary: String },
+    /// Transcript was compacted mid-run; the UI shows how much folded away.
+    Compacted { removed: usize },
+    Notice { text: String },
+}
+
+// ── Approval gate ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Approved {
+    Denied,
+    Once,
+    Session,
+    Project,
+    Global,
+}
+
+pub struct ApprovalRequest {
+    pub key: ApprovalKey,
+    pub args_pretty: String,
+}
+
+/// Multiple-choice question for the user (the `ask_user` tool).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QuestionRequest {
+    pub question: String,
+    pub options: Vec<String>,
+}
+
+/// Answer to a question; `cancelled` when the run ended while parked.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QuestionAnswer {
+    pub answer: String,
+    pub cancelled: bool,
+}
+
+impl QuestionAnswer {
+    pub fn cancelled() -> Self {
+        Self { answer: String::new(), cancelled: true }
+    }
+}
+
+/// Implemented by the driver (UI event → oneshot from the answer command).
+pub trait ApprovalGate: Send + Sync {
+    fn decide(&self, req: ApprovalRequest) -> Pin<Box<dyn Future<Output = Approved> + Send>>;
+    /// Parks until the user answers; default cancels (headless gates).
+    fn ask_question(
+        &self,
+        _req: QuestionRequest,
+    ) -> Pin<Box<dyn Future<Output = QuestionAnswer> + Send>> {
+        Box::pin(async { QuestionAnswer::cancelled() })
+    }
+    /// Save hook after a persistable grant lands; no-op by default.
+    fn grants_changed(&self, _grants: &[crate::permissions::Grant]) {}
+}
+
+// ── Verification nudges ───────────────────────────────────────────────────
+
+/// Strictness: Off silences the detector, Normal fires on unchecked turns,
+/// Thorough also fires on turns that read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum VerifyMode {
+    Off,
+    #[default]
+    Normal,
+    Thorough,
+}
+
+pub const MAX_VERIFY_NUDGES: usize = 3;
+pub const MAX_VERIFY_NUDGES_THOROUGH: usize = 6;
+
+/// Nudge cap per mode; 0 disables the detector entirely.
+pub fn max_verify_nudges(mode: VerifyMode) -> usize {
+    match mode {
+        VerifyMode::Off => 0,
+        VerifyMode::Normal => MAX_VERIFY_NUDGES,
+        VerifyMode::Thorough => MAX_VERIFY_NUDGES_THOROUGH,
+    }
+}
+
+/// Calls counting as "already checking" (direct reads or delegation).
+fn turn_verified(tool_names: &[&str]) -> bool {
+    tool_names.iter().any(|n| {
+        matches!(*n, "read_file" | "find_files" | "search_content" | "spawn_subagent")
+    })
+}
+
+/// Pure nudge gate: below the mode cap, never after a researcher spawn,
+/// and — unless Thorough — never on turns that already read.
+pub fn should_nudge(mode: VerifyMode, turn_tools: &[String], used: usize) -> bool {
+    if used >= max_verify_nudges(mode) {
+        return false;
+    }
+    if turn_tools.iter().any(|t| t == "spawn_subagent") {
+        return false;
+    }
+    if mode == VerifyMode::Thorough {
+        return true;
+    }
+    if mode == VerifyMode::Off {
+        return false;
+    }
+    let refs: Vec<&str> = turn_tools.iter().map(|s| s.as_str()).collect();
+    !turn_verified(&refs)
+}
+
+fn shape_excerpt(m: &str) -> String {
+    let t = m.trim();
+    let mut excerpt: String = t.chars().take(120).collect();
+    if excerpt.len() < t.len() {
+        excerpt.push('…');
+    }
+    excerpt
+}
+
+/// Deterministic trust-shape scan: mechanical trigger for claims worth
+/// verifying, never introspective confidence (small models can't calibrate).
+fn detect_trust_shape(text: &str) -> Option<(String, String)> {
+    use std::sync::OnceLock;
+    static SHAPES: OnceLock<Vec<(String, regex::Regex)>> = OnceLock::new();
+    let shapes = SHAPES.get_or_init(|| {
+        [
+            ("numeric default", r"\b[a-zA-Z_]\w*\s*[:=]\s*\d+(\.\d+)?"),
+            ("flag", r"\B--[a-zA-Z][\w-]*"),
+            ("version", r"\bv?\d+\.\d+\.\d+\b"),
+            (
+                "runtime version",
+                r"(?i)\b(node|python|rust|go|java|typescript)\s+\d+(\.\d+)*\b",
+            ),
+            (
+                "universal negative",
+                r"(?i)\b(has no|have no|does not (support|exist|have|work|apply)|not supported|no such|is not available)\b",
+            ),
+        ]
+        .into_iter()
+        .map(|(label, pat)| (label.to_string(), regex::Regex::new(pat).expect("trust shape regex")))
+        .collect()
+    });
+    for (label, re) in shapes {
+        if let Some(m) = re.find(text) {
+            return Some((label.clone(), shape_excerpt(m.as_str())));
+        }
+    }
+    // owner/repo without dots or slashes around it (paths are not libraries).
+    // The regex crate has no look-around, so the boundary is checked by hand.
+    static ENTITY: OnceLock<regex::Regex> = OnceLock::new();
+    let entity = ENTITY.get_or_init(|| {
+        regex::Regex::new(r"(?:^|[^.\w/])([A-Za-z0-9_-]{2,})/([A-Za-z0-9_-]{2,})")
+            .expect("entity regex")
+    });
+    for m in entity.find_iter(text) {
+        let after = text[m.end()..].chars().next();
+        if matches!(after, Some(c) if c.is_alphanumeric() || c == '_' || c == '.' || c == '/') {
+            continue;
+        }
+        return Some(("library reference".to_string(), shape_excerpt(m.as_str())));
+    }
+    None
+}
+
+// ── Loop guard ────────────────────────────────────────────────────────────
+
+const REPEAT_WINDOW: usize = 8;
+const MAX_SUPPRESSED_STREAK: usize = 2;
+
+/// Guards against non-progressing loops: the 3rd identical call is
+/// suppressed with a reflect-then-pivot prompt. Varied no-ops share one
+/// `exec:inert` key so empty spins trip it too.
+#[derive(Debug, Default)]
+pub struct RepeatTracker {
+    window: std::collections::VecDeque<(String, String)>,
+    suppressed_streak: usize,
+}
+
+impl RepeatTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Observe a call key; true means suppress this run of it.
+    pub fn suppress(&mut self, key: &(String, String)) -> bool {
+        let seen = self.window.iter().filter(|k| *k == key).count();
+        self.window.push_back(key.clone());
+        while self.window.len() > REPEAT_WINDOW {
+            self.window.pop_front();
+        }
+        seen >= 2
+    }
+
+    /// End of turn; true means exit the run (only suppressed calls, twice).
+    pub fn turn_end(&mut self, all_suppressed: bool) -> bool {
+        if all_suppressed {
+            self.suppressed_streak += 1;
+        } else {
+            self.suppressed_streak = 0;
+        }
+        self.suppressed_streak >= MAX_SUPPRESSED_STREAK
+    }
+}
+
+// ── Runner ────────────────────────────────────────────────────────────────
+
+pub struct AgentRun<'a> {
+    pub client: &'a LlmClient,
+    pub registry: Arc<ToolRegistry>,
+    pub engine: Arc<Mutex<PermissionEngine>>,
+    pub model: Option<String>,
+    pub project: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub max_turns: usize,
+    pub subagents: Option<Subagents<'a>>,
+    pub verify_mode: VerifyMode,
+    /// Effective context size for compaction; None disables it.
+    pub context_limit: Option<u64>,
+    /// Cuts recorded as they happen — read after ANY outcome.
+    pub compactions_log: Arc<Mutex<Vec<usize>>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AgentOutcome {
+    pub text: String,
+    pub gen_tokens: usize,
+    pub prompt_tokens: Option<u64>,
+    pub tokens_per_sec: Option<f64>,
+    pub elapsed_ms: u64,
+    /// Accumulated reasoning; never sent back to the model.
+    pub reasoning: String,
+    pub compactions: Vec<usize>,
+}
+
+fn short_args(pretty: &str) -> String {
+    let one_line = pretty.lines().collect::<Vec<_>>().join(" ");
+    let mut s = one_line.chars().take(300).collect::<String>();
+    if s.len() < one_line.len() {
+        s.push('…');
+    }
+    s
+}
+
+/// llama-server's context-overflow rejection, matched loosely.
+fn is_context_overflow(err: &str) -> bool {
+    let l = err.to_lowercase();
+    (l.contains("exceed") && (l.contains("context") || l.contains("token")))
+        || (l.contains("context") && l.contains("overflow"))
+        || l.contains("too many tokens")
+        || l.contains("maximum context length")
+}
+
+impl AgentRun<'_> {
+    pub async fn run(
+        &self,
+        history: &mut Vec<ChatMessage>,
+        should_stop: Arc<dyn Fn() -> bool + Send + Sync>,
+        gate: Arc<dyn ApprovalGate>,
+        steer: Arc<dyn Fn() -> Vec<String> + Send + Sync>,
+        mut on_stream: impl FnMut(StreamEvent) + Send,
+        mut on_event: impl FnMut(AgentEvent) + Send,
+    ) -> Result<AgentOutcome> {
+        let mut turns_used = 0usize;
+        let mut sub_seq = 0usize;
+        let mut verify_nudges = 0usize;
+        let mut repeats = RepeatTracker::new();
+        let mut reasoning_acc = String::new();
+        let mut compactions: Vec<usize> = Vec::new();
+        let schema_overhead = crate::compact::schema_tokens(&self.registry.tool_schemas());
+        // Compaction budget: the raw window minus what the request carries
+        // outside `history`, with slack because code/JSON tokenizes denser
+        // than the chars/4 estimate.
+        let history_budget = |limit: u64| {
+            let usable = limit.saturating_sub(schema_overhead);
+            ((usable as f64 * 0.9) as u64).max(2_048.min(limit))
+        };
+        loop {
+            if should_stop() {
+                bail!("aborted");
+            }
+            // Mid-run steering joins as normal user turns (orchestrator only).
+            for msg in steer() {
+                history.push(ChatMessage::user(msg));
+            }
+            // Fold oldest turns before they overflow; free, checked each turn.
+            if let Some(limit) = self.context_limit {
+                if let Some(info) = crate::compact::compact_history(
+                    self.client,
+                    self.model.as_deref(),
+                    history,
+                    history_budget(limit),
+                    false,
+                    &*should_stop,
+                    &mut on_event,
+                )
+                .await?
+                {
+                    if let Some(cut) = info.cut {
+                        compactions.push(cut);
+                        self.compactions_log.lock().unwrap().push(cut);
+                    }
+                }
+            }
+            turns_used += 1;
+            if turns_used > self.max_turns {
+                bail!("Turn budget exhausted ({} turns)", self.max_turns);
+            }
+
+            let mut collector = StreamCollector::default();
+            let mut text_acc = String::new();
+            let mut deltas = 0usize;
+            let mut first_delta: Option<std::time::Instant> = None;
+            let mut usage_tokens: Option<u64> = None;
+            let mut usage_prompt: Option<u64> = None;
+            let mut on_delta = |ev: StreamEvent| {
+                match &ev {
+                    StreamEvent::Content { text } => {
+                        text_acc.push_str(text);
+                        deltas += 1;
+                    }
+                    StreamEvent::ReasoningDelta { text } => {
+                        reasoning_acc.push_str(text);
+                        deltas += 1;
+                    }
+                    StreamEvent::ToolCallDelta { .. } => deltas += 1,
+                    StreamEvent::Usage { prompt_tokens, completion_tokens } => {
+                        usage_prompt = Some(*prompt_tokens);
+                        usage_tokens = Some(*completion_tokens);
+                    }
+                    _ => {}
+                }
+                if first_delta.is_none() {
+                    first_delta = Some(std::time::Instant::now());
+                }
+                collector.push(&ev);
+                on_stream(ev);
+            };
+            let turn_started = std::time::Instant::now();
+            // Overflow recovery: condense and retry ONCE, then surface.
+            let mut finish = self
+                .client
+                .chat_stream(
+                    self.model.as_deref(),
+                    history,
+                    Some(&self.registry.tool_schemas()),
+                    self.reasoning_effort.as_deref(),
+                    &*should_stop,
+                    &mut on_delta,
+                )
+                .await;
+            if let Err(e) = &finish {
+                if is_context_overflow(&e.to_string()) && self.context_limit.is_some() {
+                    on_event(AgentEvent::Notice {
+                        text: "Context overflow — compacting and retrying…".into(),
+                    });
+                    match crate::compact::compact_history(
+                        self.client,
+                        self.model.as_deref(),
+                        history,
+                        history_budget(self.context_limit.unwrap_or(u64::MAX)),
+                        true,
+                        &*should_stop,
+                        &mut on_event,
+                    )
+                    .await
+                    {
+                        Ok(Some(info)) => {
+                            if let Some(cut) = info.cut {
+                                compactions.push(cut);
+                                self.compactions_log.lock().unwrap().push(cut);
+                            }
+                            finish = self
+                                .client
+                                .chat_stream(
+                                    self.model.as_deref(),
+                                    history,
+                                    Some(&self.registry.tool_schemas()),
+                                    self.reasoning_effort.as_deref(),
+                                    &*should_stop,
+                                    &mut on_delta,
+                                )
+                                .await;
+                        }
+                        // Nothing to fold and the window is still too small.
+                        Ok(None) => bail!(
+                            "Context overflowed and there is nothing left to compact \
+                             (window too small for the system prompt, tool schemas, and reply) \
+                             — raise Ctx or start a new chat (/new)"
+                        ),
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+            let finish = finish?;
+            if should_stop() {
+                bail!("aborted");
+            }
+
+            let calls = collector.finish()?;
+            // Reasoning that led to tool calls belongs to that turn, not the
+            // final answer — reset so the footer shows only the last turn.
+            if !calls.is_empty() {
+                reasoning_acc.clear();
+            }
+            // Scrub leaked control strings from assistant text only.
+            text_acc = crate::client::strip_special_tokens(&text_acc);
+            reasoning_acc = crate::client::strip_special_tokens(&reasoning_acc);
+            // Scan now: `text_acc` moves into the history push below.
+            let trust_shape = detect_trust_shape(&text_acc);
+            if calls.is_empty() {
+                history.push(ChatMessage {
+                    role: "assistant".into(),
+                    content: Some(Value::String(text_acc.clone())),
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
+                let elapsed = first_delta
+                    .map(|t| t.elapsed())
+                    .unwrap_or_else(|| turn_started.elapsed());
+                let tokens = usage_tokens.unwrap_or(deltas as u64) as usize;
+                let tokens_per_sec = if deltas > 0 {
+                    Some(tokens as f64 / elapsed.as_secs_f64().max(0.001))
+                } else {
+                    None
+                };
+                let _ = finish;
+                return Ok(AgentOutcome {
+                    text: text_acc,
+                    gen_tokens: tokens,
+                    prompt_tokens: usage_prompt,
+                    tokens_per_sec: tokens_per_sec.filter(|v| *v > 0.0 && v.is_finite()),
+                    elapsed_ms: elapsed.as_millis() as u64,
+                    reasoning: std::mem::take(&mut reasoning_acc),
+                    compactions,
+                });
+            }
+
+            // Assistant message with tool calls precedes tool results.
+            history.push(ChatMessage {
+                role: "assistant".into(),
+                content: if text_acc.is_empty() { None } else { Some(Value::String(text_acc.clone())) },
+                tool_calls: Some(calls.clone()),
+                tool_call_id: None,
+            });
+
+            // Names for the checks below (`calls` moves into the loop).
+            let turn_tools: Vec<String> =
+                calls.iter().map(|c| c.function.name.clone()).collect();
+            let n_calls = calls.len();
+            let mut suppressed_this_turn = 0usize;
+            for call in calls {
+                if should_stop() {
+                    bail!("aborted");
+                }
+                let call_id = call.id.clone();
+                let tool_name = call.function.name.clone();
+                let args_value: serde_json::Value =
+                    serde_json::from_str(&call.function.arguments).unwrap_or_else(|_| json!({}));
+                let args_pretty =
+                    serde_json::to_string_pretty(&args_value).unwrap_or_else(|_| call.function.arguments.clone());
+                on_event(AgentEvent::ToolCall {
+                    call_id: call_id.clone(),
+                    tool: tool_name.clone(),
+                    args: short_args(&args_pretty),
+                });
+
+                // Loop guard: the 3rd identical call is skipped with a
+                // reflect-then-pivot prompt instead of executing.
+                let storm_key = if tool_name == "exec"
+                    && args_value
+                        .get("command")
+                        .and_then(|c| c.as_str())
+                        .map(crate::tools::is_inert_shell_command)
+                        .unwrap_or(false)
+                {
+                    ("exec".to_string(), "inert".to_string())
+                } else {
+                    (tool_name.clone(), call.function.arguments.clone())
+                };
+                if repeats.suppress(&storm_key) {
+                    suppressed_this_turn += 1;
+                    let text: &str = if storm_key.1 == "inert" {
+                        "[loop guard] That command changes nothing and returns no new information, so it was skipped. Use a tool that can actually move the task forward."
+                    } else {
+                        "[loop guard] This exact call already ran twice without moving the task forward, so it was skipped. State what you are trying to achieve and why it isn't working, name the assumption that might be wrong, then try 2-3 fundamentally different approaches (a different tool, entry point, or interpretation) and proceed with one. If nothing can work with the available tools, say so plainly instead of retrying."
+                    };
+                    on_event(AgentEvent::ToolResult {
+                        call_id: call_id.clone(),
+                        ok: false,
+                        output: short_args(text),
+                    });
+                    history.push(ChatMessage {
+                        role: "tool".into(),
+                        content: Some(Value::String(text.to_string())),
+                        tool_calls: None,
+                        tool_call_id: Some(call_id),
+                    });
+                    continue;
+                }
+
+                // `spawn_subagent` runs inline; only its report enters history.
+                let output = if tool_name == "spawn_subagent" {
+                    match &self.subagents {
+                        None => "error: subagents are not available".to_string(),
+                        Some(sub) => {
+                            let seq = sub_seq;
+                            sub_seq += 1;
+                            match Box::pin(self
+                                .run_subagent(sub, seq, &args_value, gate.clone(), should_stop.clone(), &mut on_event))
+                                .await
+                            {
+                                Ok(report) => report,
+                                Err(e) => format!("error: {e:#}"),
+                            }
+                        }
+                    }
+                } else {
+                    let output = self.execute_tool_call(&tool_name, &args_value, args_pretty, &call_id, &gate, &mut on_event)
+                        .await;
+                    history.push(ChatMessage {
+                        role: "tool".into(),
+                        content: Some(Value::String(output)),
+                        tool_calls: None,
+                        tool_call_id: Some(call_id),
+                    });
+                    continue;
+                };
+
+                history.push(ChatMessage {
+                    role: "tool".into(),
+                    content: Some(Value::String(output)),
+                    tool_calls: None,
+                    tool_call_id: Some(call_id),
+                });
+            }
+            // Two consecutive fully-suppressed turns end the run gracefully.
+            if repeats.turn_end(suppressed_this_turn == n_calls) {
+                let elapsed = first_delta
+                    .map(|t| t.elapsed())
+                    .unwrap_or_else(|| turn_started.elapsed());
+                let tokens = usage_tokens.unwrap_or(deltas as u64) as usize;
+                let tokens_per_sec = if deltas > 0 {
+                    Some(tokens as f64 / elapsed.as_secs_f64().max(0.001))
+                } else {
+                    None
+                };
+                let stopped = "(stopped here: the last turns only repeated calls without progress)";
+                return Ok(AgentOutcome {
+                    text: if text_acc.trim().is_empty() {
+                        stopped.to_string()
+                    } else {
+                        format!("{text_acc}\n\n{stopped}")
+                    },
+                    gen_tokens: tokens,
+                    prompt_tokens: usage_prompt,
+                    tokens_per_sec: tokens_per_sec.filter(|v| *v > 0.0 && v.is_finite()),
+                    elapsed_ms: elapsed.as_millis() as u64,
+                    reasoning: std::mem::take(&mut reasoning_acc),
+                    compactions,
+                });
+            }
+            // Verify-before-acting nudge, gated by strictness mode.
+            if should_nudge(self.verify_mode, &turn_tools, verify_nudges) {
+                if let Some((shape, excerpt)) = trust_shape {
+                    verify_nudges += 1;
+                    let cap = max_verify_nudges(self.verify_mode);
+                    history.push(ChatMessage {
+                        role: "user".into(),
+                        content: Some(Value::String(format!(
+                            "Verify-before-acting nudge ({verify_nudges}/{cap} this run): \
+                            your message states a technical claim from memory ({shape}: \"{excerpt}\"). \
+                            If you have not verified it this session — one direct read or search when the \
+                            answer lives in this project, otherwise a single researcher subagent — do so \
+                            before acting on it. Skip this when the claim is trivial or already checked."
+                        ))),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    });
+                }
+            }
+        }
+    }
+
+    async fn execute_tool_call(
+        &self,
+        tool_name: &str,
+        args_value: &Value,
+        args_pretty: String,
+        call_id: &str,
+        gate: &Arc<dyn ApprovalGate>,
+        on_event: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> String {
+        let Some(tool) = self.registry.get(tool_name) else {
+            return format!("error: unknown tool '{tool_name}'");
+        };
+        // Recoverable arg shapes are fixed before approval and execution.
+        let mut args_value = args_value.clone();
+        let mut args_pretty = args_pretty;
+        {
+            let (repaired, kinds) =
+                crate::tools::repair_tool_args(&tool.parameters(), &args_value);
+            if !kinds.is_empty() {
+                args_value = repaired;
+                args_pretty =
+                    serde_json::to_string_pretty(&args_value).unwrap_or(args_pretty);
+                let kinds = kinds
+                    .iter()
+                    .map(|k| format!("{k:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                on_event(AgentEvent::Notice {
+                    text: format!("Repaired {tool_name} args ({kinds})."),
+                });
+            }
+        }
+        // `ask_user` parks on the gate; registries without it stay unknown.
+        if tool_name == "ask_user" {
+            return self.ask_user(&args_value, call_id, gate, on_event).await;
+        }
+        let project = self.project.as_deref();
+        let allowed = match tool.approval_key(&args_value) {
+            None => true,
+            Some(key) => {
+                // Scoped lock: the guard must not live across awaits below.
+                let decision = self.engine.lock().unwrap().check(&key, project);
+                match decision {
+                Decision::Allowed => true,
+                Decision::NeedsApproval => match gate
+                    .decide(ApprovalRequest {
+                        args_pretty: args_pretty.clone(),
+                        key: key.clone(),
+                    })
+                    .await
+                {
+                    Approved::Denied => false,
+                    scope => {
+                        let grants = {
+                            let mut engine = self.engine.lock().unwrap();
+                            engine.grant(
+                                &key.tool,
+                                key.command.as_deref(),
+                                match scope {
+                                    Approved::Once => Scope::Once,
+                                    Approved::Session => Scope::Session,
+                                    Approved::Project => Scope::Project,
+                                    Approved::Global => Scope::Global,
+                                    Approved::Denied => unreachable!(),
+                                },
+                                self.project.clone(),
+                            );
+                            engine.persistable()
+                        };
+                        // The callback may re-enter the engine (the app persists
+                        // grants to disk), so the lock must be dropped first.
+                        gate.grants_changed(&grants);
+                        self.engine.lock().unwrap().check(&key, project) == Decision::Allowed
+                    }
+                }
+            }
+            }
+        };
+        if !allowed {
+            on_event(AgentEvent::ToolResult {
+                call_id: call_id.to_string(),
+                ok: false,
+                output: "denied by user".into(),
+            });
+            return "denied by user".to_string();
+        }
+        // Tool results are text-only in M1 (multimodal lands with attachments).
+        match self
+            .registry
+            .spawn_execute(tool_name.to_string(), args_value)
+            .await
+        {
+            Ok(Ok(out)) => {
+                on_event(AgentEvent::ToolResult {
+                    call_id: call_id.to_string(),
+                    ok: true,
+                    output: short_args(&out),
+                });
+                out
+            }
+            Ok(Err(e)) => {
+                let msg = format!("error: {e:#}");
+                on_event(AgentEvent::ToolResult {
+                    call_id: call_id.to_string(),
+                    ok: false,
+                    output: short_args(&msg),
+                });
+                msg
+            }
+            Err(join) => {
+                let msg = format!("error: tool task failed: {join}");
+                on_event(AgentEvent::ToolResult {
+                    call_id: call_id.to_string(),
+                    ok: false,
+                    output: short_args(&msg),
+                });
+                msg
+            }
+        }
+    }
+
+    async fn ask_user(
+        &self,
+        args_value: &Value,
+        call_id: &str,
+        gate: &Arc<dyn ApprovalGate>,
+        on_event: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> String {
+        let question = args_value
+            .get("question")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let options: Vec<String> = args_value
+            .get("options")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .take(6)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let (text, ok) = if question.is_empty() {
+            ("error: ask_user needs a non-empty 'question'".to_string(), false)
+        } else if options.len() < 2 {
+            ("error: ask_user needs at least 2 non-empty 'options'".to_string(), false)
+        } else {
+            let ans = gate
+                .ask_question(QuestionRequest { question, options })
+                .await;
+            if ans.cancelled || ans.answer.trim().is_empty() {
+                ("The question was dismissed before the user answered — proceed with your best judgment.".to_string(), false)
+            } else {
+                (format!("User's answer: {}", ans.answer.trim()), true)
+            }
+        };
+        on_event(AgentEvent::ToolResult {
+            call_id: call_id.to_string(),
+            ok,
+            output: short_args(&text),
+        });
+        text
+    }
+
+    async fn run_subagent(
+        &self,
+        sub: &Subagents<'_>,
+        seq: usize,
+        args_value: &Value,
+        gate: Arc<dyn ApprovalGate>,
+        should_stop: Arc<dyn Fn() -> bool + Send + Sync>,
+        on_event: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> Result<String> {
+        let goal = args_value
+            .get("goal")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if goal.is_empty() {
+            bail!("spawn_subagent needs a non-empty 'goal'");
+        }
+        let kind = SubagentKind::parse(
+            args_value.get("agent_type").and_then(|v| v.as_str()).unwrap_or(""),
+        )?;
+        on_event(AgentEvent::SubagentSpawned {
+            call_id: format!("sub{seq}"),
+            kind: format!("{kind:?}").to_lowercase(),
+            goal: short_args(&goal),
+        });
+        let mut registry =
+            ToolRegistry::project_tools(sub.jail.clone()).without(&["spawn_subagent"]);
+        if !sub.exec_enabled {
+            registry = registry.without(&["exec"]);
+        }
+        let refs: Vec<&str> = kind.allowed_tools().to_vec();
+        let registry = Arc::new(registry.only(&refs));
+        let mut history = vec![
+            ChatMessage::system(kind.prompt()),
+            ChatMessage::user(goal.clone()),
+        ];
+        let run = AgentRun {
+            client: sub.client.unwrap_or(self.client),
+            registry,
+            engine: self.engine.clone(),
+            model: sub.model.clone().or_else(|| self.model.clone()),
+            project: self.project.clone(),
+            reasoning_effort: self.reasoning_effort.clone(),
+            max_turns: sub.max_turns,
+            subagents: None,
+            verify_mode: self.verify_mode,
+            context_limit: sub.context_limit.or(self.context_limit),
+            compactions_log: Arc::new(Mutex::new(Vec::new())),
+        };
+        let no_steer: Arc<dyn Fn() -> Vec<String> + Send + Sync> =
+            Arc::new(|| Vec::new());
+        let mut noop = |_ev: StreamEvent| {};
+        let mut nested = |ev: AgentEvent| {
+            // Subagent tool traffic is namespaced so the parent transcript
+            // can tell whose call each card belongs to.
+            let ev = match ev {
+                AgentEvent::ToolCall { call_id, tool, args } => AgentEvent::ToolCall {
+                    call_id: format!("sub:{call_id}"),
+                    tool,
+                    args,
+                },
+                AgentEvent::ToolResult { call_id, ok, output } => AgentEvent::ToolResult {
+                    call_id: format!("sub:{call_id}"),
+                    ok,
+                    output,
+                },
+                other => other,
+            };
+            on_event(ev);
+        };
+        let outcome = run
+            .run(&mut history, should_stop, gate, no_steer, &mut noop, &mut nested)
+            .await?;
+        let report = outcome.text;
+        const REPORT_CAP: usize = 16_000;
+        let mut report = if report.chars().count() > REPORT_CAP {
+            let n = report.chars().count();
+            let mut short: String = report.chars().take(REPORT_CAP).collect();
+            short.push_str(&format!("\n[…truncated — {} more characters]", n - REPORT_CAP));
+            short
+        } else {
+            report
+        };
+        report = format!("Subagent ({}) report:\n{}", format!("{kind:?}").to_lowercase(), report);
+        on_event(AgentEvent::SubagentFinished {
+            call_id: format!("sub{seq}"),
+            kind: format!("{kind:?}").to_lowercase(),
+            summary: short_args(&report),
+        });
+        Ok(report)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct DenyGate;
+    impl ApprovalGate for DenyGate {
+        fn decide(&self, _req: ApprovalRequest) -> Pin<Box<dyn Future<Output = Approved> + Send>> {
+            Box::pin(async { Approved::Denied })
+        }
+    }
+
+    struct AnswerGate {
+        answer: String,
+    }
+    impl ApprovalGate for AnswerGate {
+        fn decide(&self, _req: ApprovalRequest) -> Pin<Box<dyn Future<Output = Approved> + Send>> {
+            Box::pin(async { Approved::Denied })
+        }
+        fn ask_question(
+            &self,
+            _req: QuestionRequest,
+        ) -> Pin<Box<dyn Future<Output = QuestionAnswer> + Send>> {
+            let answer = self.answer.clone();
+            Box::pin(async { QuestionAnswer { answer, cancelled: false } })
+        }
+    }
+
+    fn test_run(jail: Arc<crate::sandbox::PathJail>) -> AgentRun<'static> {
+        // Leaked client never touches the network (read_file is local).
+        let client: &'static LlmClient = Box::leak(Box::new(LlmClient::new("http://127.0.0.1:9")));
+        AgentRun {
+            client,
+            registry: Arc::new(ToolRegistry::project_tools(jail)),
+            engine: Arc::new(Mutex::new(PermissionEngine::new())),
+            model: None,
+            project: Some("p".to_string()),
+            reasoning_effort: None,
+            max_turns: 5,
+            subagents: None,
+            verify_mode: VerifyMode::Normal,
+            context_limit: None,
+            compactions_log: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    struct ProbeGate {
+        engine: Arc<Mutex<PermissionEngine>>,
+        saw_unlocked: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl ApprovalGate for ProbeGate {
+        fn decide(&self, _req: ApprovalRequest) -> Pin<Box<dyn Future<Output = Approved> + Send>> {
+            Box::pin(async { Approved::Project })
+        }
+        fn grants_changed(&self, grants: &[crate::permissions::Grant]) {
+            if !grants.is_empty() {
+                self.saw_unlocked.store(
+                    self.engine.try_lock().is_ok(),
+                    std::sync::atomic::Ordering::SeqCst,
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn grants_callback_runs_without_the_engine_lock() {
+        let dir = std::env::temp_dir().join(format!("werk-grant-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let jail = Arc::new(crate::sandbox::PathJail::new(&dir, &[]).unwrap());
+        let engine = Arc::new(Mutex::new(PermissionEngine::new()));
+        let saw = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let gate: Arc<dyn ApprovalGate> = Arc::new(ProbeGate {
+            engine: engine.clone(),
+            saw_unlocked: saw.clone(),
+        });
+        let mut run = test_run(jail);
+        run.engine = engine;
+        let mut noop = |_ev: AgentEvent| {};
+        let out = run
+            .execute_tool_call(
+                "write_file",
+                &serde_json::json!({"path": "probe.txt", "content": "hi"}),
+                "{}".to_string(),
+                "c1",
+                &gate,
+                &mut noop,
+            )
+            .await;
+        assert!(out.starts_with("Wrote"), "write failed: {out}");
+        assert!(
+            saw.load(std::sync::atomic::Ordering::SeqCst),
+            "grants callback ran while the engine lock was held"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nudge_gate_follows_strictness_mode() {
+        let s = |t: &str| t.to_string();
+        assert!(!should_nudge(VerifyMode::Off, &[s("write_file")], 0));
+        assert!(should_nudge(VerifyMode::Normal, &[s("write_file")], 0));
+        assert!(should_nudge(VerifyMode::Normal, &[], 2));
+        assert!(!should_nudge(VerifyMode::Normal, &[s("write_file")], 3));
+        assert!(!should_nudge(VerifyMode::Normal, &[s("read_file")], 0));
+        assert!(!should_nudge(VerifyMode::Normal, &[s("spawn_subagent")], 0));
+        assert!(should_nudge(VerifyMode::Thorough, &[s("read_file")], 0));
+        assert!(should_nudge(VerifyMode::Thorough, &[s("write_file")], 5));
+        assert!(!should_nudge(VerifyMode::Thorough, &[s("write_file")], 6));
+        assert!(!should_nudge(VerifyMode::Thorough, &[s("spawn_subagent")], 0));
+        assert_eq!(max_verify_nudges(VerifyMode::Off), 0);
+        assert_eq!(max_verify_nudges(VerifyMode::Normal), 3);
+        assert_eq!(max_verify_nudges(VerifyMode::Thorough), 6);
+    }
+
+    #[test]
+    fn trust_shapes_match_claims_not_prose() {
+        let hit = [
+            ("The default is retries=10", "numeric default"),
+            ("pass --model qwen to the server", "flag"),
+            ("requires v8.0.1 or later", "version"),
+            ("works on Node 20 and up", "runtime version"),
+            ("fetch() has no timeout option", "universal negative"),
+            ("see sindresorhus/p-retry for details", "library reference"),
+        ];
+        for (text, shape) in hit {
+            let got = detect_trust_shape(text);
+            assert_eq!(got.map(|(s, _)| s), Some(shape.to_string()), "{text}");
+        }
+        for text in [
+            "I'll check the config on port 8080 first",
+            "status 200 means it worked",
+            "I always run the tests before committing",
+            "read src/main.rs for the entry point",
+            "use a -- b as a separator here",
+            "the 16:9 aspect looks fine",
+            "hello world, doing the thing now",
+        ] {
+            assert_eq!(detect_trust_shape(text), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn repeat_tracker_suppresses_third_identical_call() {
+        let mut t = RepeatTracker::new();
+        let key = ("read_file".to_string(), r#"{"path":"a"}"#.to_string());
+        let other = ("read_file".to_string(), r#"{"path":"b"}"#.to_string());
+        assert!(!t.suppress(&key));
+        assert!(!t.suppress(&other));
+        assert!(!t.suppress(&key));
+        assert!(t.suppress(&key));
+        for i in 0..8 {
+            let k = ("read_file".to_string(), format!("{{\"path\":\"{i}\"}}"));
+            assert!(!t.suppress(&k));
+        }
+        assert!(!t.suppress(&key), "evicted from window");
+    }
+
+    #[test]
+    fn repeat_tracker_exits_after_suppressed_streak() {
+        let mut t = RepeatTracker::new();
+        assert!(!t.turn_end(false));
+        assert!(!t.turn_end(true));
+        assert!(t.turn_end(true));
+        assert!(!t.turn_end(false));
+        assert!(!t.turn_end(true));
+    }
+
+    #[test]
+    fn ask_user_returns_gate_answer() {
+        let dir = std::env::temp_dir().join(format!("werk-ask-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let jail = Arc::new(crate::sandbox::PathJail::new(&dir, &[]).unwrap());
+        let gate: Arc<dyn ApprovalGate> = Arc::new(AnswerGate {
+            answer: "the second option".to_string(),
+        });
+        let args = serde_json::json!({"question": "Which way?", "options": ["first", "second"]});
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let run = test_run(jail);
+        let mut events = Vec::new();
+        let text = rt.block_on(async {
+            let mut push = |ev: AgentEvent| events.push(ev);
+            run.ask_user(&args, "q1", &gate, &mut push).await
+        });
+        assert!(text.contains("the second option"), "{text}");
+        assert!(
+            events.iter().any(|e| matches!(e, AgentEvent::ToolResult { call_id, ok: true, .. } if call_id == "q1")),
+            "{events:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ask_user_validates_question_and_options() {
+        let dir = std::env::temp_dir().join(format!("werk-ask-v-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let jail = Arc::new(crate::sandbox::PathJail::new(&dir, &[]).unwrap());
+        let gate: Arc<dyn ApprovalGate> = Arc::new(DenyGate);
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let run = test_run(jail);
+        for args in [
+            serde_json::json!({"question": "", "options": ["a", "b"]}),
+            serde_json::json!({"question": "Which?", "options": ["only"]}),
+            serde_json::json!({"question": "Which?"}),
+        ] {
+            let mut events = Vec::new();
+            let text = rt.block_on(async {
+                let mut push = |ev: AgentEvent| events.push(ev);
+                run.ask_user(&args, "q9", &gate, &mut push).await
+            });
+            assert!(text.starts_with("error: ask_user"), "{text}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

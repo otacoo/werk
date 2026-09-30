@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Frontend tests
+        run: npm test
+
+      - name: Rust tests
+        run: cargo test --workspace
+
+      - name: Regenerate bindings and fail if stale
+        run: |
+          cargo run -p export-bindings
+          git diff --exit-code -- src/bindings.ts
+
+  build:
+    needs: check
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            args: ""
+            rust_targets: ""
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+            rust_targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          - platform: windows-latest
+            args: ""
+            rust_targets: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf rpm
+
+      - run: npm ci
+
+      - name: Build
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: ${{ matrix.args }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && 'v__VERSION__' || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && 'Werk v__VERSION__' || '' }}
+          releaseDraft: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          prerelease: false
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v6
+        with:
+          name: bundles-${{ matrix.platform }}
+          if-no-files-found: warn
+          # Cargo is a workspace, so Tauri bundles land in the repo-root
+          # target/ dir; keep the src-tauri paths for older layouts.
+          path: |
+            target/release/bundle/**/*
+            target/universal-apple-darwin/release/bundle/**/*
+            src-tauri/target/release/bundle/**/*
+            src-tauri/target/universal-apple-darwin/release/bundle/**/*

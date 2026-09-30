@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <title>werk.</title>
+    <style>
+      html {
+        background: #141414;
+      }
+    </style>
+    <script>
+      // Paint the correct theme background before styles or the bundle load,
+      // so startup never flashes white. Mirrors utils/appearance.ts.
+      (function () {
+        try {
+          var theme = localStorage.getItem("werk.theme") || "system";
+          if (theme === "system") {
+            theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "day" : "night";
+          }
+          var backgrounds = { night: "#141414", day: "#f9fafb", werk: "#d9d0b4", gemma: "#eef4fc", migu: "#181c20" };
+          var root = document.documentElement;
+          root.style.backgroundColor = backgrounds[theme] || "#141414";
+          root.style.colorScheme = theme === "night" ? "dark" : "light";
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

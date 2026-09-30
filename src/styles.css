@@ -1,0 +1,391 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme tokens: night default; day and werk. override below. */
+:root {
+  color-scheme: dark;
+  --accent: 0 120 215;
+  --accent-ink: 255 255 255;
+  --accent-soft: 76 163 232;
+  --border: 255 255 255 / 0.08;
+  --ink: 229 231 235;
+  --dim: 156 163 175;
+  --faint: 107 114 128;
+  --surface-0: 20 20 20;
+  --surface-1: 28 28 28;
+  --surface-2: 36 36 36;
+  --surface-3: 44 44 44;
+  --radius: 0px;
+  --scrollbar-thumb: 85 85 95;
+  --scrollbar-thumb-hover: 115 115 130;
+}
+
+[data-theme="day"] {
+  color-scheme: light;
+  --border: 0 0 0 / 0.12;
+  --ink: 17 24 39;
+  --dim: 75 85 99;
+  --faint: 156 163 175;
+  --surface-0: 249 250 251;
+  --surface-1: 255 255 255;
+  --surface-2: 243 244 246;
+  --surface-3: 229 231 235;
+  --scrollbar-thumb: 168 162 158;
+  --scrollbar-thumb-hover: 120 113 108;
+}
+
+[data-theme="werk"] {
+  color-scheme: light;
+  --accent: 95 127 60;
+  --accent-soft: 74 107 45;
+  --accent-ink: 240 235 218;
+  --border: 102 107 94 / 0.35;
+  --ink: 45 42 33;
+  --dim: 102 96 79;
+  --faint: 135 128 108;
+  --surface-0: 217 208 180;
+  --surface-1: 229 221 198;
+  --surface-2: 211 202 174;
+  --surface-3: 200 190 161;
+  --scrollbar-thumb: 168 160 133;
+  --scrollbar-thumb-hover: 125 118 96;
+}
+
+/* Gemma: sky blue, white surfaces, starlight gold highlights. */
+[data-theme="gemma"] {
+  color-scheme: light;
+  --accent: 47 143 216;
+  --accent-soft: 31 112 175;
+  --accent-ink: 255 255 255;
+  --border: 31 47 79 / 0.18;
+  --ink: 22 35 61;
+  --dim: 74 91 124;
+  --faint: 138 150 175;
+  --surface-0: 238 244 252;
+  --surface-1: 255 255 255;
+  --surface-2: 228 238 250;
+  --surface-3: 208 224 244;
+  --scrollbar-thumb: 150 170 200;
+  --scrollbar-thumb-hover: 110 135 175;
+}
+
+/* Migu: graphite and silver with teal and neon-pink highlights. */
+[data-theme="migu"] {
+  color-scheme: dark;
+  --accent: 57 197 187;
+  --accent-soft: 244 114 182;
+  --accent-ink: 12 26 26;
+  --border: 200 214 222 / 0.16;
+  --ink: 227 234 238;
+  --dim: 158 172 181;
+  --faint: 111 125 135;
+  --surface-0: 24 28 32;
+  --surface-1: 31 36 41;
+  --surface-2: 39 45 51;
+  --surface-3: 49 56 63;
+  --scrollbar-thumb: 92 103 112;
+  --scrollbar-thumb-hover: 124 137 147;
+}
+
+[data-corners="round"] {
+  --radius: 10px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: rgb(var(--surface-0));
+  color: rgb(var(--ink));
+}
+
+/* Placeholders must read as hints, never as typed values. */
+input::placeholder,
+textarea::placeholder {
+  color: rgb(var(--faint));
+  opacity: 0.65;
+}
+
+/* Thin rounded scrollbars everywhere (Firefox + WebKit). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--scrollbar-thumb)) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgb(var(--scrollbar-thumb));
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--scrollbar-thumb-hover));
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@layer components {
+  .card {
+    @apply rounded border border-border bg-surface-1 p-4;
+  }
+  /* Branded werk theme: sand surfaces, olive highlights, soft brown shadow. */
+  [data-theme="werk"] .card {
+    box-shadow: 0 2px 5px rgb(125 107 87 / 0.3);
+  }
+  /* Gemma: white cards over pale sky, soft azure shadow. */
+  [data-theme="gemma"] .card {
+    box-shadow: 0 2px 6px rgb(47 84 130 / 0.16);
+  }
+  /* Migu: graphite cards, deep neutral shadow. */
+  [data-theme="migu"] .card {
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.45);
+  }
+  /* Native number spinners: warm them to the sand ink instead of OS gray. */
+  [data-theme="werk"] input[type="number"]::-webkit-inner-spin-button,
+  [data-theme="werk"] input[type="number"]::-webkit-outer-spin-button {
+    opacity: 1;
+    filter: sepia(0.5) brightness(0.55);
+  }
+  .section-title {
+    @apply text-sm font-semibold text-ink mb-0;
+  }
+  .section-desc {
+    @apply text-xs text-dim leading-snug;
+  }
+  .label {
+    @apply text-xs text-dim;
+  }
+  .input {
+    @apply rounded border border-border bg-surface-2 text-ink text-sm py-1.5 px-2 outline-none focus:border-accent disabled:opacity-50;
+  }
+  select.input option {
+    @apply bg-surface-2;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded bg-accent text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed;
+    color: rgb(var(--accent-ink));
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded border border-border bg-surface-2 text-ink text-sm hover:bg-surface-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 px-2 py-1 rounded text-dim text-xs hover:text-ink hover:bg-accent/10 transition-colors disabled:opacity-50;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded bg-accent-red text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50;
+  }
+  .badge-green {
+    @apply inline-flex items-center rounded px-1.5 py-px font-medium bg-accent-green/15 text-accent-green;
+  }
+  .badge-yellow {
+    @apply inline-flex items-center rounded px-1.5 py-px font-medium bg-accent-yellow/15 text-accent-yellow;
+  }
+  .badge-blue {
+    @apply inline-flex items-center rounded px-1.5 py-px font-medium bg-accent-blue/15 text-accent-blue;
+  }
+  .badge-cyan {
+    @apply inline-flex items-center rounded px-1.5 py-px font-medium bg-accent-cyan/15 text-accent-cyan;
+  }
+  .badge-orange {
+    @apply inline-flex items-center rounded px-1.5 py-px font-medium bg-accent-orange/15 text-accent-orange;
+  }
+  .badge-red {
+    @apply inline-flex items-center rounded px-1.5 py-px font-medium bg-accent-red/15 text-accent-red;
+  }
+  .badge-red-dark {
+    @apply inline-flex items-center rounded px-1.5 py-px font-medium bg-accent-red-dark/15 text-accent-red-dark;
+  }
+  .badge-purple {
+    @apply inline-flex items-center rounded px-1.5 py-px font-medium bg-violet-500/20 text-violet-300;
+  }
+  .badge-gray {
+    @apply inline-flex items-center rounded px-1.5 py-px font-medium bg-surface-3 text-dim;
+  }
+
+  /* ── Markdown rendering (assistant chat messages) ── */
+  .md {
+    @apply text-sm leading-relaxed;
+  }
+  .md > :first-child {
+    @apply mt-0;
+  }
+  .md > :last-child {
+    @apply mb-0;
+  }
+  .md p {
+    @apply my-2;
+  }
+  .md h1, .md h2, .md h3, .md h4 {
+    @apply font-semibold text-ink my-3;
+  }
+  .md h1 { @apply text-base; }
+  .md h2, .md h3, .md h4 { @apply text-sm; }
+  .md ul {
+    @apply list-disc my-2 ml-5 space-y-0.5;
+  }
+  .md ol {
+    @apply list-decimal my-2 ml-5 space-y-0.5;
+  }
+  .md pre {
+    @apply bg-surface-0 border border-border rounded p-2 my-2 overflow-x-auto select-text;
+  }
+  .md code {
+    @apply font-mono text-[0.75rem];
+  }
+  .md :not(pre) > code {
+    @apply bg-surface-3 rounded px-1 py-0.5;
+  }
+  .md blockquote {
+    @apply border-l-2 border-border pl-3 my-2 text-dim;
+  }
+  .md table {
+    @apply my-2 border-collapse select-text;
+  }
+  .md th, .md td {
+    @apply border border-border px-2 py-1 text-xs;
+  }
+  .md th {
+    @apply bg-surface-3 text-left font-medium;
+  }
+  .md img {
+    @apply rounded my-2 max-w-full;
+  }
+  .md hr {
+    @apply border-border my-3;
+  }
+  .md a {
+    @apply text-accent-soft underline;
+  }
+
+}
+
+/* ── Syntax highlighting (rehype-highlight) ──
+   Outside @layer components: token classes are produced at runtime, so
+   Tailwind would purge them as unused. */
+.hljs-comment, .hljs-quote {
+    color: #6b7280;
+    font-style: italic;
+  }
+  .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link,
+  .hljs-doctag, .hljs-meta .hljs-keyword {
+    color: #c586c0;
+  }
+  .hljs-string, .hljs-regexp, .hljs-template-tag, .hljs-template-variable,
+  .hljs-meta .hljs-string {
+    color: #ce9178;
+  }
+  .hljs-number, .hljs-symbol, .hljs-bullet, .hljs-meta, .hljs-selector-attr,
+  .hljs-selector-pseudo {
+    color: #b5cea8;
+  }
+  .hljs-title, .hljs-title.function_, .hljs-name, .hljs-built_in,
+  .hljs-builtin-name, .hljs-variable.language_ {
+    color: #dcdcaa;
+  }
+  .hljs-type, .hljs-class .hljs-title, .hljs-title.class_, .hljs-selector-class,
+  .hljs-selector-id, .hljs-subst, .hljs-formula {
+    color: #4ec9b0;
+  }
+  .hljs-variable, .hljs-params, .hljs-property, .hljs-attr, .hljs-attribute {
+    color: #9cdcfe;
+  }
+  .hljs-tag {
+    color: #569cd6;
+  }
+  .hljs-emphasis {
+    font-style: italic;
+  }
+  .hljs-strong {
+    font-weight: 600;
+  }
+  .hljs-addition {
+    color: #b5cea8;
+  }
+  .hljs-deletion {
+    color: #f48771;
+  }
+
+  /* Light themes use a GitHub-style palette on their light code surface. */
+  [data-theme="day"] .hljs-comment, [data-theme="day"] .hljs-quote,
+  [data-theme="werk"] .hljs-comment, [data-theme="werk"] .hljs-quote,
+  [data-theme="gemma"] .hljs-comment, [data-theme="gemma"] .hljs-quote {
+    color: #6a737d;
+  }
+  [data-theme="day"] .hljs-keyword, [data-theme="day"] .hljs-selector-tag,
+  [data-theme="day"] .hljs-literal, [data-theme="day"] .hljs-section,
+  [data-theme="day"] .hljs-link, [data-theme="day"] .hljs-doctag,
+  [data-theme="werk"] .hljs-keyword, [data-theme="werk"] .hljs-selector-tag,
+  [data-theme="werk"] .hljs-literal, [data-theme="werk"] .hljs-section,
+  [data-theme="werk"] .hljs-link, [data-theme="werk"] .hljs-doctag,
+  [data-theme="gemma"] .hljs-keyword, [data-theme="gemma"] .hljs-selector-tag,
+  [data-theme="gemma"] .hljs-literal, [data-theme="gemma"] .hljs-section,
+  [data-theme="gemma"] .hljs-link, [data-theme="gemma"] .hljs-doctag {
+    color: #d73a49;
+  }
+  [data-theme="day"] .hljs-string, [data-theme="day"] .hljs-regexp,
+  [data-theme="day"] .hljs-template-tag, [data-theme="day"] .hljs-template-variable,
+  [data-theme="werk"] .hljs-string, [data-theme="werk"] .hljs-regexp,
+  [data-theme="werk"] .hljs-template-tag, [data-theme="werk"] .hljs-template-variable,
+  [data-theme="gemma"] .hljs-string, [data-theme="gemma"] .hljs-regexp,
+  [data-theme="gemma"] .hljs-template-tag, [data-theme="gemma"] .hljs-template-variable {
+    color: #032f62;
+  }
+  [data-theme="day"] .hljs-number, [data-theme="day"] .hljs-symbol,
+  [data-theme="day"] .hljs-bullet, [data-theme="day"] .hljs-meta,
+  [data-theme="werk"] .hljs-number, [data-theme="werk"] .hljs-symbol,
+  [data-theme="werk"] .hljs-bullet, [data-theme="werk"] .hljs-meta,
+  [data-theme="gemma"] .hljs-number, [data-theme="gemma"] .hljs-symbol,
+  [data-theme="gemma"] .hljs-bullet, [data-theme="gemma"] .hljs-meta {
+    color: #005cc5;
+  }
+  [data-theme="day"] .hljs-title, [data-theme="day"] .hljs-title.function_,
+  [data-theme="day"] .hljs-name, [data-theme="day"] .hljs-built_in,
+  [data-theme="day"] .hljs-builtin-name,
+  [data-theme="werk"] .hljs-title, [data-theme="werk"] .hljs-title.function_,
+  [data-theme="werk"] .hljs-name, [data-theme="werk"] .hljs-built_in,
+  [data-theme="werk"] .hljs-builtin-name,
+  [data-theme="gemma"] .hljs-title, [data-theme="gemma"] .hljs-title.function_,
+  [data-theme="gemma"] .hljs-name, [data-theme="gemma"] .hljs-built_in,
+  [data-theme="gemma"] .hljs-builtin-name {
+    color: #6f42c1;
+  }
+  [data-theme="day"] .hljs-type, [data-theme="day"] .hljs-class .hljs-title,
+  [data-theme="day"] .hljs-title.class_, [data-theme="day"] .hljs-selector-class,
+  [data-theme="day"] .hljs-selector-id, [data-theme="day"] .hljs-subst,
+  [data-theme="werk"] .hljs-type, [data-theme="werk"] .hljs-class .hljs-title,
+  [data-theme="werk"] .hljs-title.class_, [data-theme="werk"] .hljs-selector-class,
+  [data-theme="werk"] .hljs-selector-id, [data-theme="werk"] .hljs-subst,
+  [data-theme="gemma"] .hljs-type, [data-theme="gemma"] .hljs-class .hljs-title,
+  [data-theme="gemma"] .hljs-title.class_, [data-theme="gemma"] .hljs-selector-class,
+  [data-theme="gemma"] .hljs-selector-id, [data-theme="gemma"] .hljs-subst {
+    color: #005cc5;
+  }
+  [data-theme="day"] .hljs-variable, [data-theme="day"] .hljs-params,
+  [data-theme="day"] .hljs-property, [data-theme="day"] .hljs-attr,
+  [data-theme="day"] .hljs-attribute,
+  [data-theme="werk"] .hljs-variable, [data-theme="werk"] .hljs-params,
+  [data-theme="werk"] .hljs-property, [data-theme="werk"] .hljs-attr,
+  [data-theme="werk"] .hljs-attribute,
+  [data-theme="gemma"] .hljs-variable, [data-theme="gemma"] .hljs-params,
+  [data-theme="gemma"] .hljs-property, [data-theme="gemma"] .hljs-attr,
+  [data-theme="gemma"] .hljs-attribute {
+    color: #e36209;
+  }
+  [data-theme="day"] .hljs-tag, [data-theme="werk"] .hljs-tag, [data-theme="gemma"] .hljs-tag {
+    color: #22863a;
+  }
+  [data-theme="day"] .hljs-addition, [data-theme="werk"] .hljs-addition, [data-theme="gemma"] .hljs-addition {
+    color: #22863a;
+  }
+  [data-theme="day"] .hljs-deletion, [data-theme="werk"] .hljs-deletion, [data-theme="gemma"] .hljs-deletion {
+    color: #b31d28;
+  }

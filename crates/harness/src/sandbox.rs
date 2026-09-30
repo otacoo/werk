@@ -1,0 +1,232 @@
+//! Project jail: every tool path resolves under one root.
+//! Approvals gate whether a tool runs; the jail owns where it may reach.
+
+use std::path::{Component, Path, PathBuf};
+
+use anyhow::{bail, Result};
+
+/// Sandboxed root plus extra read-only roots (never writable).
+#[derive(Debug, Clone)]
+pub struct PathJail {
+    root: PathBuf,
+    extra_read: Vec<PathBuf>,
+}
+
+impl PathJail {
+    pub fn new(root: &Path, extra_read: &[PathBuf]) -> Result<Self> {
+        let root = strip_verbatim(root.canonicalize().map_err(|e| {
+            anyhow::anyhow!("Project root {} unreadable: {e}", root.display())
+        })?);
+        if !root.is_dir() {
+            bail!("Project root {} is not a directory", root.display());
+        }
+        Ok(Self {
+            root,
+            extra_read: extra_read.iter().map(|p| strip_verbatim(p.clone())).collect(),
+        })
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Lexical join: `..` above the root is an error, never an escape.
+    fn join(&self, rel: &str) -> Result<PathBuf> {
+        let mut out = self.root.clone();
+        for comp in Path::new(rel).components() {
+            match comp {
+                Component::Prefix(_) | Component::RootDir => {
+                    bail!("Absolute paths are not allowed: {rel}")
+                }
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if !out.pop() || out != self.root && !out.starts_with(&self.root) {
+                        bail!("Path escapes the project: {rel}")
+                    }
+                }
+                Component::Normal(part) => out.push(part),
+            }
+        }
+        if out != self.root && !out.starts_with(&self.root) {
+            bail!("Path escapes the project: {rel}")
+        }
+        Ok(out)
+    }
+
+    pub fn check_read(&self, rel: &str) -> Result<PathBuf> {
+        if rel.trim().is_empty() {
+            bail!("Path must not be empty");
+        }
+        // Absolute paths are accepted inside the root (or an extra root here).
+        let p = Path::new(rel);
+        if p.is_absolute() {
+            return self.absolute(p, false);
+        }
+        self.join(rel)
+    }
+
+    pub fn check_write(&self, rel: &str) -> Result<PathBuf> {
+        let raw = Path::new(rel);
+        let p = if raw.is_absolute() {
+            self.absolute(raw, true)?
+        } else {
+            self.join(rel)?
+        };
+        if self.extra_read.iter().any(|r| under(r, &p)) {
+            bail!("Path is read-only: {rel}");
+        }
+        Ok(p)
+    }
+
+    /// Absolute input: allowed when it lands inside the root (writes) or an
+    /// extra root (reads only). Lexically cleaned; `..` may not climb out.
+    fn absolute(&self, path: &Path, writable: bool) -> Result<PathBuf> {
+        let clean = strip_verbatim(clean_absolute(path)?);
+        if under(&self.root, &clean) {
+            return Ok(clean);
+        }
+        if !writable && self.extra_read.iter().any(|r| under(r, &clean)) {
+            return Ok(clean);
+        }
+        bail!("Path is outside the project: {}", path.display())
+    }
+}
+
+/// Drop the Windows verbatim prefix `\\?\` that `canonicalize` adds, so jail
+/// paths compare (and render) like the ones the model writes.
+fn strip_verbatim(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let text = path.as_os_str().to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path
+}
+
+/// True when `path` is `root` or below it; component-wise, case-insensitive
+/// on Windows so `e:\TEST\x` matches `E:\test`.
+fn under(root: &Path, path: &Path) -> bool {
+    let mut root = root.components();
+    let mut path = path.components();
+    loop {
+        match (root.next(), path.next()) {
+            (None, _) => return true,
+            (Some(_), None) => return false,
+            (Some(a), Some(b)) => {
+                #[cfg(windows)]
+                let equal = a
+                    .as_os_str()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&b.as_os_str().to_string_lossy());
+                #[cfg(not(windows))]
+                let equal = a == b;
+                if !equal {
+                    return false;
+                }
+            }
+        }
+    }
+}
+
+/// Lexically normalize an absolute path without touching the filesystem.
+fn clean_absolute(path: &Path) -> Result<PathBuf> {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => out.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    bail!("Path escapes its root: {}", path.display());
+                }
+            }
+            Component::Normal(part) => out.push(part),
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn jail(label: &str) -> (PathBuf, PathBuf, PathJail) {
+        let dir = std::env::temp_dir().join(format!("werk-jail-{label}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        // Canonicalized and de-verbatimed, matching what the jail stores.
+        let canon = strip_verbatim(dir.canonicalize().unwrap());
+        let jail = PathJail::new(&dir, &[]).unwrap();
+        (dir, canon, jail)
+    }
+
+    #[test]
+    fn read_write_resolve_inside_root() {
+        let (dir, canon, jail) = jail("rw");
+        assert_eq!(jail.check_read("sub").unwrap(), canon.join("sub"));
+        assert_eq!(jail.check_write("new.txt").unwrap(), canon.join("new.txt"));
+        assert_eq!(jail.check_read("sub/../new.txt").unwrap(), canon.join("new.txt"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn escapes_rejected() {
+        let (dir, _, jail) = jail("esc");
+        assert!(jail.check_read("../evil").is_err());
+        assert!(jail.check_read("sub/../../evil").is_err());
+        assert!(jail.check_write("../evil").is_err());
+        assert!(jail.check_read("/abs/path").is_err());
+        assert!(jail.check_read("").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn absolute_paths_inside_root_are_accepted() {
+        let (dir, canon, jail) = jail("abs");
+        let target = canon.join("sub").join("a.txt");
+        let raw = target.to_string_lossy().to_string();
+        assert_eq!(jail.check_write(&raw).unwrap(), target);
+        assert_eq!(jail.check_read(&raw).unwrap(), target);
+        // The plain (non-canonicalized) spelling a model would send works too.
+        let plain = dir.join("plain.txt").to_string_lossy().to_string();
+        assert!(jail.check_write(&plain).is_ok(), "{plain}");
+        // `..` that still lands inside the root is fine.
+        let inside = canon.join("sub").join("..").join("b.txt");
+        assert_eq!(
+            jail.check_write(&inside.to_string_lossy()).unwrap(),
+            canon.join("b.txt")
+        );
+        // Outside the root stays rejected.
+        let outside = std::env::temp_dir().join("werk-jail-outside.txt");
+        assert!(jail.check_write(&outside.to_string_lossy()).is_err());
+        assert!(jail.check_read(&outside.to_string_lossy()).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn absolute_paths_ignore_case_on_windows() {
+        let (dir, canon, jail) = jail("case");
+        let shouty = format!("{}\\SUB\\A.TXT", canon.to_string_lossy().to_uppercase());
+        assert!(jail.check_write(&shouty).is_ok(), "{shouty}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn extra_roots_readable_never_writable() {
+        let (dir, _, _) = jail("ro");
+        let ro = std::env::temp_dir().join(format!("werk-jail-rox-{}", std::process::id()));
+        std::fs::create_dir_all(&ro).unwrap();
+        let jail = PathJail::new(&dir, &[ro.clone()]).unwrap();
+        let abs = ro.join("f.txt").to_string_lossy().to_string();
+        assert_eq!(jail.check_read(&abs).unwrap(), ro.join("f.txt"));
+        assert!(jail.check_write(&abs).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&ro);
+    }
+}

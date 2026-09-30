@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Werk",
+  "version": "0.3.3",
+  "identifier": "dev.werk.launcher",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev:vite",
+    "beforeBuildCommand": "npm run build:vite"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "werk.",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false,
+        "shadow": false,
+        "visible": false,
+        "backgroundColor": "#141414"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' http://127.0.0.1:* http://localhost:*; style-src 'self' 'unsafe-inline' http://127.0.0.1:* http://localhost:*; connect-src 'self' https://api.github.com https://huggingface.co https://*.huggingface.co ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; frame-src http://localhost:* http://127.0.0.1:*; img-src 'self' data: blob: https: http://127.0.0.1:* http://localhost:*; font-src 'self' https://fonts.gstatic.com http://127.0.0.1:* http://localhost:*"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "llama.cpp launcher with an agentic chat harness"
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": ["https://github.com/otacoo/Werk/releases/latest/download/latest.json"],
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkxMzdBQ0ZDOUYxMEMwNTUKUldSVndCQ2YvS3cza2YxZzJCcmN5RkpHTFNpRU12OElCQXQwU3dyazJVZFJYNWZ5ajM1TDZNZWMK"
+    }
+  }
+}
