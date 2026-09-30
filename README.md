@@ -15,12 +15,12 @@
 ---
 
 <p align="center">
-  <img src="assets/screenshots/scr_dashboard.png" width="250"/>
-  <img src="assets/screenshots/scr_mode.png" width="250"/>
+  <img src="assets/screenshots/werk_dashboard.png" width="250"/>
+  <img src="assets/screenshots/werk_mode.png" width="250"/>
 </p>
 <p align="center">
-  <img src="assets/screenshots/scr_chat.png" width="250"/>
-  <img src="assets/screenshots/scr_settings.png" width="250"/>
+  <img src="assets/screenshots/werk_chat.png" width="250"/>
+  <img src="assets/screenshots/werk_settings.png" width="250"/>
 </p>
 
 ## Goals
