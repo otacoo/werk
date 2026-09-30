@@ -6,7 +6,9 @@
 
 - System prompt presets in Settings → Agent: quick-swap buttons (Default,
   then up to five named presets, plus a `+` to add one from the current
-  prompt). Double-click a preset to rename it, shift-click to delete it.
+  prompt). Clicking a preset activates it immediately and the status line
+  names it; Save updates the active preset (or the custom override).
+  Double-click a preset to rename it, shift-click to delete it.
 
 ### Changed
 

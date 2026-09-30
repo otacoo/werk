@@ -94,7 +94,6 @@ function SystemPromptCard({ appConfig, setAppConfig }: {
 }) {
   const [promptDraft, setPromptDraft] = useState<string | null>(null);
   const [builtInPrompt, setBuiltInPrompt] = useState("");
-  const [activePreset, setActivePreset] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ name: string; value: string } | null>(null);
 
   useEffect(() => {
@@ -107,29 +106,42 @@ function SystemPromptCard({ appConfig, setAppConfig }: {
   const promptDirty = promptDraft !== null && promptDraft.trim() !== shownBase.trim();
   const presets = appConfig?.system_prompt_presets ?? [];
 
+  // The active preset follows the stored prompt: the default, a preset whose
+  // prompt matches, or a custom override (null).
+  const activePreset = (() => {
+    if (storedPrompt === "") return "default";
+    const hit = presets.find((p) => p.prompt.trim() === storedPrompt.trim());
+    return hit ? hit.name : null;
+  })();
+
   const savePresets = (next: SystemPromptPreset[]) => {
     setAppConfig((c) => (c ? { ...c, system_prompt_presets: next } : c));
     call(commands.setSystemPromptPresets(next)).catch(() => {});
+  };
+
+  // Clicking a preset activates it right away; Save only stores edits.
+  const activate = (prompt: string) => {
+    setPromptDraft(null);
+    setAppConfig((c) => (c ? { ...c, harness_system_prompt: prompt.trim() || null } : c));
+    call(commands.setSystemPrompt(prompt)).catch(() => {});
   };
 
   const addPreset = () => {
     if (presets.length >= 5) return;
     const name = `Preset ${presets.length + 1}`;
     const prompt = (promptDraft ?? shownBase).trim();
-    setActivePreset(name);
     savePresets([...presets, { name, prompt }]);
+    activate(prompt);
   };
 
   const renamePreset = (oldName: string, newName: string) => {
     const trimmed = newName.trim();
     if (!trimmed || trimmed === oldName) return;
     savePresets(presets.map((p) => (p.name === oldName ? { ...p, name: trimmed } : p)));
-    if (activePreset === oldName) setActivePreset(trimmed);
   };
 
   const deletePreset = (name: string) => {
     savePresets(presets.filter((p) => p.name !== name));
-    if (activePreset === name) setActivePreset(null);
   };
 
   const presetButton = (p: SystemPromptPreset) => (
@@ -143,11 +155,10 @@ function SystemPromptCard({ appConfig, setAppConfig }: {
           deletePreset(p.name);
           return;
         }
-        setPromptDraft(p.prompt);
-        setActivePreset(p.name);
+        activate(p.prompt);
       }}
       onDoubleClick={() => setRenaming({ name: p.name, value: p.name })}
-      title={`${p.name} — double-click to rename, shift-click to delete`}
+      title={`${p.name} — click to activate, double-click to rename, shift-click to delete`}
     >
       {p.name}
     </button>
@@ -157,18 +168,20 @@ function SystemPromptCard({ appConfig, setAppConfig }: {
     <div className="card">
       <h2 className="section-title mb-1">System prompt</h2>
       <p className="section-desc">
-        Showing the built-in default — edit to override. Clearing and saving restores it.
+        Werk ships a built-in system prompt that is updated dynamically for your OS, mode, and the
+        tools available; the project directory and saved memory are appended to custom prompts and
+        presets as well.
+        <br />
+        Click a preset to activate it; edit and Save to update it. Clearing and saving restores the
+        built-in default.
       </p>
       <div className="flex flex-wrap items-center gap-1.5 mt-3">
         <button
           className={`px-2.5 py-1 text-xs rounded transition-colors ${
             activePreset === "default" ? "bg-accent/20 text-ink" : "text-dim hover:text-ink hover:bg-accent/10"
           }`}
-          onClick={() => {
-            setPromptDraft(builtInPrompt);
-            setActivePreset("default");
-          }}
-          title="Load the built-in default prompt"
+          onClick={() => activate("")}
+          title="Use the built-in default prompt"
         >
           Default
         </button>
@@ -213,23 +226,28 @@ function SystemPromptCard({ appConfig, setAppConfig }: {
         <button
           className="btn-primary text-xs"
           disabled={!promptDirty}
-          onClick={async () => {
+          onClick={() => {
             const v = (promptDraft ?? "").trim();
+            if (activePreset && activePreset !== "default") {
+              // Update the active preset in place and keep it active.
+              savePresets(presets.map((p) => (p.name === activePreset ? { ...p, prompt: v } : p)));
+              activate(v);
+              return;
+            }
             const next = v === "" || v === builtInPrompt.trim() ? "" : v;
-            setAppConfig((c) => (c ? { ...c, harness_system_prompt: next || null } : c));
-            try {
-              await call(commands.setSystemPrompt(next));
-            } catch {}
-            setPromptDraft(null);
+            activate(next);
           }}
         >
           Save
         </button>
-        {storedPrompt !== "" && (
+        {activePreset === "default" && !promptDirty && (
+          <span className="text-[0.6875rem] text-faint">Using built-in default</span>
+        )}
+        {activePreset === null && (
           <span className="text-[0.6875rem] text-dim">Custom prompt active</span>
         )}
-        {storedPrompt === "" && !promptDirty && (
-          <span className="text-[0.6875rem] text-faint">Using built-in default</span>
+        {activePreset && activePreset !== "default" && (
+          <span className="text-[0.6875rem] text-dim">Prompt "{activePreset}" active</span>
         )}
       </div>
     </div>
