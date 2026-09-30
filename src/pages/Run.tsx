@@ -3,23 +3,16 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   Brain,
-  Check,
   Cloud,
-  Copy,
   Eye,
   FileCode,
   FolderOpen,
   MessageSquare,
-  Pin,
   Plus,
   Projector,
   Rabbit,
-  RotateCcw,
-  Save,
   Search,
-  Trash2,
   X,
-  Zap,
 } from "lucide-react";
 import { commands } from "../bindings";
 import type {
@@ -35,7 +28,12 @@ import { call } from "../utils/ipc";
 import { formatSize } from "../utils/format";
 import { subscribeConfigChanged } from "../utils/appSettings";
 import { subscribeServerStatus } from "../utils/serverStatus";
-import MemoryVisualizer from "../components/MemoryVisualizer";
+import { CommandCard, EstimateCard, LogCard } from "./run/cards";
+import { DEFAULT_PRESET } from "./run/labels";
+import { Field, Group, SliderField, statusDot } from "./run/fields";
+import { indexSettings, type SettingMatch, type LaunchTab } from "./run/settings-search";
+import { DEFAULT_EXTRA_ROWS, mergeExtra, splitExtra, type ExtraRow } from "./run/extra";
+import { PresetCard } from "./run/preset-card";
 import Toggle from "../components/Toggle";
 import type { Tab } from "../App";
 
@@ -67,19 +65,12 @@ export const DEFAULT_CONFIG: ServerConfig = {
   extra_params: {},
 };
 
-export const DEFAULT_PRESET = "__default__";
-
-/// Friendly label for the built-in default preset.
-export const presetLabel = (name: string) =>
-  name === DEFAULT_PRESET ? "Default preset" : name;
 
 /// Built-in tuning used until the user saves anything: llama.cpp's own
 /// defaults plus log verbosity 3; 0 batch sizes mean "let the server decide".
-const DEFAULT_EXTRA_ROWS: ExtraRow[] = [{ key: "verbosity", value: "3" }];
 
 const CACHE_TYPES = ["f16", "bf16", "f32", "q8_0", "q5_1", "q5_0", "q4_1", "q4_0", "iq4_nl"];
 
-type LaunchTab = "context" | "hardware" | "sampling" | "network" | "chat" | "extra";
 
 const LAUNCH_TABS: { id: LaunchTab; label: string }[] = [
   { id: "context", label: "Context" },
@@ -90,138 +81,8 @@ const LAUNCH_TABS: { id: LaunchTab; label: string }[] = [
   { id: "extra", label: "Extra" },
 ];
 
-function statusDot(status: ServerStatus | null): string {
-  if (status?.type === "running") {
-    return status.ready ? "bg-accent-green" : "bg-accent-yellow animate-pulse";
-  }
-  if (status?.type === "starting") return "bg-accent-yellow animate-pulse";
-  if (status?.type === "error") return "bg-accent-red";
-  return "bg-surface-3";
-}
 
-function Field({ label, flag, hint, children }: {
-  label: string;
-  flag?: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="label flex flex-col gap-1 min-w-0">
-      <span className="flex items-baseline gap-1.5 min-w-0">
-        <span title={hint}>{label}</span>
-        {flag && <span className="font-mono text-[0.625rem] text-faint">{flag}</span>}
-      </span>
-      {children}
-    </label>
-  );
-}
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="mt-4 first:mt-0">
-      <p className="text-[0.8125rem] font-bold uppercase tracking-wider text-ink mb-3">{title}</p>
-      {children}
-    </div>
-  );
-}
-
-function SliderField({ label, flag, hint, min, max, step, value, disabled, format, onChange }: {
-  label: string;
-  flag?: string;
-  hint?: string;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-  disabled?: boolean;
-  format?: (v: number) => string;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <Field label={label} flag={flag} hint={hint}>
-      <div className="flex items-center gap-2">
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          disabled={disabled}
-          value={value}
-          onChange={(e) => onChange(Number(e.target.value))}
-          className="flex-1 accent-accent"
-        />
-        <span className="text-xs font-mono text-ink w-12 text-right">
-          {format ? format(value) : String(value)}
-        </span>
-      </div>
-    </Field>
-  );
-}
-
-interface SettingMatch {
-  el: HTMLElement;
-  text: string;
-  tab: LaunchTab;
-}
-
-/// Indexes the launch-option labels so the search box can jump to them.
-function indexSettings(root: HTMLElement, q: string): SettingMatch[] {
-  const results: SettingMatch[] = [];
-  const seen = new Set<HTMLElement>();
-  const push = (el: HTMLElement) => {
-    if (seen.has(el)) return;
-    // Mode-gated options are display:none; never index what can't be shown.
-    if (el.offsetParent === null) return;
-    seen.add(el);
-    let text = el.textContent?.trim() ?? "";
-    const titled = el.querySelector<HTMLElement>("[title]");
-    if (titled?.title) text += " " + titled.title;
-    const hint = el.nextElementSibling;
-    if (hint && hint.tagName === "P") text += " " + (hint.textContent?.trim() ?? "");
-    if (!text.toLowerCase().includes(q)) return;
-    const pane = el.closest<HTMLElement>("[data-launch-tab]");
-    const tab = (pane?.dataset.launchTab as LaunchTab | undefined) ?? "context";
-    results.push({ el, text, tab });
-  };
-  root.querySelectorAll<HTMLElement>(".label").forEach(push);
-  root.querySelectorAll<HTMLElement>('p[class*="font-medium"]').forEach(push);
-  root.querySelectorAll<HTMLElement>('p[class*="font-semibold"]').forEach(push);
-  root.querySelectorAll<HTMLElement>('p[class*="font-bold"]').forEach(push);
-  return results;
-}
-
-interface ExtraRow {
-  key: string;
-  value: string;
-}
-
-function splitExtra(extra: { [key: string]: string } | undefined): {
-  rows: ExtraRow[];
-  raw: string;
-} {
-  const rows: ExtraRow[] = [];
-  let raw = "";
-  for (const [k, v] of Object.entries(extra ?? {})) {
-    if (k === "fit" || k === "tools" || k === "no-chat-template") continue;
-    if (k === "__raw__") {
-      raw = v;
-      continue;
-    }
-    rows.push({ key: k, value: v });
-  }
-  rows.sort((a, b) => a.key.localeCompare(b.key));
-  return { rows, raw };
-}
-
-function mergeExtra(rows: ExtraRow[], raw: string): { [key: string]: string } {
-  const extra: { [key: string]: string } = {};
-  for (const r of rows) {
-    const key = r.key.trim();
-    if (key && key !== "fit" && key !== "__raw__" && key !== "tools") extra[key] = r.value;
-  }
-  if (raw.trim()) extra.__raw__ = raw;
-  return extra;
-}
 
 export default function Run({ go }: { go: (t: Tab) => void }) {
   const [status, setStatus] = useState<ServerStatus | null>(null);
@@ -952,83 +813,18 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
       )}
 
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-4">
-      <div className="card">
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="section-title mb-0">
-            Preset{activePreset ? ` — ${presetLabel(activePreset)}` : ""}
-          </h2>
-        </div>
-        <p className="section-desc">Model and folders stay per-session, presets remembered per model.</p>
-        <div className="mt-2 flex items-center gap-2">
-          <select
-            className="input flex-1 min-w-0 py-1 px-2 text-xs"
-            value={activePreset ?? DEFAULT_PRESET}
-            onChange={(e) => applyPresetName(e.target.value).catch((err) => setError(String(err)))}
-          >
-            <option value={DEFAULT_PRESET}>{presetLabel(DEFAULT_PRESET)}</option>
-            {presets
-              .filter((p) => p !== DEFAULT_PRESET)
-              .map((p) => (
-                <option key={p} value={p}>
-                  {presetLabel(p)}
-                </option>
-              ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-2 mt-2">
-          <input
-            className="input flex-1 min-w-0 py-1 px-2 text-xs"
-            placeholder="Preset name"
-            value={presetName}
-            onChange={(e) => setPresetName(e.target.value)}
-          />
-          <button
-            className="btn-secondary text-xs py-1 px-2 shrink-0"
-            onClick={savePreset}
-            title={
-              presetName.trim()
-                ? `Save as "${presetName.trim()}"`
-                : `Update preset "${presetLabel(activePreset ?? DEFAULT_PRESET)}"`
-            }
-          >
-            <Save size={12} />
-          </button>
-        </div>
-        <div className="mt-3 pt-3 border-t border-border flex items-center gap-1">
-          <button
-            className="btn-ghost text-[0.6875rem] py-1 px-1.5"
-            onClick={saveDefaults}
-            title="Save the current settings as the default preset"
-          >
-            <Pin size={12} />
-          </button>
-          <button
-            className="btn-ghost text-[0.6875rem] py-1 px-1.5"
-            onClick={resetDefaults}
-            title="Reset the default preset to factory defaults"
-          >
-            <RotateCcw size={12} />
-          </button>
-          {presetFlash && (
-            <span
-              className={`text-xs font-medium ml-2 ${
-                presetFlash.tone === "ok" ? "text-accent-green" : "text-accent-red"
-              }`}
-            >
-              {presetFlash.text}
-            </span>
-          )}
-          {activePreset && activePreset !== DEFAULT_PRESET && (
-            <button
-              className="btn-ghost text-[0.6875rem] py-1 px-1.5 ml-auto text-accent-red"
-              onClick={deletePreset}
-              title={`Delete preset "${presetLabel(activePreset)}"`}
-            >
-              <Trash2 size={12} />
-            </button>
-          )}
-        </div>
-      </div>
+        <PresetCard
+          activePreset={activePreset}
+          presets={presets}
+          presetName={presetName}
+          presetFlash={presetFlash}
+          setPresetName={setPresetName}
+          applyPresetName={(n) => applyPresetName(n).catch((err) => setError(String(err)))}
+          savePreset={savePreset}
+          saveDefaults={saveDefaults}
+          resetDefaults={resetDefaults}
+          deletePreset={deletePreset}
+        />
 
       <div className="card">
         <div className="flex items-center justify-between mb-3">
@@ -2012,98 +1808,22 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
 
       </div>
       <div className="col-start-1 row-start-1 space-y-4">
-        <div className="card">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="section-title mb-0">Memory estimate</h2>
-            <button
-              className="btn-secondary text-xs py-1 px-2"
-              onClick={autoEstimate}
-              disabled={estimating || externalMode || !(config.model_path || selected)}
-              title="Estimate optimal GPU offload and cache settings for the selected model"
-            >
-              <Zap size={12} className={estimating ? "animate-pulse" : ""} /> Auto-estimate
-            </button>
-          </div>
-          {estimate ? (
-            <>
-              <MemoryVisualizer estimate={estimate} />
-              {suggestionNotes && suggestionNotes.length > 0 && (
-                <ul className="space-y-0.5 mt-3 pt-3 border-t border-border">
-                  {suggestionNotes.map((n, i) => (
-                    <li key={i} className="text-xs text-faint">{n}</li>
-                  ))}
-                </ul>
-              )}
-            </>
-          ) : (
-            <p className="text-xs text-dim">Select a model to estimate memory.</p>
-          )}
-        </div>
+        <EstimateCard
+          estimate={estimate}
+          notes={suggestionNotes ?? []}
+          estimating={estimating}
+          canEstimate={!externalMode && !!(config.model_path || selected)}
+          onEstimate={autoEstimate}
+        />
 
-        <div className="card">
-          <div className="flex items-center justify-between mb-1">
-            <h2 className="section-title mb-0">Launch command</h2>
-            {preview && (
-              <button
-                className="btn-ghost text-[0.6875rem]"
-                onClick={copyLaunch}
-                title="Copy launch command"
-              >
-                {copiedLaunch ? (
-                  <Check size={11} className="text-accent-green" />
-                ) : (
-                  <Copy size={11} />
-                )}
-                {copiedLaunch ? "Copied" : "Copy"}
-              </button>
-            )}
-          </div>
-          {preview ? (
-            <>
-              <pre className="bg-surface-0 rounded border border-border p-2 font-mono text-[0.6875rem] text-dim whitespace-pre-wrap break-all select-text">
-                {launchCommand}
-              </pre>
-              {preview.notes
-                .filter(
-                  (n) =>
-                    !n.startsWith("--mmproj") &&
-                    !n.startsWith("--chat-template-file") &&
-                    !n.startsWith("--spec-draft-model"),
-                )
-                .map((n, i) => (
-                  <p key={i} className="text-[0.6875rem] text-faint mt-1">{n}</p>
-                ))}
-            </>
-          ) : (
-            <p className="text-xs text-dim">No launch command yet.</p>
-          )}
-        </div>
+        <CommandCard
+          preview={preview}
+          command={launchCommand}
+          copied={copiedLaunch}
+          onCopy={copyLaunch}
+        />
 
-        <div className="card">
-          <div className="flex items-center justify-between mb-1">
-            <h2 className="section-title mb-0">Server logs</h2>
-            {logs.length > 0 && (
-              <button
-                className="btn-ghost text-[0.6875rem]"
-                onClick={copyLogs}
-                title="Copy server logs"
-              >
-                {copiedLogs ? (
-                  <Check size={11} className="text-accent-green" />
-                ) : (
-                  <Copy size={11} />
-                )}
-                {copiedLogs ? "Copied" : "Copy"}
-              </button>
-            )}
-          </div>
-          <div
-            ref={logRef}
-            className="bg-surface-0 rounded border border-border p-2 mt-2 h-48 overflow-y-auto font-mono text-[0.6875rem] text-dim whitespace-pre-wrap break-words"
-          >
-            {logs.length === 0 ? "No logs yet." : logs.join("\n")}
-          </div>
-        </div>
+        <LogCard logs={logs} logRef={logRef} copied={copiedLogs} onCopy={copyLogs} />
       </div>
       </div>
     </div>
