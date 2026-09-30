@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.3.4] - 2026-09-30
+
+### Added
+
+- Copy button for the server logs (Run page).
+- Changed-files summary after each run: the files the agent changed with +/−
+  line counts and an A/M/D list (5 shown, the rest expand). Toggle it in
+  Settings → General → Chat.
+
+### Changed
+
+- The context popover shows this run's generation and prompt rates instead of
+  the server's lifetime averages, and the live rate spans the whole run.
+- The time under a reply covers the whole run (prompt, every turn, tool
+  calls) instead of the last generation only.
+- The built-in default preset shows as "Default preset".
+- A refresh button in the Projects header re-reads the project list.
+
+### Fixed
+
+- Router mode: chat requests use the router's model ids instead of GGUF paths
+  (fixes "model '<path>' not found").
+- The exec tool no longer hangs when a command leaves a child holding its
+  output pipes; timed-out commands kill the whole process tree.
+- Reply footer stats survive session switches — the session is saved after
+  the footer metadata is written.
+- Syntax highlighting colors are no longer stripped from builds.
+- The changed-files summary sees committed work too (it diffs against the
+  HEAD captured at run start).
+
 ## [0.3.3] - 2026-09-30
 
 ### Added
