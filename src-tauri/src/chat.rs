@@ -1351,14 +1351,19 @@ pub async fn harness_agent_send(
 
     *state.harness.history.lock().unwrap() = history;
     shift_meta_for_compaction(&state, &run.compactions_log.lock().unwrap().clone());
-    if let Err(e) = save_session(&state, None) {
-        let _ = app.emit(
-            "harness_event",
-            serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
-        );
-    }
-
-    let outcome = result.map_err(|e| e.to_string())?;
+    // A failed run still persists its transcript before surfacing the error.
+    let outcome = match result {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            if let Err(e) = save_session(&state, None) {
+                let _ = app.emit(
+                    "harness_event",
+                    serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
+                );
+            }
+            return Err(e.to_string());
+        }
+    };
     let reasoning = if outcome.reasoning.is_empty() {
         None
     } else {
@@ -1399,8 +1404,7 @@ pub async fn harness_agent_send(
                 changes: changes.clone(),
             },
         );
-        // The earlier save ran before this meta existed; persist again so
-        // session switches keep the footer stats.
+        // One save with the final transcript and footer metadata.
         if let Err(e) = save_session(&state, None) {
             let _ = app.emit(
                 "harness_event",

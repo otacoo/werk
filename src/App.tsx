@@ -211,7 +211,7 @@ export default function App() {
         </div>
         {tab === "bench" && showBench && <Bench />}
         <div className="h-full min-h-0" style={{ display: tab === "tools" ? undefined : "none" }}>
-          <Tools />
+          <Tools active={tab === "tools"} />
         </div>
         <div className="h-full min-h-0" style={{ display: tab === "mode" ? undefined : "none" }}>
           <Mode go={(t) => setTab(t)} />

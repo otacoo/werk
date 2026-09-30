@@ -346,9 +346,10 @@ function RenameInput({ value, onCommit, onCancel }: {
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 480;
 
-function ChatSidebar({ onProjectChanged, onSessionPicked }: {
+function ChatSidebar({ onProjectChanged, onSessionPicked, visible = true }: {
   onProjectChanged: () => void;
   onSessionPicked: () => void;
+  visible?: boolean;
 }) {
   const [projects, setProjects] = useState<HarnessProject[]>([]);
   const [active, setActive] = useState<string | null>(null);
@@ -408,10 +409,19 @@ function ChatSidebar({ onProjectChanged, onSessionPicked }: {
     }
   };
 
+  const visibleRef = useRef(visible);
+  useEffect(() => {
+    visibleRef.current = visible;
+    if (visible) refreshSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
   useEffect(() => {
     refreshProjects();
     refreshSessions();
-    const id = setInterval(refreshSessions, 5000);
+    const id = setInterval(() => {
+      if (visibleRef.current) refreshSessions();
+    }, 5000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
@@ -2057,6 +2067,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     <div className="flex h-full min-h-0">
       {sidebarOpen && (
         <ChatSidebar
+          visible={active}
           onProjectChanged={() => {
             refreshActiveProject();
             restoreFromBackend();

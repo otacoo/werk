@@ -54,7 +54,7 @@ const parseEnv = (text: string): Record<string, string> => {
 const envToText = (env: Record<string, string> | undefined): string =>
   Object.entries(env ?? {}).map(([k, v]) => `${k}=${v}`).join("\n");
 
-export default function Tools() {
+export default function Tools({ active = true }: { active?: boolean }) {
   const [serverStatus, setServerStatus] = useState<ServerStatus>({ type: "stopped" });
   const [appConfig, setAppConfig, , refreshConfig] = useAppConfig(true);
   const toolsList = useToolsList();
@@ -110,15 +110,16 @@ export default function Tools() {
   }, []);
 
   useEffect(() => {
-    if (serverStatus.type === "running") {
+    if (serverStatus.type === "running" && active) {
       fetchLiveTools(serverStatus);
       const id = setInterval(() => fetchLiveTools(serverStatus), 5000);
       return () => clearInterval(id);
-    } else {
+    }
+    if (serverStatus.type !== "running") {
       setLiveTools(null);
       setLiveToolsError(null);
     }
-  }, [serverStatus, fetchLiveTools]);
+  }, [serverStatus, active, fetchLiveTools]);
 
   const loadAgentMcp = useCallback(async (probe: boolean) => {
     setAgentMcpLoading(true);
