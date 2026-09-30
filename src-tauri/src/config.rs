@@ -55,6 +55,13 @@ pub enum ServerMode {
     External,
 }
 
+/// A named system prompt the user can swap in from Settings.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct SystemPromptPreset {
+    pub name: String,
+    pub prompt: String,
+}
+
 /// An external OpenAI-compatible provider (cloud API or another local
 /// server). External API mode targets it as `provider-id:model-id`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
@@ -223,6 +230,9 @@ pub struct AppConfig {
     /// Custom system prompt override; None means the built-in default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_system_prompt: Option<String>,
+    /// Named system prompt presets (quick swap in Settings).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub system_prompt_presets: Vec<SystemPromptPreset>,
     /// Language-server diagnostics after edits and the `lsp` query tool.
     #[serde(default = "default_true")]
     pub lsp_enabled: bool,
@@ -330,6 +340,7 @@ impl Default for AppConfig {
             harness_subagent_max_turns: default_subagent_turns(),
             verify_mode: Default::default(),
             harness_system_prompt: None,
+            system_prompt_presets: Vec::new(),
             lsp_enabled: true,
             lsp_servers: Some(default_lsp_servers()),
             server_mode: ServerMode::Single,

@@ -128,6 +128,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::set_max_turns,
         chat::set_verify_mode,
         chat::set_system_prompt,
+        chat::set_system_prompt_presets,
         chat::set_lsp_enabled,
         chat::set_agent_tool_enabled,
         chat::set_lsp_servers,

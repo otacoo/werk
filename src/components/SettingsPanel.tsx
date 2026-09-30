@@ -11,12 +11,13 @@ import {
   FolderOpen,
   Info,
   Palette,
+  Plus,
   RefreshCw,
   SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import { commands } from "../bindings";
-import type { AppConfig, MemoryFileDto, SkillDto } from "../bindings";
+import type { AppConfig, MemoryFileDto, SkillDto, SystemPromptPreset } from "../bindings";
 import { call } from "../utils/ipc";
 import { useAppConfig } from "../utils/useAppConfig";
 import Toggle from "./Toggle";
@@ -93,6 +94,8 @@ function SystemPromptCard({ appConfig, setAppConfig }: {
 }) {
   const [promptDraft, setPromptDraft] = useState<string | null>(null);
   const [builtInPrompt, setBuiltInPrompt] = useState("");
+  const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ name: string; value: string } | null>(null);
 
   useEffect(() => {
     call(commands.getHarnessSystemPromptDefault()).then(setBuiltInPrompt).catch(() => {});
@@ -102,6 +105,53 @@ function SystemPromptCard({ appConfig, setAppConfig }: {
   const storedPrompt = appConfig?.harness_system_prompt ?? "";
   const shownBase = storedPrompt !== "" ? storedPrompt : builtInPrompt;
   const promptDirty = promptDraft !== null && promptDraft.trim() !== shownBase.trim();
+  const presets = appConfig?.system_prompt_presets ?? [];
+
+  const savePresets = (next: SystemPromptPreset[]) => {
+    setAppConfig((c) => (c ? { ...c, system_prompt_presets: next } : c));
+    call(commands.setSystemPromptPresets(next)).catch(() => {});
+  };
+
+  const addPreset = () => {
+    if (presets.length >= 5) return;
+    const name = `Preset ${presets.length + 1}`;
+    const prompt = (promptDraft ?? shownBase).trim();
+    setActivePreset(name);
+    savePresets([...presets, { name, prompt }]);
+  };
+
+  const renamePreset = (oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) return;
+    savePresets(presets.map((p) => (p.name === oldName ? { ...p, name: trimmed } : p)));
+    if (activePreset === oldName) setActivePreset(trimmed);
+  };
+
+  const deletePreset = (name: string) => {
+    savePresets(presets.filter((p) => p.name !== name));
+    if (activePreset === name) setActivePreset(null);
+  };
+
+  const presetButton = (p: SystemPromptPreset) => (
+    <button
+      key={p.name}
+      className={`px-2.5 py-1 text-xs rounded transition-colors ${
+        activePreset === p.name ? "bg-accent/20 text-ink" : "text-dim hover:text-ink hover:bg-accent/10"
+      }`}
+      onClick={(e) => {
+        if (e.shiftKey) {
+          deletePreset(p.name);
+          return;
+        }
+        setPromptDraft(p.prompt);
+        setActivePreset(p.name);
+      }}
+      onDoubleClick={() => setRenaming({ name: p.name, value: p.name })}
+      title={`${p.name} — double-click to rename, shift-click to delete`}
+    >
+      {p.name}
+    </button>
+  );
 
   return (
     <div className="card">
@@ -109,6 +159,50 @@ function SystemPromptCard({ appConfig, setAppConfig }: {
       <p className="section-desc">
         Showing the built-in default — edit to override. Clearing and saving restores it.
       </p>
+      <div className="flex flex-wrap items-center gap-1.5 mt-3">
+        <button
+          className={`px-2.5 py-1 text-xs rounded transition-colors ${
+            activePreset === "default" ? "bg-accent/20 text-ink" : "text-dim hover:text-ink hover:bg-accent/10"
+          }`}
+          onClick={() => {
+            setPromptDraft(builtInPrompt);
+            setActivePreset("default");
+          }}
+          title="Load the built-in default prompt"
+        >
+          Default
+        </button>
+        {presets.map((p) =>
+          renaming?.name === p.name ? (
+            <input
+              key={p.name}
+              autoFocus
+              className="input px-2 py-1 text-xs w-28"
+              value={renaming.value}
+              onChange={(e) => setRenaming({ name: p.name, value: e.target.value })}
+              onBlur={() => {
+                renamePreset(p.name, renaming.value);
+                setRenaming(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                if (e.key === "Escape") setRenaming(null);
+              }}
+            />
+          ) : (
+            presetButton(p)
+          ),
+        )}
+        {presets.length < 5 && (
+          <button
+            className="px-2 py-1 text-dim hover:text-ink hover:bg-accent/10 rounded transition-colors"
+            onClick={addPreset}
+            title="Add a preset from the current prompt (max 5)"
+          >
+            <Plus size={12} />
+          </button>
+        )}
+      </div>
       <textarea
         className="input w-full mt-3 font-mono text-xs leading-relaxed"
         rows={8}

@@ -114,21 +114,32 @@ pub struct RunResult {
 
 // ── System prompt ─────────────────────────────────────────────────────────
 
-/// Byte-stable prompt; the verify paragraph drops when verification is off.
-fn system_prompt() -> String {
-    system_prompt_for(harness::agent::VerifyMode::Normal)
+/// Router mode has a worker model to delegate to; single and external modes
+/// don't, so their prompt never suggests subagents.
+fn verify_protocol(delegate: bool) -> String {
+    let fallback = if delegate {
+        "otherwise a single researcher subagent"
+    } else {
+        "otherwise one direct read or search"
+    };
+    format!(
+        "Verify load-bearing claims from memory before acting on them: when you are about to use an API \
+        default, flag, or version behavior you recall from training (not something you read this session), \
+        check it first — one direct read or search when the answer lives in this project, {fallback}. \
+        Never verify trivia, never verify the same fact twice (save verified facts with the remember tool), \
+        and never let verification stall the task: one check, then proceed. "
+    )
 }
 
-fn verify_protocol() -> &'static str {
-    "Verify load-bearing claims from memory before acting on them: when you are about to use an API \
-    default, flag, or version behavior you recall from training (not something you read this session), \
-    check it first — one direct read or search when the answer lives in this project, otherwise a single \
-    researcher subagent. Never verify trivia, never verify the same fact twice (save verified facts with \
-    the remember tool), and never let verification stall the task: one check, then proceed. "
-}
-
-fn system_prompt_for(mode: harness::agent::VerifyMode) -> String {
-    let verify = if mode == harness::agent::VerifyMode::Off { "" } else { verify_protocol() };
+fn system_prompt_for(
+    mode: harness::agent::VerifyMode,
+    server_mode: crate::config::ServerMode,
+) -> String {
+    let verify = if mode == harness::agent::VerifyMode::Off {
+        String::new()
+    } else {
+        verify_protocol(server_mode == crate::config::ServerMode::Router)
+    };
     format!(
         "You are Werk's agent, working inside a sandboxed project directory. \
         File tools are rooted at that directory; relative paths resolve there. \
@@ -465,8 +476,12 @@ fn role_context_limit(
 /// appended). Shown in Settings so the user can see what the default is.
 #[tauri::command]
 #[specta::specta]
-pub async fn get_harness_system_prompt_default() -> Result<String, String> {
-    Ok(system_prompt())
+pub async fn get_harness_system_prompt_default(state: State<'_, AppState>) -> Result<String, String> {
+    let (verify, server_mode) = {
+        let c = state.config.lock().unwrap();
+        (c.verify_mode, c.server_mode)
+    };
+    Ok(system_prompt_for(verify, server_mode))
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────
@@ -1153,11 +1168,12 @@ pub async fn harness_agent_send(
     if !history.iter().any(|m| m.role == "system") {
         let base = {
             let c = state.config.lock().unwrap();
-            let mode = c.verify_mode;
+            let verify = c.verify_mode;
+            let server_mode = c.server_mode;
             c.harness_system_prompt
                 .clone()
                 .filter(|p| !p.trim().is_empty())
-                .unwrap_or_else(move || system_prompt_for(mode))
+                .unwrap_or_else(move || system_prompt_for(verify, server_mode))
         };
         let memory = harness::memory::load_block(
             global_base.as_deref().map(|b| b.join("MEMORY.md")).as_deref(),
@@ -2197,6 +2213,27 @@ pub async fn set_system_prompt(
     config.save().map_err(|e| e.to_string())
 }
 
+/// Replace the named system prompt presets (max 5, names trimmed).
+#[tauri::command]
+#[specta::specta]
+pub async fn set_system_prompt_presets(
+    presets: Vec<crate::config::SystemPromptPreset>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let cleaned: Vec<_> = presets
+        .into_iter()
+        .take(5)
+        .filter(|p| !p.name.trim().is_empty())
+        .map(|p| crate::config::SystemPromptPreset {
+            name: p.name.trim().chars().take(40).collect(),
+            prompt: p.prompt,
+        })
+        .collect();
+    let mut config = state.config.lock().unwrap();
+    config.system_prompt_presets = cleaned;
+    config.save().map_err(|e| e.to_string())
+}
+
 /// Toggle language-server diagnostics and the `lsp` tool for the next run.
 #[tauri::command]
 #[specta::specta]
@@ -2539,6 +2576,22 @@ fn windows_build() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prompt_only_suggests_delegation_in_router_mode() {
+        let single =
+            system_prompt_for(harness::agent::VerifyMode::Normal, crate::config::ServerMode::Single);
+        let external =
+            system_prompt_for(harness::agent::VerifyMode::Normal, crate::config::ServerMode::External);
+        let router =
+            system_prompt_for(harness::agent::VerifyMode::Normal, crate::config::ServerMode::Router);
+        assert!(!single.contains("subagent"), "{single}");
+        assert!(!external.contains("subagent"), "{external}");
+        assert!(router.contains("researcher subagent"), "{router}");
+        // Verification off drops the paragraph entirely.
+        let off = system_prompt_for(harness::agent::VerifyMode::Off, crate::config::ServerMode::Router);
+        assert!(!off.contains("Verify load-bearing"), "{off}");
+    }
 
     #[test]
     fn base64_vectors() {

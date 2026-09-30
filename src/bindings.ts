@@ -52,6 +52,8 @@ export const commands = {
 	setVerifyMode: (mode: string) => typedError<null, string>(__TAURI_INVOKE("set_verify_mode", { mode })),
 	/**  Override the system prompt (empty resets to built-in); next run. */
 	setSystemPrompt: (prompt: string) => typedError<null, string>(__TAURI_INVOKE("set_system_prompt", { prompt })),
+	/**  Replace the named system prompt presets (max 5, names trimmed). */
+	setSystemPromptPresets: (presets: SystemPromptPreset[]) => typedError<null, string>(__TAURI_INVOKE("set_system_prompt_presets", { presets })),
 	/**  Toggle language-server diagnostics and the `lsp` tool for the next run. */
 	setLspEnabled: (enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_lsp_enabled", { enabled })),
 	/**  Enable/disable one agent tool for future runs. */
@@ -198,6 +200,8 @@ export type AppConfig_Deserialize = {
 	verify_mode?: VerifyMode,
 	/**  Custom system prompt override; None means the built-in default. */
 	harness_system_prompt?: string | null,
+	/**  Named system prompt presets (quick swap in Settings). */
+	system_prompt_presets?: SystemPromptPreset[],
 	/**  Language-server diagnostics after edits and the `lsp` query tool. */
 	lsp_enabled?: boolean,
 	/**  Single-model or router server mode (Mode tab). */
@@ -264,6 +268,8 @@ export type AppConfig_Serialize = {
 	verify_mode: VerifyMode,
 	/**  Custom system prompt override; None means the built-in default. */
 	harness_system_prompt?: string | null,
+	/**  Named system prompt presets (quick swap in Settings). */
+	system_prompt_presets?: SystemPromptPreset[],
 	/**  Language-server diagnostics after edits and the `lsp` query tool. */
 	lsp_enabled: boolean,
 	/**  Single-model or router server mode (Mode tab). */
@@ -1190,6 +1196,12 @@ export type SystemInfoDto_Serialize = {
 	arch: string,
 	backends: BackendDto_Serialize[],
 	recommended_backend: string,
+};
+
+/**  A named system prompt the user can swap in from Settings. */
+export type SystemPromptPreset = {
+	name: string,
+	prompt: string,
 };
 
 export type ToolsList = {
