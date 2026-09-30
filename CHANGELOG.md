@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.3.5] - 2026-09-30
+
+### Added
+
+- About section: the third-party notices (KaTeX and the other bundled
+  components, with license texts) are linked and shipped with the app.
+
+### Changed
+
+- The default preset is always available as "Default preset": it cannot be
+  deleted, the reset button restores factory defaults, saving with an empty
+  name updates it, and preset actions flash Saved/Reset/Deleted feedback.
+- One shared server-status poller app-wide; hidden tabs pause their polling
+  (chat stats, session list, live tools), and Settings changes refresh Run
+  and Chat instead of them polling the config.
+
+### Fixed
+
+- Reply footer stats persist across session switches (one session save per
+  run, after the footer metadata is written).
+- Run page: the preset and server cards sit side by side again, and the
+  server card keeps its title.
+
 ## [0.3.4] - 2026-09-30
 
 ### Added
