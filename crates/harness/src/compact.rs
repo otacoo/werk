@@ -271,6 +271,57 @@ fn over_pressure(history: &[ChatMessage], context_limit: u64) -> bool {
     estimate_tokens(history) > context_limit.saturating_sub(reserve_tokens(context_limit))
 }
 
+const COMPACT_SUMMARY_SYSTEM: &str =
+    "Summarize this conversation for continuation in a fresh context window. \
+    Preserve: the user's goals, key decisions and why, files created or changed, \
+    pending tasks, and any durable facts or preferences. Be concise; use bullets.";
+
+/// Render messages for summarization (file ops appended, capped).
+pub fn render_transcript(history: &[ChatMessage]) -> String {
+    let rendered: Vec<String> = history.iter().filter_map(render_for_summary).collect();
+    let files = file_ops_section(history);
+    let mut transcript = rendered.join("\n\n");
+    if transcript.chars().count() > SUMMARIZE_CAP_CHARS {
+        transcript = transcript.chars().take(SUMMARIZE_CAP_CHARS).collect();
+    }
+    if let Some(files) = files {
+        transcript.push_str("\n\n");
+        transcript.push_str(&files);
+    }
+    transcript
+}
+
+/// One-shot summary turn: no tools, streams content into `on_text`.
+pub async fn summarize(
+    client: &LlmClient,
+    model: Option<&str>,
+    system: &str,
+    transcript: &str,
+    should_stop: &(dyn Fn() -> bool + Send + Sync),
+    mut on_text: impl FnMut(&str),
+) -> Result<String> {
+    let mut summary = String::new();
+    client
+        .chat_stream(
+            model,
+            &[ChatMessage::system(system), ChatMessage::user(transcript)],
+            None,
+            None,
+            || should_stop(),
+            &mut |ev| {
+                if let StreamEvent::Content { text } = ev {
+                    summary.push_str(&text);
+                    on_text(&text);
+                }
+            },
+        )
+        .await?;
+    if should_stop() {
+        bail!("aborted");
+    }
+    Ok(summary.trim().to_string())
+}
+
 /// Summarize `history[1..cut]` and splice in one summary message. None when
 /// under the trigger (unless `force`); errors when compaction cannot help.
 pub async fn compact_history(
@@ -312,16 +363,7 @@ pub async fn compact_history(
             context_limit
         );
     }
-    let rendered: Vec<String> = history[1..cut].iter().filter_map(render_for_summary).collect();
-    let files = file_ops_section(&history[1..cut]);
-    let mut transcript = rendered.join("\n\n");
-    if transcript.chars().count() > SUMMARIZE_CAP_CHARS {
-        transcript = transcript.chars().take(SUMMARIZE_CAP_CHARS).collect();
-    }
-    if let Some(files) = files {
-        transcript.push_str("\n\n");
-        transcript.push_str(&files);
-    }
+    let transcript = render_transcript(&history[1..cut]);
     if transcript.trim().is_empty() {
         bail!(
             "Conversation is too long even after compaction (nothing summarizable in {} tokens) \
@@ -329,32 +371,15 @@ pub async fn compact_history(
             estimate_tokens(history)
         );
     }
-    let mut summary = String::new();
-    client
-        .chat_stream(
-            model,
-            &[
-                ChatMessage::system(
-                    "Summarize this conversation for continuation in a fresh context window. \
-                    Preserve: the user's goals, key decisions and why, files created or changed, \
-                    pending tasks, and any durable facts or preferences. Be concise; use bullets.",
-                ),
-                ChatMessage::user(transcript),
-            ],
-            None,
-            None,
-            || should_stop(),
-            &mut |ev| {
-                if let StreamEvent::Content { text } = ev {
-                    summary.push_str(&text);
-                }
-            },
-        )
-        .await?;
-    if should_stop() {
-        bail!("aborted");
-    }
-    let summary = summary.trim().to_string();
+    let summary = summarize(
+        client,
+        model,
+        COMPACT_SUMMARY_SYSTEM,
+        &transcript,
+        should_stop,
+        |_| {},
+    )
+    .await?;
     if summary.is_empty() {
         bail!("Compaction produced an empty summary — start a new chat (/new)");
     }

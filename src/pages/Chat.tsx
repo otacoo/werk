@@ -581,9 +581,14 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
             ...prev,
             {
               kind: "sys",
-              text: `Context compacted — ${Number(ev.removed ?? 0)} older messages summarized to stay within the context window.`,
+              text: `Context compacted - ${Number(ev.removed ?? 0)} older messages summarized to stay within the context window.`,
             },
           ]);
+          break;
+        case "distilled":
+          if (typeof ev.text === "string") {
+            setItems((prev) => [...prev, { kind: "sys", text: ev.text as string }]);
+          }
           break;
         case "notice":
           if (typeof ev.text === "string" && /loading/i.test(ev.text)) {
@@ -704,6 +709,21 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
           setError(String(e));
         }
         restoreFromBackend();
+        return;
+      }
+      if (cmd === "/distill") {
+        setInput("");
+        setRunStatus("thinking");
+        try {
+          const report = await call(commands.harnessDistill());
+          // Restore first: the backend cleared the session, then keep the report.
+          await restoreFromBackend();
+          setItems((prev) => [...prev, { kind: "sys", text: report }]);
+        } catch (e) {
+          setError(String(e));
+        } finally {
+          setRunStatus(null);
+        }
         return;
       }
       setInput("");

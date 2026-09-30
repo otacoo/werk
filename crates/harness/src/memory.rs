@@ -23,6 +23,32 @@ pub const MEMORY_BLOCK_CAP: usize = 4_096;
 /// Hard file size cap for writes through the tool.
 pub const MEMORY_FILE_CAP: usize = 16_384;
 
+/// UTC date as `YYYY-MM-DD` (civil-from-days; keeps the crate dependency-free).
+pub fn today_iso() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0) as i64;
+    let z = secs.div_euclid(86_400) + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { yoe + era * 400 + 1 } else { yoe + era * 400 };
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// One structured entry line: `- [date] topic: text` (newlines folded).
+pub fn entry_line(topic: &str, text: &str) -> String {
+    let topic = topic.trim();
+    let topic = if topic.is_empty() { "note" } else { topic };
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    format!("- [{}] {topic}: {text}\n", today_iso())
+}
+
 pub fn load_block(global: Option<&Path>, root: &Path) -> String {
     let mut parts = Vec::new();
     let read_capped = |path: &Path| -> Option<String> {
@@ -83,7 +109,7 @@ impl Tool for RememberTool {
         "remember".to_string()
     }
     fn description(&self) -> String {
-        "Curate long-term memory: note durable facts, forget stale ones, show the file. Project scope unless the fact is about the user themselves.".to_string()
+        "Curate long-term memory: note durable facts as dated entries, forget stale ones, show the file. Project scope unless the fact is about the user themselves.".to_string()
     }
     fn parameters(&self) -> Value {
         json!({
@@ -91,6 +117,7 @@ impl Tool for RememberTool {
             "properties": {
                 "action": { "type": "string", "enum": ["note", "forget", "show"] },
                 "text": { "type": "string" },
+                "topic": { "type": "string", "description": "Short topic tag, e.g. 'build', 'preferences'." },
                 "scope": { "type": "string", "enum": ["project", "global"] }
             },
             "required": ["action"]
@@ -114,8 +141,10 @@ impl Tool for RememberTool {
                 if text.is_empty() {
                     bail!("'text' must not be empty for note");
                 }
+                let topic = args.get("topic").and_then(|v| v.as_str()).unwrap_or("");
+                let entry = entry_line(topic, text);
                 let current = std::fs::read_to_string(&path).unwrap_or_default();
-                if current.len() + text.len() + 1 > MEMORY_FILE_CAP {
+                if current.len() + entry.len() + 1 > MEMORY_FILE_CAP {
                     bail!("Memory file too large (16 KiB max) — forget something first");
                 }
                 if let Some(parent) = path.parent() {
@@ -125,7 +154,7 @@ impl Tool for RememberTool {
                 if !out.is_empty() && !out.ends_with('\n') {
                     out.push('\n');
                 }
-                out.push_str(&format!("- {text}\n"));
+                out.push_str(&entry);
                 std::fs::write(&path, out)?;
                 Ok(format!("Noted in {scope} memory."))
             }
@@ -173,13 +202,31 @@ mod tests {
         let tool = RememberTool::new(&root, Some(&global));
         assert!(tool.approval_key(&json!({"action": "show"})).is_none());
         assert!(tool.approval_key(&json!({"action": "note"})).is_some());
-        tool.execute(&json!({"action": "note", "text": "likes dark mode"})).unwrap();
+        tool.execute(&json!({"action": "note", "text": "likes dark mode"}))
+            .unwrap();
         let shown = tool.execute(&json!({"action": "show"})).unwrap();
         assert!(shown.contains("dark mode"));
         tool.execute(&json!({"action": "forget", "text": "dark mode"})).unwrap();
         assert!(!tool.execute(&json!({"action": "show"})).unwrap().contains("dark mode"));
         assert!(tool.execute(&json!({"action": "explode"})).is_err());
         assert!(tool.execute(&json!({"action": "note", "scope": "zone"})).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn notes_are_dated_and_topic_tagged() {
+        let (root, global) = roots("entries");
+        let tool = RememberTool::new(&root, Some(&global));
+        tool.execute(&json!({"action": "note", "topic": "build", "text": "use\nninja"}))
+            .unwrap();
+        let shown = tool.execute(&json!({"action": "show"})).unwrap();
+        let line = shown.lines().next().unwrap();
+        assert!(line.starts_with("- [20"), "{line}");
+        assert!(line.contains("] build: use ninja"), "{line}");
+        // The default topic keeps the line structured too.
+        let entry = entry_line("", "plain fact");
+        assert!(entry.contains("] note: plain fact"), "{entry}");
+        assert!(entry.starts_with("- [20"), "{entry}");
         let _ = std::fs::remove_dir_all(&root);
     }
 

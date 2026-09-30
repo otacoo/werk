@@ -260,6 +260,7 @@ export const SLASH_COMMANDS: { name: string; hint: string }[] = [
   { name: "/help", hint: "List chat commands" },
   { name: "/new", hint: "Start a new conversation" },
   { name: "/compact", hint: "Summarize older turns to free context" },
+  { name: "/distill", hint: "Summarize this session into memory, then start fresh" },
 ];
 
 export function ReasoningBlock({ text, streaming, open, onToggle }: {

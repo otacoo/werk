@@ -17,6 +17,8 @@ export const commands = {
 	harnessAgentSteer: (message: string) => typedError<null, string>(__TAURI_INVOKE("harness_agent_steer", { message })),
 	/**  Clear the live transcript (keeps saved sessions). */
 	harnessAgentReset: () => typedError<null, string>(__TAURI_INVOKE("harness_agent_reset")),
+	/**  Distill the session into memory, coalesce the memories, then start fresh. */
+	harnessDistill: () => typedError<string, string>(__TAURI_INVOKE("harness_distill")),
 	/**  Current transcript for rebuilding the view (sessions, restarts). */
 	harnessAgentHistory: () => typedError<HistoryView_Serialize, string>(__TAURI_INVOKE("harness_agent_history")),
 	harnessAgentDecide: (grant: string | null) => typedError<null, string>(__TAURI_INVOKE("harness_agent_decide", { grant })),

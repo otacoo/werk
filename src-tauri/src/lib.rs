@@ -104,6 +104,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::harness_agent_abort,
         chat::harness_agent_steer,
         chat::harness_agent_reset,
+        chat::harness_distill,
         chat::harness_agent_history,
         chat::harness_agent_decide,
         chat::harness_question_answer,

@@ -4,6 +4,11 @@
 
 ### Added
 
+- `/distill`: summarize the session into memory, coalesce all memories with a
+  short model pass (the previous file is kept as `MEMORY.md.bak`), then start
+  a fresh chat — clearing the context without losing the learnings. Memory
+  entries are now structured and dated (`- [YYYY-MM-DD] topic: text`), and the
+  `remember` tool takes a topic tag.
 - System prompt presets in Settings → Agent: quick-swap buttons (Default,
   then up to five named presets, plus a `+` to add one from the current
   prompt). Clicking a preset activates it immediately and the status line

@@ -1476,11 +1476,177 @@ pub async fn harness_agent_steer(
     Ok(())
 }
 
+const DISTILL_SUMMARY_SYSTEM: &str =
+    "Summarize this session so its learnings survive after the context is cleared. Preserve: \
+    the user's goals and outcomes, decisions and why, files created or changed, durable facts \
+    or preferences, and open threads. Be concise; use bullets, one point per line.";
+
+const DISTILL_COALESCE_SYSTEM: &str =
+    "Rewrite this memory file. Keep every distinct fact, fold duplicates, preserve dates and \
+    topic tags, and drop anything stale or trivial. Output only lines in the form \
+    `- [YYYY-MM-DD] topic: text` (one per line, no headings, no commentary). Keep the result \
+    under 4000 characters.";
+
+/// Distill the session into memory, coalesce the memories, then start fresh.
+#[tauri::command]
+#[specta::specta]
+pub async fn harness_distill(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
+    if state.harness.running.load(Ordering::SeqCst) {
+        return Err("Stop the running agent first".to_string());
+    }
+    let app_config = state.config.lock().unwrap().clone();
+    let history = state.harness.history.lock().unwrap().clone();
+    let body = if history.first().map(|m| m.role.as_str()) == Some("system") {
+        &history[1..]
+    } else {
+        &history[..]
+    };
+    if body.iter().all(|m| m.role != "user") {
+        return Err("Nothing to distill yet — send a message first".to_string());
+    }
+    let transcript = harness::compact::render_transcript(body);
+    if transcript.trim().is_empty() {
+        return Err("Nothing to distill yet".to_string());
+    }
+
+    // Same target rules as a normal run: the external provider, or the local
+    // server (router mode picks the orchestrator id).
+    let (client, model) = if app_config.server_mode == crate::config::ServerMode::External {
+        let target = app_config
+            .external_target
+            .clone()
+            .filter(|t| !t.trim().is_empty())
+            .ok_or_else(|| "External API mode: no model selected".to_string())?;
+        let (p, m) = crate::config::Provider::split_target(&target, &app_config.providers)
+            .ok_or_else(|| format!("External API mode: \"{target}\" has no configured provider"))?;
+        (
+            LlmClient::with_key(p.base_url.trim_end_matches('/').to_string(), p.api_key.clone()),
+            Some(m.to_string()),
+        )
+    } else {
+        let port = match state.server.lock().unwrap().status.clone() {
+            crate::server::ServerStatus::Running { port, .. } => port,
+            _ => return Err("Start the server first".to_string()),
+        };
+        let model = if app_config.server_mode == crate::config::ServerMode::Router {
+            app_config
+                .harness_roles
+                .orchestrator
+                .as_deref()
+                .filter(|p| !p.trim().is_empty())
+                .map(|p| {
+                    let ids = crate::server::router_model_names(&router_role_entries(
+                        &app_config.harness_roles,
+                        &app_config.harness_role_params,
+                        None,
+                        false,
+                    ));
+                    ids.get(p)
+                        .cloned()
+                        .unwrap_or_else(|| crate::server::file_stem_or_self(p))
+                })
+        } else {
+            None
+        };
+        (server_client(port, &state), model)
+    };
+
+    state.harness_abort.store(false, Ordering::SeqCst);
+    let abort = state.harness_abort.clone();
+    let should_stop = move || abort.load(Ordering::SeqCst);
+    let emit = |text: &str| {
+        let _ = app.emit(
+            "harness_event",
+            serde_json::json!({"type": "distilled", "text": text}),
+        );
+    };
+
+    emit("Distilling: summarizing the session…");
+    let summary = harness::compact::summarize(
+        &client,
+        model.as_deref(),
+        DISTILL_SUMMARY_SYSTEM,
+        &transcript,
+        &should_stop,
+        |_| {},
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    if summary.is_empty() {
+        return Err("Distillation produced an empty summary".to_string());
+    }
+
+    emit("Distilling: updating memory…");
+    let root = project_root(&state).ok();
+    let target = root
+        .as_deref()
+        .map(harness::memory::project_memory_path)
+        .or_else(|| crate::config::data_dir().map(|d| d.join("werk").join("MEMORY.md")))
+        .ok_or_else(|| "No memory location available".to_string())?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut current = std::fs::read_to_string(&target).unwrap_or_default();
+    if !current.is_empty() && !current.ends_with('\n') {
+        current.push('\n');
+    }
+    let mut appended = 0usize;
+    for line in summary.lines() {
+        let text = line.trim().trim_start_matches(['-', '*', '•', ' ']).trim();
+        if text.is_empty() {
+            continue;
+        }
+        let entry = harness::memory::entry_line("session", text);
+        if current.len() + entry.len() > harness::memory::MEMORY_FILE_CAP {
+            break;
+        }
+        current.push_str(&entry);
+        appended += 1;
+    }
+    let backup = target.with_extension("md.bak");
+    if appended > 0 {
+        // Keep the previous file recoverable before the coalesce rewrites it.
+        if target.is_file() {
+            let _ = std::fs::copy(&target, &backup);
+        }
+        std::fs::write(&target, &current).map_err(|e| e.to_string())?;
+    }
+
+    emit("Distilling: coalescing memories…");
+    let rewritten = harness::compact::summarize(
+        &client,
+        model.as_deref(),
+        DISTILL_COALESCE_SYSTEM,
+        &current,
+        &should_stop,
+        |_| {},
+    )
+    .await
+    .unwrap_or_default();
+    if !rewritten.trim().is_empty() {
+        let tmp = target.with_extension("md.tmp");
+        std::fs::write(&tmp, format!("{}\n", rewritten.trim())).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+    }
+
+    // Fresh session: the learnings are stored, the transcript can go.
+    state.harness.history.lock().unwrap().clear();
+    truncate_meta(&state, 0);
+    *state.harness.session_id.lock().unwrap() = None;
+    state.harness.steering.lock().unwrap().clear();
+
+    let place = if root.is_some() { "project" } else { "global" };
+    let kept = if backup.is_file() { " (previous file kept as MEMORY.md.bak)" } else { "" };
+    Ok(format!(
+        "Distilled into {place} memory: {appended} entr{} written, memories coalesced{kept}. Started a fresh chat.",
+        if appended == 1 { "y" } else { "ies" },
+    ))
+}
+
 /// Clear the live transcript (keeps saved sessions).
 #[tauri::command]
 #[specta::specta]
-pub async fn harness_agent_reset(state: State<'_, AppState>) -> Result<(), String> {
-    state.harness.history.lock().unwrap().clear();
+pub async fn harness_agent_reset(state: State<'_, AppState>) -> Result<(), String> {    state.harness.history.lock().unwrap().clear();
     truncate_meta(&state, 0);
     *state.harness.session_id.lock().unwrap() = None;
     if let Some(tx) = state.harness.pending.lock().unwrap().take() {
