@@ -14,6 +14,7 @@ import { commands } from "../bindings";
 import type { AppConfig, Provider, ServerStatus } from "../bindings";
 import { call } from "../utils/ipc";
 import { notifyConfigChanged } from "../utils/appSettings";
+import { subscribeServerStatus } from "../utils/serverStatus";
 import ModelPicker, { type PickerItem } from "../components/ModelPicker";
 
 const splitList = (raw: string) =>
@@ -40,11 +41,7 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
 
   useEffect(() => {
     refresh();
-    call(commands.getServerStatus()).then(setStatus).catch(() => {});
-    const id = setInterval(() => {
-      call(commands.getServerStatus()).then(setStatus).catch(() => {});
-    }, 2000);
-    return () => clearInterval(id);
+    return subscribeServerStatus(setStatus);
   }, []);
 
   const mode = appConfig?.server_mode ?? "single";

@@ -403,16 +403,12 @@ export type ContextStats = ContextStats_Serialize | ContextStats_Deserialize;
 export type ContextStats_Deserialize = {
 	used?: number | null,
 	total?: number | null,
-	live_gen_tps?: number | null,
-	live_prompt_tps?: number | null,
 };
 
 /**  Live context gauge: slot usage first, GGUF length as fallback. */
 export type ContextStats_Serialize = {
 	used?: number | null,
 	total?: number | null,
-	live_gen_tps?: number | null,
-	live_prompt_tps?: number | null,
 };
 
 export type CustomRuntime = {

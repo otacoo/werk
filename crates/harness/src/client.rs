@@ -406,12 +406,10 @@ impl LlmClient {
         let url = format!("{}/v1/chat/completions", self.base_url);
         let api_key = self.api_key.clone();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<WorkerMsg>();
-        // Dropping a reqwest stream does not close the HTTP connection
-        // (hyper keeps it for reuse), so a stopped run would leave the
-        // provider generating. The request therefore runs on its own
-        // single-thread runtime: when the consumer goes away (or Stop flips
-        // the flag), the worker returns, the runtime drops, and the socket
-        // closes — which is how OpenAI-compatible providers cancel.
+        // Dropping a reqwest stream keeps the connection alive (hyper reuse),
+        // so a stopped run would leave the provider generating. The request
+        // runs on its own runtime: when the consumer goes away, the socket
+        // closes - which is how OpenAI-compatible providers cancel.
         let gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let worker_gone = gone.clone();
         std::thread::spawn(move || {
@@ -560,19 +558,6 @@ impl LlmClient {
         Ok(parse_props_n_ctx(&resp.text().await?))
     }
 
-    /// Lifetime throughput gauges from `/metrics`.
-    pub async fn server_throughput(&self) -> Result<ServerThroughput> {
-        let resp = self
-            .authed(self.http.get(format!("{}/metrics", self.base_url)))
-            .send()
-            .await
-            .context("Metrics request failed")?;
-        if !resp.status().is_success() {
-            return Ok(ServerThroughput::default());
-        }
-        Ok(parse_throughput(&resp.text().await?))
-    }
-
     /// Bearer auth when the server was launched with an API key.
     fn authed(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         match &self.api_key {
@@ -580,47 +565,6 @@ impl LlmClient {
             None => request,
         }
     }
-}
-
-/// Lifetime throughput averages plus the context gauge.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct ServerThroughput {
-    pub prompt_tps: Option<f64>,
-    pub gen_tps: Option<f64>,
-    pub context_size: Option<u64>,
-}
-
-/// Parse Prometheus gauges; names normalized across llama.cpp builds.
-pub fn parse_throughput(text: &str) -> ServerThroughput {
-    let mut out = ServerThroughput::default();
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let mut parts = line.split_whitespace();
-        let (name, value) = match (parts.next(), parts.next()) {
-            (Some(n), Some(v)) => (n, v),
-            _ => continue,
-        };
-        if name.contains('{') {
-            continue;
-        }
-        let norm = name.replace(':', "_").to_lowercase();
-        let short = norm.strip_prefix("llamacpp_").unwrap_or(&norm);
-        let finite: Option<f64> = value.parse().ok().filter(|v: &f64| v.is_finite());
-        match short {
-            "prompt_tokens_seconds" => out.prompt_tps = finite.or(out.prompt_tps),
-            "predicted_tokens_seconds" => out.gen_tps = finite.or(out.gen_tps),
-            s if s.contains("context") || s == "n_ctx" || s == "ctx_size" => {
-                if let Some(v) = finite.filter(|v| *v > 0.0) {
-                    out.context_size = Some(v as u64);
-                }
-            }
-            _ => {}
-        }
-    }
-    out
 }
 
 pub fn max_slot_n_ctx(json_text: &str) -> Option<u64> {
@@ -859,13 +803,5 @@ mod tests {
         let text = r#"{"default_generation_settings":{"n_ctx":16384}}"#;
         assert_eq!(parse_props_n_ctx(text), Some(16384));
         assert_eq!(parse_props_n_ctx("{}"), None);
-    }
-
-    #[test]
-    fn throughput_parses_gauges() {
-        let text = "llamacpp:prompt_tokens_seconds 1200.5\nllamacpp:predicted_tokens_seconds 45.25\n";
-        let t = parse_throughput(text);
-        assert_eq!(t.prompt_tps, Some(1200.5));
-        assert_eq!(t.gen_tps, Some(45.25));
     }
 }

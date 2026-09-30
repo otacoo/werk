@@ -1,6 +1,6 @@
 //! Harness driver: Tauri commands around the agent loop.
 //! Events go over the global bus (`harness_event`, `harness_approval`,
-//! `harness_question`); runs are exclusive and text-only in M4.
+//! `harness_question`); runs are exclusive.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -363,9 +363,9 @@ fn server_client(port: u16, state: &AppState) -> LlmClient {
     LlmClient::with_key(format!("http://127.0.0.1:{port}"), server_api_key(state))
 }
 
-/// Router preset entries for the configured roles (M5 feeds the writer).
-/// Role ctx overrides win over the launch `base_ctx`; sibling templates
-/// auto-attach unless the launch pins an explicit template.
+/// Router preset entries for the configured roles. Role ctx overrides win
+/// over the launch `base_ctx`; sibling templates auto-attach unless the
+/// launch pins an explicit template.
 pub fn router_role_entries(
     roles: &crate::config::HarnessRoles,
     params: &crate::config::HarnessRoleParams,
@@ -1647,10 +1647,6 @@ pub struct ContextStats {
     pub used: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub live_gen_tps: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub live_prompt_tps: Option<f64>,
 }
 
 fn gguf_context(path: &str) -> Option<u32> {
@@ -1696,8 +1692,6 @@ pub async fn harness_context_stats(
     let mut stats = ContextStats {
         used: Some(used.min(u32::MAX as u64) as u32),
         total: None,
-        live_gen_tps: None,
-        live_prompt_tps: None,
     };
     // External API mode never reads the local server, even if one runs.
     let external =
@@ -1735,9 +1729,6 @@ pub async fn harness_context_stats(
             stats.total = gguf_context(&path);
         }
     }
-    let tp = client.server_throughput().await.unwrap_or_default();
-    stats.live_gen_tps = tp.gen_tps;
-    stats.live_prompt_tps = tp.prompt_tps;
     Ok(stats)
 }
 

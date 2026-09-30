@@ -41,6 +41,7 @@ import type {
   SystemInfoDto,
 } from "../bindings";
 import { call, fmtMB } from "../utils/ipc";
+import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
 import {
   formatSize,
   isDsparkFile,
@@ -102,7 +103,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
   const [system, setSystem] = useState<SystemInfoDto | null>(null);
   const [runtime, setRuntime] = useState<RuntimeInfo | null>(null);
   const [models, setModels] = useState<ModelDto[]>([]);
-  const [status, setStatus] = useState<ServerStatus>({ type: "stopped" });
+  const [status, setStatus] = useState<ServerStatus>(getServerStatus());
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [stopping, setStopping] = useState(false);
@@ -239,9 +240,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
     loadData();
     reloadDirs();
     call(commands.getKnownOwners()).then(setOwners).catch(() => {});
-    const statusTimer = setInterval(() => {
-      call(commands.getServerStatus()).then(setStatus).catch(() => {});
-    }, 2000);
+    const unsubStatus = subscribeServerStatus(setStatus);
     const unlisten = listen<{ id: string; downloaded: number; total?: number | null }>(
       "download_progress",
       (e) => {
@@ -260,7 +259,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
       },
     );
     return () => {
-      clearInterval(statusTimer);
+      unsubStatus();
       unlisten.then((f) => f());
     };
   }, []);

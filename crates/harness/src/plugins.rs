@@ -1,15 +1,6 @@
-//! File-defined plugin tools: a folder with `plugin.json` plus an executable.
-//!
-//! ```text
-//! my_plugin/
-//!   plugin.json      <- { name, description, parameters, command, approval }
-//!   run.py           <- reads {"args": {...}} from stdin, prints the result
-//! ```
-//!
-//! `command` runs with the project directory as cwd. Relative script paths
-//! resolve against the plugin folder; bare names resolve via PATH. Stdout
-//! (trimmed) is the tool result. Rediscovered every run; project beats
-//! global on conflicts. Orchestrator-only in M7 (subagent allowlists omit it).
+//! File-defined plugin tools: a folder with `plugin.json` plus an executable
+//! that reads `{"args": {...}}` from stdin and prints the result. `command`
+//! runs with the project directory as cwd; stdout (trimmed) is the tool result.
 
 use std::path::{Path, PathBuf};
 

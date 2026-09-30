@@ -315,7 +315,7 @@ pub struct FullSuggestion {
     pub notes: Vec<String>,
 }
 
-/// Tiered fit: full-GPU ≥8k ctx, then balanced (≥half layers), then capacity; f16 first, q8_0 fallback.
+/// Tiered fit: full GPU, balanced (half layers), then capacity; f16 first.
 pub fn suggest_full(
     spec: &ModelSpec,
     total_vram_mb: u64,

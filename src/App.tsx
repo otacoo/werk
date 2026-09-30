@@ -26,6 +26,7 @@ import { commands } from "./bindings";
 import { call } from "./utils/ipc";
 import { loadAppearance, setAutoCorners } from "./utils/appearance";
 import { getQuickBench, setQuickBench, subscribeQuickBench, subscribeConfigChanged } from "./utils/appSettings";
+import { startServerStatusPolling, subscribeServerStatus } from "./utils/serverStatus";
 
 export type Tab = "dashboard" | "run" | "chat" | "tools" | "bench" | "mode" | "api";
 
@@ -54,13 +55,10 @@ export default function App() {
 
   // Run and Chat light up while the server is up.
   useEffect(() => {
-    const poll = () =>
-      call(commands.getServerStatus())
-        .then((s) => setServerRunning(s.type === "running" || s.type === "starting"))
-        .catch(() => setServerRunning(false));
-    poll();
-    const id = setInterval(poll, 2000);
-    return () => clearInterval(id);
+    startServerStatusPolling();
+    return subscribeServerStatus((s) =>
+      setServerRunning(s.type === "running" || s.type === "starting"),
+    );
   }, []);
 
   useEffect(() => {

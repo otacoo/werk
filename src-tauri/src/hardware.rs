@@ -1,7 +1,5 @@
-//! Host hardware detection: RAM plus NVIDIA GPUs via nvidia-smi.
-//! Best effort throughout — unknown hardware yields empty lists, never errors.
-//! GPU and CUDA probes run once per process; hardware rarely changes
-//! under a running app and each spawn costs hundreds of milliseconds.
+//! Host hardware detection: RAM plus NVIDIA GPUs via nvidia-smi. Best effort:
+//! unknown hardware yields empty lists. Probes run once per process.
 
 use std::sync::OnceLock;
 

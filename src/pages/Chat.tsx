@@ -50,6 +50,8 @@ import type {
 import { call } from "../utils/ipc";
 import { formatElapsed } from "../utils/format";
 import { getBubbleAlign, getShowFileTree, getShowRunChanges, getShowToolSnippets, subscribeBubbleAlign, subscribeShowFileTree, subscribeShowRunChanges, subscribeShowToolSnippets } from "../utils/appearance";
+import { subscribeConfigChanged } from "../utils/appSettings";
+import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
 import { playNotificationSound } from "../utils/sounds";
 import ProjectTree from "../components/ProjectTree";
 import type { Tab } from "../App";
@@ -1207,7 +1209,7 @@ function ContextRing({ used, total, avgTokps, model, genTokens, liveGenTps, live
 // ── Harness chat (agent loop with sandboxed tools) ──────────────────────────
 
 export default function Chat({ go }: { go: (t: Tab) => void }) {
-  const [status, setStatus] = useState<ServerStatus>({ type: "stopped" });
+  const [status, setStatus] = useState<ServerStatus>(getServerStatus());
   const [items, setItems] = useState<Item[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -1372,34 +1374,39 @@ export default function Chat({ go }: { go: (t: Tab) => void }) {
       call(commands.harnessAgentCapabilities()).then(setCaps).catch(() => {});
       call(commands.harnessReasoningOptions()).then(setReasoningOpts).catch(() => {});
     };
+    const refreshConfig = () => {
+      call(commands.getConfig()).then(applyConfigFlags).catch(() => {});
+    };
     // Model-dependent info goes stale when the server (re)starts with a
     // different model — refresh on the transition into running.
-    let wasRunning = false;
-    const poll = async () => {
-      try {
-        const [s, c] = await Promise.all([
-          call(commands.getServerStatus()),
-          call(commands.getConfig()).catch(() => null),
-        ]);
-        if (c) applyConfigFlags(c);
-        const running = s.type === "running";
-        if (running && !wasRunning) {
-          refreshCaps();
-        }
-        wasRunning = running;
-        setStatus(s);
-        // Stats work server-less too (external provider / GGUF fallback).
-        call(commands.harnessContextStats()).then(setSlotCtx).catch(() => {});
-      } catch {}
+    let wasRunning = getServerStatus().type === "running";
+    const onStatus = (s: ServerStatus) => {
+      const running = s.type === "running";
+      if (running && !wasRunning) {
+        refreshCaps();
+      }
+      wasRunning = running;
+      setStatus(s);
     };
+    const poll = () =>
+      // Stats work server-less too (external provider / GGUF fallback).
+      call(commands.harnessContextStats()).then(setSlotCtx).catch(() => {});
     refreshCaps();
+    refreshConfig();
     refreshActiveProject();
     // The transcript lives in the backend — restore it so chats are
     // consultable even when the server is stopped.
     restoreFromBackend();
     poll();
     const id = setInterval(poll, 2000);
-    return () => clearInterval(id);
+    // Status and mode/target changes signal instead of polling.
+    const unsubStatus = subscribeServerStatus(onStatus);
+    const unsubConfig = subscribeConfigChanged(refreshConfig);
+    return () => {
+      clearInterval(id);
+      unsubStatus();
+      unsubConfig();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

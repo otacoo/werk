@@ -21,6 +21,7 @@ import { call } from "../utils/ipc";
 import { useAppConfig } from "../utils/useAppConfig";
 import Toggle from "./Toggle";
 import { THEME_OPTIONS, ThemeIcon } from "./ThemeIcon";
+import { notifyConfigChanged } from "../utils/appSettings";
 import { playNotificationSound } from "../utils/sounds";
 import {
   FONT_SIZES,
@@ -343,6 +344,8 @@ function GeneralCard({ appConfig, setAppConfig, refresh }: {
       setError(String(e));
       await refresh();
     }
+    // Pages holding config snapshots (Run, Chat) refetch instead of going stale.
+    notifyConfigChanged();
   };
   const setSound = async (key: "agent" | "permissions" | "errors", v: boolean) => {
     const cmd =
