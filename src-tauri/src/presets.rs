@@ -77,7 +77,24 @@ pub fn save_preset(dir: &Path, name: &str, mut config: ServerConfig) -> Result<(
     Ok(())
 }
 
+/// Create the default preset from factory defaults when missing.
+pub fn ensure_default(dir: &Path) -> Result<()> {
+    let path = dir.join(format!("{DEFAULT_PRESET}.json"));
+    if path.is_file() {
+        return Ok(());
+    }
+    save_preset(dir, DEFAULT_PRESET, ServerConfig::default())
+}
+
+/// Reset the default preset to factory defaults.
+pub fn reset_default(dir: &Path) -> Result<()> {
+    save_preset(dir, DEFAULT_PRESET, ServerConfig::default())
+}
+
 pub fn delete_preset(dir: &Path, name: &str) -> Result<()> {
+    if name == DEFAULT_PRESET {
+        anyhow::bail!("The default preset cannot be deleted — reset it instead");
+    }
     let path = preset_path(dir, name)?;
     if !path.is_file() {
         anyhow::bail!("Preset '{name}' not found");
@@ -138,6 +155,24 @@ mod tests {
         assert!(save_preset(&dir, "a/b", ServerConfig::default()).is_err());
         assert!(load_preset(&dir, "..").is_err());
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn default_preset_is_seeded_protected_and_resettable() {
+        let dir = scratch("default");
+        ensure_default(&dir).unwrap();
+        assert_eq!(list_presets(&dir), vec![DEFAULT_PRESET]);
+        // Seeding never clobbers a customized default.
+        save_preset(&dir, DEFAULT_PRESET, sample()).unwrap();
+        ensure_default(&dir).unwrap();
+        assert_eq!(load_preset(&dir, DEFAULT_PRESET).unwrap().n_ctx, 32768);
+        assert!(delete_preset(&dir, DEFAULT_PRESET).is_err());
+        reset_default(&dir).unwrap();
+        assert_eq!(
+            load_preset(&dir, DEFAULT_PRESET).unwrap().n_ctx,
+            ServerConfig::default().n_ctx
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

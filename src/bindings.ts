@@ -153,6 +153,7 @@ export const commands = {
 	addCustomRuntime: (path: string) => typedError<number, string>(__TAURI_INVOKE("add_custom_runtime", { path })),
 	removeCustomRuntime: (index: number) => typedError<null, string>(__TAURI_INVOKE("remove_custom_runtime", { index })),
 	listPresets: () => typedError<string[], string>(__TAURI_INVOKE("list_presets")),
+	resetDefaultPreset: () => typedError<null, string>(__TAURI_INVOKE("reset_default_preset")),
 	loadPreset: (name: string) => typedError<ServerConfig, string>(__TAURI_INVOKE("load_preset", { name })),
 	savePreset: (name: string, config: ServerConfig) => typedError<null, string>(__TAURI_INVOKE("save_preset", { name, config })),
 	deletePreset: (name: string) => typedError<null, string>(__TAURI_INVOKE("delete_preset", { name })),

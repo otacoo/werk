@@ -195,6 +195,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         commands::add_custom_runtime,
         commands::remove_custom_runtime,
         commands::list_presets,
+        commands::reset_default_preset,
         commands::load_preset,
         commands::save_preset,
         commands::delete_preset,

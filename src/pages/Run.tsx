@@ -248,7 +248,7 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
   const [presets, setPresets] = useState<string[]>([]);
   const [activePreset, setActivePreset] = useState<string | null>(null);
   const [presetName, setPresetName] = useState("");
-  const [presetSaved, setPresetSaved] = useState(false);
+  const [presetFlash, setPresetFlash] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
   const [query, setQuery] = useState("");
   const [launchTab, setLaunchTab] = useState<LaunchTab>("context");
   const [searchIdx, setSearchIdx] = useState(0);
@@ -257,7 +257,13 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
   const settingsRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
-  const savedTimer = useRef<number | undefined>(undefined);
+  const flashTimer = useRef<number | undefined>(undefined);
+
+  const flash = (text: string, tone: "ok" | "err") => {
+    setPresetFlash({ text, tone });
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setPresetFlash(null), 1500);
+  };
 
   const refreshModels = () =>
     call(commands.listInstalledModels())
@@ -349,8 +355,8 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
       await call(commands.setSelectedModel(next || null));
       if (next) {
         const name = await call(commands.getModelPreset(next));
-        if (name) await applyPresetName(name, next);
-        else setActivePreset(null);
+        // Models without their own preset fall back to the default one.
+        await applyPresetName(name ?? DEFAULT_PRESET, next);
       } else {
         setActivePreset(null);
       }
@@ -742,21 +748,20 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
       setPresetName("");
       const model = config.model_path || selected;
       if (model) await call(commands.setModelPreset(model, name));
-      setPresetSaved(true);
-      window.clearTimeout(savedTimer.current);
-      savedTimer.current = window.setTimeout(() => setPresetSaved(false), 1500);
+      flash("Saved", "ok");
     } catch (e) {
       setError(String(e));
     }
   };
 
   const deletePreset = async () => {
-    if (!activePreset) return;
+    if (!activePreset || activePreset === DEFAULT_PRESET) return;
     try {
       await call(commands.deletePreset(activePreset));
       setPresets(await call(commands.listPresets()));
       setActivePreset(null);
       setPresetName("");
+      flash("Deleted", "err");
     } catch (e) {
       setError(String(e));
     }
@@ -768,33 +773,21 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
       await call(commands.savePreset(DEFAULT_PRESET, buildConfig()));
       setPresets(await call(commands.listPresets()));
       setPresetName("");
+      setActivePreset(DEFAULT_PRESET);
+      const model = config.model_path || selected;
+      if (model) await call(commands.setModelPreset(model, DEFAULT_PRESET));
+      flash("Saved", "ok");
     } catch (e) {
       setError(String(e));
     }
   };
 
-  // Restore the stored default preset, else the built-in defaults.
+  // Reset the default preset to factory defaults and apply them.
   const resetDefaults = async () => {
     try {
-      const names = await call(commands.listPresets());
-      if (names.includes(DEFAULT_PRESET)) {
-        await applyPresetName(DEFAULT_PRESET);
-      } else {
-        setConfig((c) => ({
-          ...DEFAULT_CONFIG,
-          model_path: c.model_path,
-          mmproj_path: c.mmproj_path,
-          working_dir: c.working_dir,
-        }));
-        setFitOn(true);
-        setNoTemplateAttach(false);
-        setExtraRows([...DEFAULT_EXTRA_ROWS]);
-        setRawArgs("");
-        setActivePreset(null);
-        setPresetName("");
-        const model = config.model_path || selected;
-        if (model) call(commands.setModelPreset(model, null)).catch(() => {});
-      }
+      await call(commands.resetDefaultPreset());
+      await applyPresetName(DEFAULT_PRESET);
+      flash("Reset", "ok");
     } catch (e) {
       setError(String(e));
     }
@@ -961,29 +954,26 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-4">
       <div className="card">
         <div className="flex items-center justify-between mb-1">
-          <h2 className="section-title mb-0">Preset{activePreset ? ` — ${activePreset}` : ""}</h2>
+          <h2 className="section-title mb-0">
+            Preset{activePreset ? ` — ${presetLabel(activePreset)}` : ""}
+          </h2>
         </div>
         <p className="section-desc">Model and folders stay per-session, presets remembered per model.</p>
         <div className="mt-2 flex items-center gap-2">
           <select
             className="input flex-1 min-w-0 py-1 px-2 text-xs"
-            value={activePreset ?? ""}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v) applyPresetName(v).catch((err) => setError(String(err)));
-              else setActivePreset(null);
-            }}
+            value={activePreset ?? DEFAULT_PRESET}
+            onChange={(e) => applyPresetName(e.target.value).catch((err) => setError(String(err)))}
           >
-            <option value="">Custom (no preset)</option>
-            {presets.map((p) => (
-              <option key={p} value={p}>
-                {presetLabel(p)}
-              </option>
-            ))}
+            <option value={DEFAULT_PRESET}>{presetLabel(DEFAULT_PRESET)}</option>
+            {presets
+              .filter((p) => p !== DEFAULT_PRESET)
+              .map((p) => (
+                <option key={p} value={p}>
+                  {presetLabel(p)}
+                </option>
+              ))}
           </select>
-          {presetSaved && (
-            <span className="text-xs font-medium text-accent-green shrink-0">Saved</span>
-          )}
         </div>
         <div className="flex items-center gap-2 mt-2">
           <input
@@ -998,9 +988,7 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
             title={
               presetName.trim()
                 ? `Save as "${presetName.trim()}"`
-                : activePreset
-                  ? `Update preset "${presetLabel(activePreset)}"`
-                  : `Save as "${presetLabel(DEFAULT_PRESET)}"`
+                : `Update preset "${presetLabel(activePreset ?? DEFAULT_PRESET)}"`
             }
           >
             <Save size={12} />
@@ -1010,22 +998,31 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
           <button
             className="btn-ghost text-[0.6875rem] py-1 px-1.5"
             onClick={saveDefaults}
-            title="Save the current settings as the default used for models without a preset"
+            title="Save the current settings as the default preset"
           >
             <Pin size={12} />
           </button>
           <button
             className="btn-ghost text-[0.6875rem] py-1 px-1.5"
             onClick={resetDefaults}
-            title="Reset the current settings to the saved default (or built-in defaults)"
+            title="Reset the default preset to factory defaults"
           >
             <RotateCcw size={12} />
           </button>
-          {activePreset && (
+          {presetFlash && (
+            <span
+              className={`text-xs font-medium ml-2 ${
+                presetFlash.tone === "ok" ? "text-accent-green" : "text-accent-red"
+              }`}
+            >
+              {presetFlash.text}
+            </span>
+          )}
+          {activePreset && activePreset !== DEFAULT_PRESET && (
             <button
               className="btn-ghost text-[0.6875rem] py-1 px-1.5 ml-auto text-accent-red"
               onClick={deletePreset}
-              title={`Delete preset "${activePreset}"`}
+              title={`Delete preset "${presetLabel(activePreset)}"`}
             >
               <Trash2 size={12} />
             </button>

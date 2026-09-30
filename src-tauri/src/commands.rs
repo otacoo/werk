@@ -1434,7 +1434,15 @@ pub async fn remove_custom_runtime(
 #[specta::specta]
 pub async fn list_presets() -> Result<Vec<String>, String> {
     let dir = crate::presets::presets_dir().map_err(|e| e.to_string())?;
+    crate::presets::ensure_default(&dir).map_err(|e| e.to_string())?;
     Ok(crate::presets::list_presets(&dir))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn reset_default_preset() -> Result<(), String> {
+    let dir = crate::presets::presets_dir().map_err(|e| e.to_string())?;
+    crate::presets::reset_default(&dir).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
