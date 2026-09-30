@@ -3,33 +3,17 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  ArrowDown,
-  ArrowUp,
-  Brain,
-  Check,
-  ChevronDown,
-  ChevronUp,
   Cpu,
   Database,
-  Download,
-  ExternalLink,
-  Eye,
-  FileJson,
-  Filter,
-  FolderOpen,
-  FolderPlus,
   MemoryStick,
   Monitor,
   RefreshCw,
   Search,
-  Trash2,
-  X,
   Zap,
 } from "lucide-react";
 import { commands } from "../bindings";
 import type {
   AppConfig,
-  AssetDto,
   FoundBinaryDto,
   HfFileDto,
   HfModel,
@@ -40,8 +24,12 @@ import type {
   ServerStatus,
   SystemInfoDto,
 } from "../bindings";
-import { call, fmtMB } from "../utils/ipc";
+import { call } from "../utils/ipc";
 import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
+import { RuntimeTab } from "./dashboard/runtime-tab";
+import { ModelsTab } from "./dashboard/models-tab";
+import { BrowseTab } from "./dashboard/browse-tab";
+import { baseOf, MODEL_SORTERS, type DashTab, type HfSort, type ModelSortCol } from "./dashboard/shared";
 import {
   formatSize,
   isDsparkFile,
@@ -49,54 +37,16 @@ import {
   mbToGb,
   mmprojSaveName,
   parseSplitSuffix,
-  quantColor,
-  quantFromName,
-  quantSortKey,
   shortCpuName,
   shortGpuName,
 } from "../utils/format";
 import type { Tab } from "../App";
-
-type HfSort = "downloads" | "likes" | "lastModified";
-type ModelSortCol = "name" | "params" | "quant" | "size" | "ctx";
-type DashTab = "runtime" | "models" | "browse";
+import type { ActiveDl } from "./dashboard/shared";
 
 interface Bounded<T> {
   what: string;
   value?: T;
   error?: string;
-}
-
-interface ActiveDl {
-  repoId: string;
-  filename: string;
-  saveAs: string | null;
-  split: string[] | null;
-}
-
-const baseOf = (path: string) => path.split("/").pop() ?? path;
-
-const pathJoin = (base: string, name: string) =>
-  `${base}${base.includes("\\") ? "\\" : "/"}${name}`;
-
-const MODEL_SORTERS: Record<ModelSortCol, (a: ModelDto, b: ModelDto) => number> = {
-  name: (a, b) => a.name.localeCompare(b.name),
-  params: (a, b) => parseFloat(a.params_b ?? "0") - parseFloat(b.params_b ?? "0"),
-  quant: (a, b) => quantSortKey(a.quant ?? null) - quantSortKey(b.quant ?? null),
-  size: (a, b) => (a.size_bytes ?? 0) - (b.size_bytes ?? 0),
-  ctx: (a, b) => (a.context_length ?? 0) - (b.context_length ?? 0),
-};
-
-/// Repo owner for a scanned model: the folder above the quant folder when the
-/// file sits in `<owner>/<model>/<quant>/file.gguf`, else the parent folder.
-function ownerOf(path: string): string {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  const file = parts.pop() ?? "";
-  const parent = parts.pop() ?? "";
-  const grandparent = parts.pop() ?? "";
-  const head = (s: string) => s.split(/[-_.]/)[0]?.toLowerCase() ?? "";
-  const stem = file.replace(/\.gguf$/i, "");
-  return parent && grandparent && head(parent) === head(stem) ? grandparent : parent;
 }
 
 export default function Dashboard({ go }: { go: (t: Tab) => void }) {
@@ -440,13 +390,6 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
       setModelSortDir("asc");
     }
   };
-
-  const modelSortIcon = (col: ModelSortCol) =>
-    modelSortCol === col ? (
-      modelSortDir === "asc" ? <ArrowUp size={10} /> : <ArrowDown size={10} />
-    ) : (
-      <ArrowUp size={10} className="opacity-0 group-hover:opacity-30" />
-    );
 
   const addModelDir = async () => {
     const picked = await pickFolder("Add GGUF storage directory");
@@ -837,579 +780,81 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
           </div>
 
         {dashTab === "runtime" && (
-          <div className="card rounded-t-none border-t-0">
-            <div className="flex items-center justify-between mb-1">
-              <p className="section-desc">llama.cpp builds used to serve models.</p>
-              <div className="flex items-center gap-3">
-                {(managed.length > 0 || custom.length > 0) && (
-                  <label
-                    className="flex items-center gap-1.5 text-[0.6875rem] text-dim cursor-pointer"
-                    title="Delete older builds of the same backend after installing a new one"
-                  >
-                    <input
-                      type="checkbox"
-                      className="accent-accent"
-                      checked={appConfig?.auto_delete_old_runtimes ?? false}
-                      onChange={(e) => setAutoDeleteOld(e.target.checked)}
-                    />
-                    Auto-delete old
-                  </label>
-                )}
-                {managed.length > 1 && (
-                  <button
-                    className="btn-ghost text-[0.6875rem]"
-                    title="Delete every managed build except the active one"
-                    onClick={deleteOldVersions}
-                  >
-                    <Trash2 size={11} /> Old versions
-                  </button>
-                )}
-                <button
-                  className="btn-ghost text-[0.6875rem]"
-                  onClick={browseCustom}
-                  title="Register a local llama.cpp build"
-                >
-                  <FolderOpen size={11} /> Browse…
-                </button>
-              </div>
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                className="btn-secondary text-xs"
-                onClick={checkForBuilds}
-                disabled={checking}
-              >
-                {checking ? (
-                  <><RefreshCw size={12} className="animate-spin" /> Checking…</>
-                ) : (
-                  <><RefreshCw size={12} /> Check for builds</>
-                )}
-              </button>
-              {newBuildAvailable && (
-                <span className="inline-flex items-center rounded px-1.5 py-px text-[0.625rem] font-medium bg-accent/20 text-accent">
-                  New version
-                </span>
-              )}
-            </div>
-
-            {/* Installed builds sit above the download list so it never buries them. */}
-            {(managed.length > 0 || custom.length > 0) && (
-              <div className="mt-3 pt-3 border-t border-border space-y-1">
-                {managed.map((r) => {
-                  const isActive =
-                    activeRt?.type === "managed" &&
-                    activeRt.build === r.build &&
-                    (activeRt.backend_id ?? "") === r.backend_id;
-                  const dirPath = runtime?.base_dir ? pathJoin(runtime.base_dir, r.dir_name) : r.dir_name;
-                  return (
-                    <div key={`${r.build}-${r.backend_id}`} className="flex items-center gap-2 text-xs">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          {isActive && <Check size={12} className="text-accent-green shrink-0" />}
-                          <span className={`font-mono ${isActive ? "text-ink" : "text-dim"}`}>b{r.build}</span>
-                          <span className="text-faint uppercase">{r.backend_label}</span>
-                        </div>
-                        <p className="text-[0.625rem] font-mono text-faint truncate" title={dirPath}>
-                          {dirPath}
-                        </p>
-                      </div>
-                      {isActive && <span className="badge-green text-[0.625rem] shrink-0">active</span>}
-                      {!isActive && (
-                        <>
-                          <button className="btn-ghost text-[0.6875rem]" onClick={() => activateManaged(r.build, r.backend_id)}>
-                            Use
-                          </button>
-                          <button
-                            className="text-faint hover:text-accent-red"
-                            title="Delete build"
-                            onClick={() => deleteManaged(r.build, r.backend_id)}
-                          >
-                            <Trash2 size={11} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-                {custom.map((c, i) => {
-                  const isActive = activeRt?.type === "custom" && activeRt.index === i;
-                  return (
-                    <div key={c.binary_path} className="flex items-center gap-2 text-xs">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          {isActive && <Check size={12} className="text-accent-green shrink-0" />}
-                          <span className={`truncate ${isActive ? "text-ink" : "text-dim"}`}>{c.label}</span>
-                        </div>
-                        <p className="text-[0.625rem] font-mono text-faint truncate" title={c.binary_path}>
-                          {c.binary_path}
-                        </p>
-                      </div>
-                      {isActive && <span className="badge-green text-[0.625rem] shrink-0">active</span>}
-                      {!isActive && (
-                        <>
-                          <button className="btn-ghost text-[0.6875rem]" onClick={() => activateCustom(i)}>
-                            Use
-                          </button>
-                          <button
-                            className="text-faint hover:text-accent-red"
-                            title="Remove runtime"
-                            onClick={() => removeCustom(i)}
-                          >
-                            <Trash2 size={11} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {release && (
-              <div className="mt-3 pt-3 border-t border-border">
-                <p className="text-[0.6875rem] text-dim mb-1.5">
-                  Checked {release.tag_name} — pick a build to download.
-                </p>
-                <div className="space-y-1">
-                  {assets.map((asset) => (
-                    <AssetRow
-                      key={asset.name}
-                      asset={asset}
-                      selected={selectedAsset === asset.name}
-                      onSelect={() => setSelectedAsset(asset.name)}
-                    />
-                  ))}
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <button
-                    className="btn-primary text-xs"
-                    disabled={!selectedAsset || rtBusy}
-                    onClick={() => selectedAsset && installAsset(selectedAsset)}
-                  >
-                    <Download size={12} /> {rtBusy ? "Downloading…" : "Download"}
-                  </button>
-                  {rtProgress && (
-                    <button className="btn-ghost text-xs" onClick={cancelInstall}>
-                      Cancel
-                    </button>
-                  )}
-                </div>
-                {rtProgress && (
-                  <div className="mt-2">
-                    <div className="flex items-center justify-between text-[0.6875rem] text-dim mb-1">
-                      <span>Downloading…</span>
-                      <span className="font-mono">
-                        {rtProgress.total
-                          ? `${((rtProgress.downloaded / rtProgress.total) * 100).toFixed(1)}% — ${fmtMB(rtProgress.downloaded / 1024 / 1024)} / ${fmtMB(rtProgress.total / 1024 / 1024)}`
-                          : fmtMB(rtProgress.downloaded / 1024 / 1024)}
-                      </span>
-                    </div>
-                    <div className="h-1.5 bg-surface-3 rounded overflow-hidden">
-                      <div
-                        className="h-full bg-accent transition-all"
-                        style={{
-                          width: rtProgress.total
-                            ? `${(rtProgress.downloaded / rtProgress.total) * 100}%`
-                            : "100%",
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {customBuilds && customBuilds.length > 1 && (
-              <div className="mt-3 pt-3 border-t border-border">
-                <p className="label mb-1.5">Multiple builds found — pick one to register</p>
-                <div className="space-y-1">
-                  {customBuilds.map((b) => (
-                    <button
-                      key={b.binary_path}
-                      className="w-full text-left px-2.5 py-1.5 border rounded border-border hover:bg-surface-2 transition-colors"
-                      onClick={() => registerBuild(b.binary_path)}
-                    >
-                      <span className="text-xs font-mono text-ink truncate block">{b.label}</span>
-                      <span className="text-[0.625rem] font-mono text-faint truncate block">{b.binary_path}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {scanning && (
-              <p className="text-xs text-dim mt-2 flex items-center gap-2">
-                <RefreshCw size={12} className="animate-spin" /> Searching for server runtimes…
-              </p>
-            )}
-          </div>
+          <RuntimeTab
+            runtime={runtime}
+            managed={managed}
+            custom={custom}
+            activeRt={activeRt}
+            appConfig={appConfig}
+            release={release}
+            assets={assets}
+            selectedAsset={selectedAsset}
+            rtBusy={rtBusy}
+            rtProgress={rtProgress}
+            customBuilds={customBuilds}
+            scanning={scanning}
+            checking={checking}
+            newBuildAvailable={newBuildAvailable}
+            setSelectedAsset={setSelectedAsset}
+            installAsset={installAsset}
+            cancelInstall={cancelInstall}
+            browseCustom={browseCustom}
+            registerBuild={registerBuild}
+            activateManaged={activateManaged}
+            activateCustom={activateCustom}
+            deleteManaged={deleteManaged}
+            removeCustom={removeCustom}
+            deleteOldVersions={deleteOldVersions}
+            checkForBuilds={checkForBuilds}
+            setAutoDeleteOld={setAutoDeleteOld}
+          />
         )}
 
         {dashTab === "models" && (
-          <div className="card rounded-t-none border-t-0">
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <div className="flex items-baseline gap-2 shrink-0">
-                <p className="section-desc">List of models available to launch.</p>
-              </div>
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-[0.6875rem] font-mono text-dim truncate max-w-72" title={downloadDir}>
-                  {downloadDir || "Not set"}
-                </span>
-                <button className="btn-ghost text-[0.6875rem] py-1 shrink-0" onClick={changeDownloadDir}>
-                  <FolderOpen size={11} /> Change…
-                </button>
-                <button
-                  className="btn-ghost text-[0.6875rem] py-1 shrink-0"
-                  onClick={addModelDir}
-                  title="Scan another folder too"
-                >
-                  <FolderPlus size={11} /> Add
-                </button>
-              </div>
-            </div>
-            {modelDirs.filter((d) => d !== downloadDir).length > 0 && (
-              <div className="flex flex-col items-end gap-0.5 mb-2">
-                {modelDirs
-                  .filter((d) => d !== downloadDir)
-                  .map((d) => (
-                    <div key={d} className="flex items-center gap-1.5 text-[0.6875rem]">
-                      <span className="font-mono text-faint truncate max-w-96" title={d}>{d}</span>
-                      {modelDirs.length > 1 && (
-                        <button
-                          className="text-faint hover:text-accent-red shrink-0"
-                          title="Stop scanning this folder"
-                          onClick={() => removeModelDir(d)}
-                        >
-                          <X size={10} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-              </div>
-            )}
-            <div className="flex items-center gap-3 mb-2">
-              <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                <Filter size={12} className="text-faint shrink-0" />
-                <input
-                  className="input flex-1 py-1 px-2 text-xs min-w-0"
-                  placeholder="Filter by name…"
-                  value={nameFilter}
-                  onChange={(e) => setNameFilter(e.target.value)}
-                />
-              </div>
-              <span className="text-[0.6875rem] text-faint shrink-0">
-                {filteredModels.length} model{filteredModels.length === 1 ? "" : "s"}
-              </span>
-            </div>
-            {models.length === 0 ? (
-              <div className="text-center py-6">
-                <p className="text-xs text-dim">Nothing downloaded yet.</p>
-              </div>
-            ) : (
-              <div>
-                <div className="flex items-center gap-2 px-3 py-2 border-b border-border text-[0.625rem] font-semibold text-dim uppercase tracking-wider select-none">
-                  <button
-                    className="flex-1 flex items-center gap-1 group text-left"
-                    onClick={() => toggleModelSort("name")}
-                  >
-                    Model {modelSortIcon("name")}
-                  </button>
-                  <button
-                    className="w-16 flex items-center gap-1 group justify-end"
-                    onClick={() => toggleModelSort("params")}
-                  >
-                    Params {modelSortIcon("params")}
-                  </button>
-                  <button
-                    className="w-20 flex items-center gap-1 group justify-end"
-                    onClick={() => toggleModelSort("quant")}
-                  >
-                    Quant {modelSortIcon("quant")}
-                  </button>
-                  <button
-                    className="w-16 flex items-center gap-1 group justify-end"
-                    onClick={() => toggleModelSort("ctx")}
-                  >
-                    Ctx {modelSortIcon("ctx")}
-                  </button>
-                  <button
-                    className="w-20 flex items-center gap-1 group justify-end"
-                    onClick={() => toggleModelSort("size")}
-                  >
-                    Size {modelSortIcon("size")}
-                  </button>
-                  <span className="w-14 text-center normal-case">Config</span>
-                  <span className="w-8" />
-                  <span className="w-8" />
-                </div>
-                {filteredModels.map((m) => {
-                  const owner = ownerOf(m.path);
-                  return (
-                    <div
-                      key={m.id}
-                      className="flex items-center gap-2 px-3 py-2 border-b border-border hover:bg-surface-3 transition-colors"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <p className="text-sm text-ink truncate">{m.name}</p>
-                          {m.is_vision && (
-                            <span title="Vision model">
-                              <Eye size={12} className="text-[#3B82F6] shrink-0" />
-                            </span>
-                          )}
-                          {m.is_reasoning && (
-                            <span title="Reasoning model">
-                              <Brain size={12} className="text-[#E5484D] shrink-0" />
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[0.625rem] text-faint truncate font-mono">
-                          {owner ? owner + "/" : ""}{m.filename}
-                        </p>
-                      </div>
-                      <span className="w-16 text-right text-xs text-dim">{m.params_b ?? "—"}</span>
-                      <span className="w-20 text-right">
-                        {m.quant ? (
-                          <span className={`${quantColor(m.quant)} text-[0.625rem]`}>{m.quant}</span>
-                        ) : (
-                          <span className="text-xs text-faint">—</span>
-                        )}
-                      </span>
-                      <span className="w-16 text-right text-xs text-faint">
-                        {m.context_length ? `${(m.context_length / 1024).toFixed(0)}K` : "—"}
-                      </span>
-                      <span className="w-20 text-right text-xs text-dim font-mono">
-                        {formatSize(m.size_bytes ?? 0)}
-                      </span>
-                      <span className="w-14 flex justify-center items-center">
-                        <button
-                          className="text-faint hover:text-ink"
-                          title="Model config (JSON)"
-                          onClick={() => setConfigModel(m)}
-                        >
-                          <FileJson size={12} />
-                        </button>
-                      </span>
-                      <span className="w-8 flex justify-center items-center">
-                        {m.hf_repo && (
-                          <button
-                            className="text-faint hover:text-ink"
-                            title="Open on HuggingFace"
-                            onClick={() => openInBrowser(`https://huggingface.co/${m.hf_repo}`)}
-                          >
-                            <ExternalLink size={11} />
-                          </button>
-                        )}
-                      </span>
-                      <button
-                        className="w-8 flex justify-center text-faint hover:text-accent-red"
-                        title="Delete model"
-                        onClick={() => deleteModel(m.path)}
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  );
-                })}
-                {filteredModels.length === 0 && (
-                  <p className="text-sm text-dim py-6 text-center">No models match the filter.</p>
-                )}
-              </div>
-            )}
-          </div>
+          <ModelsTab
+            models={models}
+            filteredModels={filteredModels}
+            modelDirs={modelDirs}
+            downloadDir={downloadDir}
+            nameFilter={nameFilter}
+            modelSortCol={modelSortCol}
+            modelSortDir={modelSortDir}
+            setNameFilter={setNameFilter}
+            toggleModelSort={toggleModelSort}
+            setConfigModel={setConfigModel}
+            addModelDir={addModelDir}
+            removeModelDir={removeModelDir}
+            changeDownloadDir={changeDownloadDir}
+            deleteModel={deleteModel}
+            openInBrowser={openInBrowser}
+          />
         )}
 
         {dashTab === "browse" && (
-          <div className="card rounded-t-none border-t-0">
-            <div className="flex items-baseline justify-between mb-2">
-              <p className="section-desc">Search and download models from HuggingFace.</p>
-            </div>
-            <div className="flex gap-2 mb-2">
-              <div className="flex-1 relative min-w-0">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none"
-                />
-                <input
-                  className="input pl-9 w-full text-xs"
-                  placeholder="Search models (e.g. llama, mistral, qwen)"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") doSearch();
-                  }}
-                />
-              </div>
-              <select
-                className="input py-1 px-2 text-xs shrink-0"
-                value={sortBy}
-                onChange={(e) => changeSortBy(e.target.value as HfSort)}
-              >
-                <option value="downloads">By downloads</option>
-                <option value="likes">By stars</option>
-                <option value="lastModified">Newest</option>
-              </select>
-              <select
-                className="input py-1 px-2 text-xs shrink-0 max-w-40"
-                value={selectedOwner}
-                onChange={(e) => setSelectedOwner(e.target.value)}
-              >
-                <option value="">Any owner</option>
-                {owners.map((o) => (
-                  <option key={o.id} value={o.id} title={o.description}>
-                    {o.id}
-                  </option>
-                ))}
-              </select>
-              <button className="btn-primary text-xs shrink-0" onClick={() => doSearch()} disabled={searching}>
-                {searching ? "…" : "Search"}
-              </button>
-            </div>
-
-            <ActiveDownloads
-              active={active}
-              progress={progress}
-              paused={paused}
-              onPause={pauseDownload}
-              onResume={resumeDownload}
-              onCancel={cancelDownload}
-            />
-
-            {searchResults.length > 0 ? (
-              <div className="space-y-2">
-                {searchResults.map((model) => {
-                  const files = repoFiles[model.repo_id];
-                  return (
-                    <div key={model.repo_id} className="rounded border border-border bg-surface-2 p-4">
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        className="w-full flex items-start gap-3 text-left min-w-0 cursor-pointer"
-                        onClick={() => toggleRepo(model.repo_id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            toggleRepo(model.repo_id);
-                          }
-                        }}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-ink truncate">{model.name}</span>
-                            <button
-                              className="text-faint hover:text-dim shrink-0"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openInBrowser(`https://huggingface.co/${model.repo_id}`);
-                              }}
-                              title="Open on HuggingFace"
-                            >
-                              <ExternalLink size={12} />
-                            </button>
-                            <span className="text-xs text-dim shrink-0">by {model.author}</span>
-                          </div>
-                          <div className="flex gap-3 mt-1 text-xs text-dim">
-                            <span>↓ {(model.downloads / 1000).toFixed(0)}K</span>
-                            <span>♥ {model.likes}</span>
-                          </div>
-                        </div>
-                        {expandedRepo === model.repo_id ? (
-                          <ChevronUp size={14} className="text-dim mt-0.5 shrink-0" />
-                        ) : (
-                          <ChevronDown size={14} className="text-dim mt-0.5 shrink-0" />
-                        )}
-                      </div>
-
-                      {expandedRepo === model.repo_id && (
-                        <div className="mt-3 pt-3 border-t border-border space-y-1">
-                          {files ? (
-                            files.filter((f) => !isMmprojFile(f.path) && !isDsparkFile(f.path)).length > 0 ? (
-                              files
-                                .filter((f) => !isMmprojFile(f.path) && !isDsparkFile(f.path))
-                                .map((f) => {
-                                  const id = f.path;
-                                  const done = installedNames.has(baseOf(f.path));
-                                  const dl = active[id];
-                                  const prog = progress[id];
-                                  const quant = quantFromName(f.path);
-                                  const split = parseSplitSuffix(baseOf(f.path));
-                                  return (
-                                    <div key={f.path} className="px-2 py-2 hover:bg-surface-2 rounded">
-                                      <div className="flex items-center gap-3">
-                                        <div className="flex-1 min-w-0">
-                                          <span className="text-xs text-ink font-mono truncate block">
-                                            {f.path}
-                                          </span>
-                                          <div className="flex items-center gap-1.5 mt-0.5">
-                                            {quant && (
-                                              <span className={`${quantColor(quant)} text-[0.625rem]`}>
-                                                {quant}
-                                              </span>
-                                            )}
-                                            {split && (
-                                              <span className="badge-gray text-[0.625rem]">
-                                                {split.total} parts
-                                              </span>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <span className="text-xs text-dim shrink-0">
-                                          {formatSize(f.size_bytes ?? 0)}
-                                        </span>
-                                        {done ? (
-                                          <span className="badge-green text-[0.625rem] shrink-0">
-                                            Installed
-                                          </span>
-                                        ) : dl ? (
-                                          <span className="text-[0.625rem] text-dim shrink-0">
-                                            {prog?.total
-                                              ? `${((prog.downloaded / prog.total) * 100).toFixed(0)}%`
-                                              : fmtMB((prog?.downloaded ?? 0) / 1024 / 1024)}
-                                          </span>
-                                        ) : (
-                                          <button
-                                            className="btn-secondary text-xs shrink-0"
-                                            onClick={() => downloadClick(model.repo_id, f)}
-                                          >
-                                            <Download size={11} />
-                                          </button>
-                                        )}
-                                      </div>
-                                      {dl && (
-                                        <DownloadRow
-                                          prog={prog}
-                                          paused={!!paused[id]}
-                                          onPause={() => pauseDownload(id)}
-                                          onResume={() => resumeDownload(id)}
-                                          onCancel={() => cancelDownload(id)}
-                                        />
-                                      )}
-                                    </div>
-                                  );
-                                })
-                            ) : (
-                              <p className="text-xs text-dim px-2">No GGUF files in this repo.</p>
-                            )
-                          ) : (
-                            <p className="text-xs text-dim px-2">Loading files…</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              !searching && (
-                <div className="text-center py-10 text-dim">
-                  <Search size={26} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Search for GGUF models on HuggingFace.</p>
-                  <p className="text-xs mt-1 text-faint">
-                    Try "llama 3", "mistral", or pick an owner to browse.
-                  </p>
-                </div>
-              )
-            )}
-          </div>
+          <BrowseTab
+            active={active}
+            expandedRepo={expandedRepo}
+            owners={owners}
+            paused={paused}
+            progress={progress}
+            repoFiles={repoFiles}
+            searching={searching}
+            searchQuery={searchQuery}
+            searchResults={searchResults}
+            selectedOwner={selectedOwner}
+            sortBy={sortBy}
+            installedNames={installedNames}
+            cancelDownload={cancelDownload}
+            changeSortBy={changeSortBy}
+            doSearch={() => doSearch()}
+            downloadClick={downloadClick}
+            openInBrowser={openInBrowser}
+            pauseDownload={pauseDownload}
+            resumeDownload={resumeDownload}
+            setSearchQuery={setSearchQuery}
+            setSelectedOwner={setSelectedOwner}
+            toggleRepo={toggleRepo}
+          />
         )}
         </div>
       </div>
@@ -1552,156 +997,3 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
   );
 }
 
-function AssetRow({
-  asset,
-  selected,
-  onSelect,
-}: {
-  asset: AssetDto;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      className={`w-full flex items-center gap-3 px-3 py-2 border rounded text-left transition-colors ${
-        selected ? "border-accent/60 bg-accent/10" : "border-border hover:bg-surface-2"
-      }`}
-      onClick={onSelect}
-    >
-      <div
-        className={`w-3 h-3 rounded-full border-2 shrink-0 ${
-          selected ? "border-accent bg-accent" : "border-faint"
-        }`}
-      />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-ink truncate">{asset.name}</span>
-          {asset.score >= 90 && (
-            <span className="badge-green text-[0.625rem] shrink-0">Recommended</span>
-          )}
-        </div>
-        <div className="flex gap-3 mt-0.5">
-          <span className="text-xs text-dim">{asset.backend_label}</span>
-          <span className="text-xs text-faint">{fmtMB(asset.size_mb ?? 0)}</span>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function DownloadRow({ prog, paused, onPause, onResume, onCancel }: {
-  prog?: { downloaded: number; total: number | null };
-  paused: boolean;
-  onPause: () => void;
-  onResume: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="mt-2">
-      <div className="flex justify-between items-center text-xs text-dim mb-1">
-        <span>{paused ? "Paused" : "Downloading…"}</span>
-        <span>
-          {prog?.total ? `${((prog.downloaded / prog.total) * 100).toFixed(1)}%` : fmtMB((prog?.downloaded ?? 0) / 1024 / 1024)}
-        </span>
-      </div>
-      <div className="h-1.5 bg-surface-3 overflow-hidden">
-        <div
-          className="h-full bg-accent transition-all"
-          style={{ width: prog?.total ? `${(prog.downloaded / prog.total) * 100}%` : "100%" }}
-        />
-      </div>
-      <div className="flex gap-2 mt-2">
-        {paused ? (
-          <>
-            <button className="btn-primary text-xs" onClick={onResume}>
-              Resume
-            </button>
-            <button className="btn-danger text-xs" onClick={onCancel}>
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <button className="btn-ghost text-xs" onClick={onPause}>
-              Pause
-            </button>
-            <button className="btn-danger text-xs" onClick={onCancel}>
-              Cancel
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ActiveDownloads({ active, progress, paused, onPause, onResume, onCancel }: {
-  active: Record<string, ActiveDl>;
-  progress: Record<string, { downloaded: number; total: number | null }>;
-  paused: Record<string, boolean>;
-  onPause: (id: string) => void;
-  onResume: (id: string) => void;
-  onCancel: (id: string) => void;
-}) {
-  const ids = Object.keys(active);
-  if (ids.length === 0) return null;
-  return (
-    <div className="mb-2 rounded border border-border bg-surface-2 p-4">
-      <h3 className="text-xs font-medium text-dim mb-2">Downloading</h3>
-      <div className="space-y-3">
-        {ids.map((id) => {
-          const dl = progress[id];
-          const isPaused = !!paused[id];
-          return (
-            <div key={id}>
-              <div className="flex items-center justify-between mb-1 gap-2">
-                <span className="text-xs text-ink truncate mr-3 font-mono">{baseOf(id)}</span>
-                <div className="flex items-center gap-2 shrink-0">
-                  {isPaused ? (
-                    <>
-                      <span className="text-[0.625rem] text-accent-yellow">Paused</span>
-                      <button className="btn-primary text-[0.625rem] py-0.5 px-1.5" onClick={() => onResume(id)}>
-                        Resume
-                      </button>
-                      <button
-                        className="btn-danger text-[0.625rem] py-0.5 px-1.5"
-                        onClick={() => onCancel(id)}
-                        title="Discard the partial download"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-[0.625rem] font-mono text-dim">
-                        {dl?.total ? `${((dl.downloaded / dl.total) * 100).toFixed(1)}%` : fmtMB((dl?.downloaded ?? 0) / 1024 / 1024)}
-                      </span>
-                      <button className="btn-ghost text-[0.625rem] py-0.5 px-1.5" onClick={() => onPause(id)}>
-                        Pause
-                      </button>
-                      <button
-                        className="btn-danger text-[0.625rem] py-0.5 px-1.5"
-                        onClick={() => onCancel(id)}
-                        title="Discard the partial download"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-              {!isPaused && (
-                <div className="h-1 bg-surface-3 overflow-hidden">
-                  <div
-                    className="h-full bg-accent transition-all"
-                    style={{ width: dl?.total ? `${(dl.downloaded / dl.total) * 100}%` : "100%" }}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
