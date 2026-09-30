@@ -1208,7 +1208,7 @@ function ContextRing({ used, total, avgTokps, model, genTokens, liveGenTps, live
 
 // ── Harness chat (agent loop with sandboxed tools) ──────────────────────────
 
-export default function Chat({ go }: { go: (t: Tab) => void }) {
+export default function Chat({ go, active = true }: { go: (t: Tab) => void; active?: boolean }) {
   const [status, setStatus] = useState<ServerStatus>(getServerStatus());
   const [items, setItems] = useState<Item[]>([]);
   const [input, setInput] = useState("");
@@ -1369,6 +1369,9 @@ export default function Chat({ go }: { go: (t: Tab) => void }) {
     }
   };
 
+  // Hidden tabs keep their stream state but pause the stats polling.
+  const activeRef = useRef(active);
+
   useEffect(() => {
     const refreshCaps = () => {
       call(commands.harnessAgentCapabilities()).then(setCaps).catch(() => {});
@@ -1388,9 +1391,11 @@ export default function Chat({ go }: { go: (t: Tab) => void }) {
       wasRunning = running;
       setStatus(s);
     };
-    const poll = () =>
-      // Stats work server-less too (external provider / GGUF fallback).
+    const poll = () => {
+      // The stats hit the local server; skip while the tab is hidden.
+      if (!activeRef.current) return;
       call(commands.harnessContextStats()).then(setSlotCtx).catch(() => {});
+    };
     refreshCaps();
     refreshConfig();
     refreshActiveProject();
@@ -1409,6 +1414,11 @@ export default function Chat({ go }: { go: (t: Tab) => void }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    activeRef.current = active;
+    if (active) call(commands.harnessContextStats()).then(setSlotCtx).catch(() => {});
+  }, [active]);
 
   const restoreFromBackend = async () => {
     try {

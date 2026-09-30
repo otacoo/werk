@@ -34,6 +34,7 @@ import type {
 import { call } from "../utils/ipc";
 import { formatSize } from "../utils/format";
 import { subscribeConfigChanged } from "../utils/appSettings";
+import { subscribeServerStatus } from "../utils/serverStatus";
 import MemoryVisualizer from "../components/MemoryVisualizer";
 import Toggle from "../components/Toggle";
 import type { Tab } from "../App";
@@ -277,15 +278,14 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
       })
       .catch(() => {});
     refreshModels();
-    refreshStatus();
     call(commands.getServerLogs()).then(setLogs).catch(() => {});
     const unlistenLog = listen<string>("server_log", (e) => {
       setLogs((prev) => [...prev.slice(-399), e.payload]);
     });
-    const interval = setInterval(refreshStatus, 2000);
+    const unsubStatus = subscribeServerStatus(setStatus);
     return () => {
       unlistenLog.then((f) => f());
-      clearInterval(interval);
+      unsubStatus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

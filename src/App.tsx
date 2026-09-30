@@ -201,7 +201,7 @@ export default function App() {
         {/* Chat, Run, Dashboard, Tools and Mode stay mounted off-tab: stream,
             launch, download and form state survive switches. */}
         <div className="h-full min-h-0" style={{ display: tab === "chat" ? undefined : "none" }}>
-          <Chat go={setTab} />
+          <Chat go={setTab} active={tab === "chat"} />
         </div>
         <div className="h-full min-h-0" style={{ display: tab === "run" ? undefined : "none" }}>
           <Run go={setTab} />
