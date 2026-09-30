@@ -23,9 +23,13 @@
   <img src="assets/screenshots/werk_settings.png" width="250"/>
 </p>
 
+## Status
+
+**werk.** is in *active development* and evolving rapidly. Bug reports and ideas are welcome via [issues](https://github.com/otacoo/werk/issues).
+
 ## Goals
 
-werk. focuses on being easy to use and getting the most out of local models.
+**werk.** focuses on being easy to use and getting the most out of local models.
 
 - *Easily* run local models
 - Add *guardrails* to make small (≤12B) and tiny (≤4B) models actually useful
@@ -42,6 +46,8 @@ Grab the latest installer for your platform from the [Releases page](https://git
 
 The app updates itself from GitHub releases, so you only need to install once.\
 A **first-run wizard** will walk you through downloading a llama.cpp build, picking (or downloading) models, and choosing a theme.
+
+`Note:` If you're on Windows 10, you will have to install [Microsoft Edge WebView2 runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2).
 
 ## Download
 
@@ -85,17 +91,19 @@ npm run typecheck  # tsc --noEmit
 
 ## How it works
 
-Werk is a [Tauri 2](https://tauri.app/) desktop app:
+**werk.** is a [Tauri 2](https://tauri.app/) desktop app:
 
 - `crates/harness/` — the agent core: model loop, tools, permissions, compaction. Plain Rust, no Tauri and no I/O globals, so it stays testable.
 - `src-tauri/` — the drivers: server lifecycle, model scanning, runtimes, downloads, sessions, and the thin Tauri command layer.
 - `src/` — the React + TypeScript UI.
 - `tools/export-bindings/` — generates the TypeScript bindings from the Rust types, so an IPC mismatch fails at build time.
 
-## Status
+## Thanks and considerations
 
-Werk is in active development — expect rough edges and breaking changes between releases. Bug reports and ideas are welcome via [issues](https://github.com/otacoo/werk/issues).
+I'd like to thank @pwilkin; **werk.** was originally a fork with added elements on top of [pwilkin's](https://github.com/pwilkin/) [Catapult](https://github.com/pwilkin/catapult) after it stopped development.
+Since then I've decided to rewrite the backend and frontend elements from scratch, certain elements may still share some visual similarity with Catapult but **werk.** is now much further along from where Catapult was.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE).\
+The third-party components that **werk.** bundles, with their license texts, are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

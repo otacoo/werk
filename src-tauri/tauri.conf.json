@@ -42,7 +42,8 @@
       "icons/icon.ico"
     ],
     "category": "DeveloperTool",
-    "shortDescription": "llama.cpp launcher with an agentic chat harness"
+    "shortDescription": "llama.cpp launcher with an agentic chat harness",
+    "resources": { "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md" }
   },
   "plugins": {
     "updater": {

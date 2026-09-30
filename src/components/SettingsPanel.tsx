@@ -807,6 +807,25 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange 
                   Apache License 2.0
                 </button>
               </p>
+              <p className="text-xs text-dim mt-4 leading-snug">
+                Werk bundles open-source components — among them{" "}
+                <button
+                  className="text-accent-soft hover:underline"
+                  onClick={() => void openUrl("https://katex.org").catch(() => {})}
+                >
+                  KaTeX
+                </button>{" "}
+                (MIT) for math rendering. The full list, with license texts, is in the{" "}
+                <button
+                  className="text-accent-soft hover:underline"
+                  onClick={() =>
+                    void openUrl(`${REPO_URL}/blob/main/THIRD-PARTY-NOTICES.md`).catch(() => {})
+                  }
+                >
+                  third-party notices
+                </button>
+                , shipped alongside the app.
+              </p>
               <button
                 className="inline-flex items-center gap-1.5 text-xs text-dim hover:text-ink mt-4"
                 onClick={() => void openUrl(REPO_URL).catch(() => {})}
