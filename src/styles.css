@@ -149,11 +149,18 @@ textarea::placeholder {
   [data-theme="migu"] .card {
     box-shadow: 0 2px 6px rgb(0 0 0 / 0.45);
   }
-  /* Native number spinners: warm them to the sand ink instead of OS gray. */
-  [data-theme="werk"] input[type="number"]::-webkit-inner-spin-button,
-  [data-theme="werk"] input[type="number"]::-webkit-outer-spin-button {
+  /* Native number spinners: each theme's color-scheme styles the glyph;
+     arrows only appear on hover/focus, never pinned on. */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  input[type="number"]:hover::-webkit-inner-spin-button,
+  input[type="number"]:hover::-webkit-outer-spin-button,
+  input[type="number"]:focus::-webkit-inner-spin-button,
+  input[type="number"]:focus::-webkit-outer-spin-button {
     opacity: 1;
-    filter: sepia(0.5) brightness(0.55);
   }
   .section-title {
     @apply text-sm font-semibold text-ink mb-0;

@@ -469,7 +469,9 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
               className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
               title="Context size for this role's model in tokens. Empty uses the launch context size, then the model default."
             >
-              <span>Ctx</span>
+              <span>
+                Ctx <span className="font-mono text-[0.625rem] opacity-60">(--ctx-size)</span>
+              </span>
               <input
                 type="number"
                 min={0}
@@ -484,7 +486,9 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
               className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
               title="How many layers of this role's model run on the GPU; the rest stay on the CPU. Empty = auto, -1 = all layers, 0 = CPU only."
             >
-              <span>GPU</span>
+              <span>
+                GPU <span className="font-mono text-[0.625rem] opacity-60">(--ngl)</span>
+              </span>
               <input
                 type="number"
                 min={-1}
@@ -1270,8 +1274,8 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 flag="--fit"
                 hint={
                   routerMode
-                    ? "llama.cpp auto sizes each router child to fit (weights + context) in VRAM; per-role GPU-layer overrides on the Mode page still win."
-                    : "llama.cpp auto sizes GPU layers to fit (weights + context) in VRAM. GPU layers (--ngl) value is ignored if this is on."
+                    ? "By default llama.cpp auto sizes each router child to fit (weights + context) in VRAM. Per-role GPU-layer overrides still win if set."
+                    : "By default llama.cpp auto sizes GPU layers to fit (weights + context) in VRAM. GPU layers (--ngl) value is ignored if this is on."
                 }
                 checked={fitOn}
                 onChange={setFitOn}

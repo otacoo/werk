@@ -65,10 +65,15 @@
 
 ### Fixed
 
-- Router mode shows the Fit toggle now, and `--fit` is passed to the router
-  launch so each child inherits it — previously the flag was single-mode only
-  while the memory estimate still reported Fit behavior, with no way to
-  change it. Per-role context and GPU-layer overrides still win.
+- Number inputs behave the same in every theme: the up/down arrows appear on
+  hover/focus only — the werk theme pinned them on with a sepia tint — and
+  the glyph follows each theme's color scheme. The per-role Ctx/GPU fields
+  also name their flags (`--ctx-size`, `--ngl`).
+- Router mode shows the Fit toggle now, and turning it off passes `--fit off`
+  to the router launch (fit is already the default for children) — previously
+  the flag was single-mode only while the memory estimate still reported Fit
+  behavior, with no way to change it. Per-role context and GPU-layer
+  overrides still win.
 - Image work no longer tempts the shell: the file-tool rule now covers images
   ("you cannot view image files through shell commands or scripts"), subagent
   prompts carry the same file-tool rule as the orchestrator, `exec`'s
