@@ -4,6 +4,9 @@
 
 ### Added
 
+- Deleting a chat session shows an Undo button in the sidebar for ~12 seconds
+  — the transcript is kept in memory for the window, so a misclick is one
+  click away from being reverted.
 - A subagent goal that names exactly one existing image auto-attaches it when
   the subagent's model has vision and no `image:` was passed — small
   orchestrators forget the argument, and this keeps the first spawn from
@@ -34,6 +37,9 @@
 
 ### Changed
 
+- Deleting a chat session moves its file to the OS recycle bin (trash on
+  Linux/macOS) instead of erasing it, so even after the undo window the
+  transcript stays recoverable outside the app.
 - Router launches plan residency from the role models' estimated footprints:
   both stay loaded when they fit VRAM/RAM (`--models-max 2`), otherwise the
   router is capped at one (`--models-max 1`) so it swaps orchestrator ↔

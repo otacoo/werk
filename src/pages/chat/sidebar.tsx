@@ -98,6 +98,13 @@ export function ChatSidebar({ onProjectChanged, onSessionPicked, visible = true 
   const [newBranch, setNewBranch] = useState("");
   const [wtError, setWtError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ kind: "session" | "project"; id: string; value: string } | null>(null);
+  const [undo, setUndo] = useState<{ id: string; title: string } | null>(null);
+  const undoTimer = useRef<number | null>(null);
+
+  // The undo bar is temporary; clear its timer on unmount.
+  useEffect(() => () => {
+    if (undoTimer.current !== null) window.clearTimeout(undoTimer.current);
+  }, []);
   const [width, setWidth] = useState(() => {
     const w = Number(localStorage.getItem("werk.chat.sidebar.w"));
     return w >= SIDEBAR_MIN && w <= SIDEBAR_MAX ? w : 240;
@@ -204,11 +211,26 @@ export function ChatSidebar({ onProjectChanged, onSessionPicked, visible = true 
   };
 
   const deleteSession = async (id: string) => {
+    const title = sessions.find((s) => s.id === id)?.title ?? "session";
     try {
       await call(commands.harnessSessionDelete(id));
-    } catch {}
+    } catch {
+      return;
+    }
     await refreshSessions();
     onSessionPicked();
+    setUndo({ id, title });
+    if (undoTimer.current !== null) window.clearTimeout(undoTimer.current);
+    undoTimer.current = window.setTimeout(() => setUndo(null), 12_000);
+  };
+
+  const undoDelete = async () => {
+    if (undoTimer.current !== null) window.clearTimeout(undoTimer.current);
+    setUndo(null);
+    try {
+      await call(commands.harnessSessionUndo());
+    } catch {}
+    await refreshSessions();
   };
 
   const renameSession = async (id: string, title: string) => {
@@ -558,6 +580,19 @@ export function ChatSidebar({ onProjectChanged, onSessionPicked, visible = true 
             <p className="text-[0.6875rem] text-faint px-2 leading-snug">No sessions yet.</p>
           )}
         </div>
+        )}
+        {undo && (
+          <div className="mt-2 flex items-center gap-2 rounded border border-border bg-surface-2 px-2 py-1.5 text-[0.6875rem] text-dim">
+            <span className="flex-1 truncate" title={`Deleted "${undo.title}"`}>
+              Deleted "{undo.title}"
+            </span>
+            <button
+              className="btn-secondary py-0.5 px-1.5 text-[0.6875rem] shrink-0"
+              onClick={undoDelete}
+            >
+              Undo
+            </button>
+          </div>
         )}
       </div>
       )}

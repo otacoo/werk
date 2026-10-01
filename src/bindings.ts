@@ -31,6 +31,8 @@ export const commands = {
 	harnessSessionsList: () => typedError<SessionSummary_Serialize[], string>(__TAURI_INVOKE("harness_sessions_list")),
 	harnessSessionLoad: (id: string) => typedError<HistoryView_Serialize, string>(__TAURI_INVOKE("harness_session_load", { id })),
 	harnessSessionDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("harness_session_delete", { id })),
+	/**  Restore the most recently deleted session (in-memory copy, short window). */
+	harnessSessionUndo: () => typedError<string | null, string>(__TAURI_INVOKE("harness_session_undo")),
 	harnessSessionRename: (id: string, title: string) => typedError<null, string>(__TAURI_INVOKE("harness_session_rename", { id, title })),
 	/**  Write the session transcript JSON to a user-picked path. */
 	harnessSessionExport: (id: string, path: string) => typedError<null, string>(__TAURI_INVOKE("harness_session_export", { id, path })),

@@ -112,6 +112,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::harness_sessions_list,
         chat::harness_session_load,
         chat::harness_session_delete,
+        chat::harness_session_undo,
         chat::harness_session_rename,
         chat::harness_session_export,
         chat::harness_project_add,

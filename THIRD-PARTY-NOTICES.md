@@ -52,6 +52,7 @@ dependencies and the workspace crates' direct Rust dependencies.
 | tauri-plugin-window-state | 2.4.1 | Apache-2.0 OR MIT |
 | tauri-specta | 2.0.0-rc.25 | MIT |
 | tokio | 1.53.1 | MIT |
+| trash | 5.2.9 | MIT |
 | walkdir | 2.5.0 | Unlicense/MIT |
 | windows | 0.61.3 | MIT OR Apache-2.0 |
 | zip | 2.4.2 | MIT |
@@ -82,6 +83,7 @@ dependencies and the workspace crates' direct Rust dependencies.
 - tauri-plugin-updater 2.12.0 — Copyright (c) 2017 - Present Tauri Apps Contributors
 - tauri-plugin-window-state 2.4.1 — Copyright (c) 2017 - Present Tauri Apps Contributors
 - tokio 1.53.1 — Copyright (c) Tokio Contributors
+- trash 5.2.9 — Copyright 2019 Artúr Barnabás Kovács
 - walkdir 2.5.0 — Copyright (c) 2015 Andrew Gallant
 - windows 0.61.3 — Copyright (c) Microsoft Corporation.
 - zip 2.4.2 — Copyright (c) 2014 Mathijs van de Nes

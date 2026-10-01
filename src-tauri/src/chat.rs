@@ -39,6 +39,8 @@ pub struct HarnessRuntime {
     pub session_id: Mutex<Option<String>>,
     /// Display metadata by message index (footer stats).
     pub meta: Mutex<HashMap<usize, MessageMeta>>,
+    /// Most recent session delete, held in memory so the UI can undo it.
+    pub deleted_session: Mutex<Option<DeletedSession>>,
 }
 
 impl HarnessRuntime {
@@ -52,8 +54,22 @@ impl HarnessRuntime {
             steering: Mutex::new(Vec::new()),
             session_id: Mutex::new(None),
             meta: Mutex::new(HashMap::new()),
+            deleted_session: Mutex::new(None),
         }
     }
+}
+
+/// Undo window for a deleted session; the file itself already sits in the
+/// OS recycle bin after that, so this only gates the in-app button.
+const SESSION_UNDO_WINDOW: std::time::Duration = std::time::Duration::from_secs(600);
+
+pub struct DeletedSession {
+    file: SessionFile,
+    at: std::time::Instant,
+}
+
+fn undo_window_open(at: std::time::Instant) -> bool {
+    at.elapsed() < SESSION_UNDO_WINDOW
 }
 
 /// Footer stats for one assistant message. Integers are 32-bit: exact in
@@ -2186,10 +2202,37 @@ pub async fn harness_session_delete(
     }
     if let Some(path) = session_path(&id) {
         if path.exists() {
-            std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+            // Parse before trashing: the in-memory copy powers Undo, the file
+            // itself goes to the OS recycle bin instead of being erased.
+            let stash = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|text| serde_json::from_str::<SessionFile>(&text).ok());
+            trash::delete(&path)
+                .map_err(|e| format!("Cannot move the session to the trash: {e}"))?;
+            if let Some(file) = stash {
+                *state.harness.deleted_session.lock().unwrap() = Some(DeletedSession {
+                    file,
+                    at: std::time::Instant::now(),
+                });
+            }
         }
     }
     Ok(())
+}
+
+/// Restore the most recently deleted session (in-memory copy, short window).
+#[tauri::command]
+#[specta::specta]
+pub async fn harness_session_undo(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let Some(stash) = state.harness.deleted_session.lock().unwrap().take() else {
+        return Ok(None);
+    };
+    if !undo_window_open(stash.at) {
+        return Ok(None);
+    }
+    let id = stash.file.id.clone();
+    write_session(&stash.file)?;
+    Ok(Some(id))
 }
 
 fn read_session(id: &str) -> Result<SessionFile, String> {
@@ -2981,6 +3024,16 @@ mod tests {
         assert_eq!(base64_encode(b"fo"), "Zm8=");
         assert_eq!(base64_encode(b"foo"), "Zm9v");
         assert_eq!(base64_encode(b"Hello"), "SGVsbG8=");
+    }
+
+    #[test]
+    fn undo_window_expires() {
+        assert!(undo_window_open(std::time::Instant::now()));
+        assert!(!undo_window_open(
+            std::time::Instant::now()
+                - SESSION_UNDO_WINDOW
+                - std::time::Duration::from_secs(1)
+        ));
     }
 
     #[test]
