@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-10-01
+
 ### Added
 
 - Run page launch options grew: prompt-cache controls (`--cache-reuse`,
