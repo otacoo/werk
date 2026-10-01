@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
 import {
   ArrowUp,
   Brain,
@@ -9,6 +11,7 @@ import {
   FileWarning,
   FolderOpen,
   Paperclip,
+  Pencil,
   RefreshCw,
   Square,
   Cloud,
@@ -216,6 +219,8 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   const [questionDraft, setQuestionDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Draft text as written to the scratch file; null when not editing.
+  const draftWrittenRef = useRef<string | null>(null);
   // Auto-grow the input with content, capped at a third of the view
   // (scrollbar past that). Measured and applied directly on the DOM node —
   // going through state would skip re-applying an unchanged height after the
@@ -871,6 +876,41 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
 
   // ── Attachments (+ button): images for vision models, text inline ──────────
 
+  // Draft edited in the system editor: pull it back when the window refocuses.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (!focused || draftWrittenRef.current === null) return;
+        const written = draftWrittenRef.current;
+        draftWrittenRef.current = null;
+        call(commands.readDraftFile())
+          .then((text) => {
+            if (text !== written) setInput(text);
+          })
+          .catch(() => {});
+      })
+      .then((f) => {
+        unlisten = f;
+      })
+      .catch(() => {});
+    return () => unlisten?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const editDraftExternally = async () => {
+    try {
+      const path = await call(commands.writeDraftFile(input));
+      draftWrittenRef.current = input;
+      await openPath(path);
+    } catch (e) {
+      setItems((prev) => [
+        ...prev,
+        { kind: "sys", text: `Could not open the draft in an editor: ${e}` },
+      ]);
+    }
+  };
+
   const attachFiles = async () => {
     let picked: string | string[] | null = null;
     try {
@@ -1398,6 +1438,13 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
               title="Attach files or images"
             >
               <Paperclip size={14} />
+            </button>
+            <button
+              className="btn-secondary shrink-0 py-2 px-2.5 mb-0.5"
+              onClick={editDraftExternally}
+              title="Edit the draft in your system editor"
+            >
+              <Pencil size={14} />
             </button>
             <textarea
               ref={inputRef}

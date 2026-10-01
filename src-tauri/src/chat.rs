@@ -2865,6 +2865,77 @@ pub async fn plugin_set_enabled(
     config.save().map_err(|e| e.to_string())
 }
 
+/// Create a commented plugin template under the active project's
+/// `.werk/plugins/`; returns the manifest path so the UI can open it.
+#[tauri::command]
+#[specta::specta]
+pub async fn scaffold_plugin(state: State<'_, AppState>) -> Result<String, String> {
+    let root = project_root(&state).map_err(|e| e.to_string())?;
+    let base = root.join(".werk").join("plugins");
+    std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
+    let mut name = "my_tool".to_string();
+    let mut n = 1;
+    while base.join(&name).exists() {
+        n += 1;
+        name = format!("my_tool-{n}");
+    }
+    let dir = base.join(&name);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    let (script_name, script, command) = (
+        "run.ps1",
+        "# Werk plugin: stdin gets {\"args\": {...}}, stdout is the tool result.\n\
+         # The command runs with the project directory as the working directory.\n\
+         $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json\n\
+         $query = $payload.args.query\n\
+         Write-Output \"replace me - got query: $query\"\n",
+        "[\"powershell\", \"-NoProfile\", \"-File\", \"run.ps1\"]",
+    );
+    #[cfg(not(target_os = "windows"))]
+    let (script_name, script, command) = (
+        "run.sh",
+        "#!/bin/sh\n\
+         # Werk plugin: stdin gets {\"args\": {...}}, stdout is the tool result.\n\
+         # The command runs with the project directory as the working directory.\n\
+         echo \"replace me - stdin: $(cat)\"\n",
+        "[\"sh\", \"run.sh\"]",
+    );
+    std::fs::write(dir.join(script_name), script).map_err(|e| e.to_string())?;
+
+    let manifest = format!(
+        "{{\n  \"name\": \"{name}\",\n  \"description\": \"One line the model sees when \
+         choosing tools.\",\n  \"parameters\": {{\n    \"type\": \"object\",\n    \"properties\": \
+         {{\n      \"query\": {{ \"type\": \"string\", \"description\": \"What to look up.\" }}\n    \
+         }},\n    \"required\": [\"query\"]\n  }},\n  \"command\": {command},\n  \"approval\": \
+         true\n}}\n"
+    );
+    let manifest_path = dir.join("plugin.json");
+    std::fs::write(&manifest_path, manifest).map_err(|e| e.to_string())?;
+    Ok(manifest_path.to_string_lossy().to_string())
+}
+
+/// Chat-draft scratch file for external editing.
+fn draft_path() -> PathBuf {
+    std::env::temp_dir().join("werk-draft.md")
+}
+
+/// Write the chat draft to the scratch file; returns its path.
+#[tauri::command]
+#[specta::specta]
+pub async fn write_draft_file(text: String) -> Result<String, String> {
+    let path = draft_path();
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Read back the scratch file after external editing.
+#[tauri::command]
+#[specta::specta]
+pub async fn read_draft_file() -> Result<String, String> {
+    std::fs::read_to_string(draft_path()).map_err(|e| e.to_string())
+}
+
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct SkillDto {
     pub name: String,

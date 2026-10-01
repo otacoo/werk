@@ -292,6 +292,12 @@ function SystemPromptCard({ appConfig, setAppConfig }: {
         {activePreset && activePreset !== "default" && (
           <span className="text-[0.6875rem] text-dim">Prompt "{activePreset}" active</span>
         )}
+        <span
+          className="ml-auto text-[0.6875rem] text-faint"
+          title="Rough estimate from the character count; the model's tokenizer may differ."
+        >
+          ~{Math.ceil((promptDraft ?? shownBase).length / 4)} tokens
+        </span>
       </div>
     </div>
   );

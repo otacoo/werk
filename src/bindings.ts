@@ -89,6 +89,15 @@ export const commands = {
 	harnessContextStats: () => typedError<ContextStats_Serialize, string>(__TAURI_INVOKE("harness_context_stats")),
 	toolsList: () => typedError<ToolsList, string>(__TAURI_INVOKE("tools_list")),
 	pluginSetEnabled: (name: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("plugin_set_enabled", { name, enabled })),
+	/**
+	 *  Create a commented plugin template under the active project's
+	 *  `.werk/plugins/`; returns the manifest path so the UI can open it.
+	 */
+	scaffoldPlugin: () => typedError<string, string>(__TAURI_INVOKE("scaffold_plugin")),
+	/**  Write the chat draft to the scratch file; returns its path. */
+	writeDraftFile: (text: string) => typedError<string, string>(__TAURI_INVOKE("write_draft_file", { text })),
+	/**  Read back the scratch file after external editing. */
+	readDraftFile: () => typedError<string, string>(__TAURI_INVOKE("read_draft_file")),
 	skillsList: () => typedError<SkillDto[], string>(__TAURI_INVOKE("skills_list")),
 	harnessMemoryGet: (scope: string) => typedError<MemoryFileDto, string>(__TAURI_INVOKE("harness_memory_get", { scope })),
 	harnessMemorySet: (scope: string, text: string) => typedError<null, string>(__TAURI_INVOKE("harness_memory_set", { scope, text })),

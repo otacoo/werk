@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pencil, Plus, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { commands } from "../bindings";
 import type { AppConfig, LspServerConfig } from "../bindings";
 import { call } from "../utils/ipc";
@@ -304,13 +305,40 @@ export function PluginToolsCard({ plugins, errors, pluginsDir, setPlugins, reloa
   setPlugins: React.Dispatch<React.SetStateAction<PluginInfo[]>>;
   reload: () => void;
 }) {
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const createPlugin = async () => {
+    setError(null);
+    setCreating(true);
+    try {
+      const path = await call(commands.scaffoldPlugin());
+      await openPath(path);
+      reload();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="card">
       <div className="flex items-center justify-between gap-2 mb-1">
         <h2 className="section-title mb-0">Plugin tools</h2>
-        <button className="btn-ghost text-[0.625rem]" onClick={reload} title="Refresh list">
-          <RefreshCw size={11} /> Refresh
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            className="btn-ghost text-[0.625rem]"
+            onClick={createPlugin}
+            disabled={creating}
+            title="Scaffold a commented plugin in the active project's .werk/plugins and open it"
+          >
+            <Plus size={11} /> New plugin
+          </button>
+          <button className="btn-ghost text-[0.625rem]" onClick={reload} title="Refresh list">
+            <RefreshCw size={11} /> Refresh
+          </button>
+        </div>
       </div>
       <p className="section-desc">
         A folder with a <span className="font-mono">plugin.json</span> plus its executable. Stdin
@@ -345,9 +373,11 @@ export function PluginToolsCard({ plugins, errors, pluginsDir, setPlugins, reloa
       </div>
       {plugins.length === 0 && (
         <p className="text-[0.6875rem] text-dim mt-2">
-          No plugins yet — create a folder{pluginsDir ? <> in <span className="font-mono">{pluginsDir}</span></> : ""} and press Refresh.
+          No plugins yet — press New plugin, or drop a single <span className="font-mono">.json</span>
+          manifest{pluginsDir ? <> or a folder in <span className="font-mono">{pluginsDir}</span></> : ""} and press Refresh.
         </p>
       )}
+      {error && <p className="text-[0.625rem] text-accent-red mt-2 break-words">{error}</p>}
       {errors.length > 0 && (
         <div className="space-y-1 mt-2">
           {errors.map((e) => (

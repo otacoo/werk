@@ -97,16 +97,26 @@ pub fn discover(scoped_roots: &[(String, PathBuf)]) -> (Vec<PluginDef>, Vec<Plug
             Err(_) => continue,
         };
         for entry in entries.flatten() {
-            let dir = entry.path();
-            if !dir.is_dir() || !dir.join("plugin.json").is_file() {
+            let path = entry.path();
+            // Folder plugin (`<name>/plugin.json`) or single-file `<name>.json`.
+            let manifest_path = if path.is_dir() {
+                let manifest = path.join("plugin.json");
+                if !manifest.is_file() {
+                    continue;
+                }
+                manifest
+            } else if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                path.clone()
+            } else {
                 continue;
-            }
-            let text = match std::fs::read_to_string(dir.join("plugin.json")) {
+            };
+            let dir = manifest_path.parent().unwrap_or(root).to_path_buf();
+            let text = match std::fs::read_to_string(&manifest_path) {
                 Ok(t) => t,
                 Err(e) => {
                     errors.push(PluginError {
                         dir: dir.to_string_lossy().to_string(),
-                        error: format!("cannot read plugin.json: {e}"),
+                        error: format!("cannot read manifest: {e}"),
                     });
                     continue;
                 }
@@ -320,6 +330,22 @@ mod tests {
         assert_eq!(errors.len(), 1);
         let _ = std::fs::remove_dir_all(&global);
         let _ = std::fs::remove_dir_all(&project);
+    }
+
+    #[test]
+    fn discovers_single_file_plugins() {
+        let root = plugin_root("single");
+        std::fs::write(
+            root.join("quick.json"),
+            r#"{"name": "quick", "description": "one file", "command": ["echo"]}"#,
+        )
+        .unwrap();
+        let (defs, errors) = discover(&[("global".to_string(), root.clone())]);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].name, "quick");
+        assert_eq!(defs[0].dir, root);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

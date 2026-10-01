@@ -6,6 +6,13 @@
 
 ### Added
 
+- Tool authoring: "New plugin" in Tools → Agent → Plugin tools scaffolds a
+  commented plugin (manifest + script) in the active project's
+  `.werk/plugins/` and opens it in your editor; a plugin can also be a single
+  `.json` manifest dropped in a plugins root. The Chat composer's pencil
+  button edits the current draft in the system editor and pulls it back when
+  the window refocuses.
+- The System prompt card shows a rough token estimate for the current prompt.
 - Runs start with context: date/time (UTC), git branch + short HEAD + dirty
   count, and a capped top-level listing of the project, injected into the
   system prompt.
