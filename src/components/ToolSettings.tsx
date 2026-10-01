@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pencil, Plus, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { FolderOpen, Pencil, Plus, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { commands } from "../bindings";
 import type { AppConfig, LspServerConfig } from "../bindings";
@@ -357,6 +357,13 @@ export function PluginToolsCard({ plugins, errors, pluginsDir, setPlugins, reloa
               </div>
               {p.description && <p className="text-[0.625rem] text-faint truncate">{p.description}</p>}
             </div>
+            <button
+              className="text-faint hover:text-ink shrink-0"
+              onClick={() => openPath(p.dir).catch(() => {})}
+              title="Open the plugin folder"
+            >
+              <FolderOpen size={12} />
+            </button>
             <Toggle
               checked={p.enabled}
               onChange={async (v) => {
