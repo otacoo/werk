@@ -551,9 +551,9 @@ pub fn build_args(config: &ServerConfig) -> (Vec<String>, Vec<String>) {
     args.push("--port".to_string());
     args.push(config.port.to_string());
 
+    let fit = config.extra_params.get("fit").map(|s| s.as_str()).unwrap_or("on");
+    let fit_on = fit != "off";
     if !router_mode {
-        let fit = config.extra_params.get("fit").map(|s| s.as_str()).unwrap_or("on");
-        let fit_on = fit != "off";
         // With fit on, llama.cpp sizes the offload itself; a user-set
         // --n-gpu-layers aborts that fit and invites VRAM overcommit.
         if fit_on {
@@ -569,9 +569,11 @@ pub fn build_args(config: &ServerConfig) -> (Vec<String>, Vec<String>) {
             args.push("--ctx-size".to_string());
             args.push(config.n_ctx.to_string());
         }
-        args.push("--fit".to_string());
-        args.push(if fit_on { "on" } else { "off" }.to_string());
     }
+    // Fit is a load-time arg: router children inherit it from the base args,
+    // while their preset entries (ctx-size, n-gpu-layers) still win.
+    args.push("--fit".to_string());
+    args.push(if fit_on { "on" } else { "off" }.to_string());
 
     if let Some(threads) = config.n_threads {
         args.push("--threads".to_string());
@@ -1102,8 +1104,21 @@ mod tests {
         let (args, _) = build_args(&ServerConfig::default());
         assert!(!args.contains(&"--model".to_string()));
         assert!(!args.contains(&"--ctx-size".to_string()));
-        assert!(!args.contains(&"--fit".to_string()));
         assert!(!args.contains(&"--n-gpu-layers".to_string()));
+        // Fit rides along: router children inherit it from the base args.
+        let fit = args.iter().position(|a| a == "--fit").expect("router keeps --fit");
+        assert_eq!(args[fit + 1], "on");
+    }
+
+    #[test]
+    fn router_mode_passes_fit_off() {
+        let mut config = ServerConfig::default();
+        config.extra_params.insert("fit".to_string(), "off".to_string());
+        let (args, _) = build_args(&config);
+        let fit = args.iter().position(|a| a == "--fit").expect("--fit");
+        assert_eq!(args[fit + 1], "off");
+        assert!(!args.contains(&"--n-gpu-layers".to_string()));
+        assert!(!args.contains(&"--ctx-size".to_string()));
     }
 
     #[test]

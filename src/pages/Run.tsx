@@ -1265,15 +1265,17 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
               </Field>
             </div>
             <div className="mt-4 space-y-3">
-              {!routerMode && (
-                <Toggle
-                  label="Fit"
-                  flag="--fit"
-                  hint="llama.cpp auto sizes GPU layers to fit (weights + context) in VRAM. GPU layers (--ngl) value is ignored if this is on."
-                  checked={fitOn}
-                  onChange={setFitOn}
-                />
-              )}
+              <Toggle
+                label="Fit"
+                flag="--fit"
+                hint={
+                  routerMode
+                    ? "llama.cpp auto sizes each router child to fit (weights + context) in VRAM; per-role GPU-layer overrides on the Mode page still win."
+                    : "llama.cpp auto sizes GPU layers to fit (weights + context) in VRAM. GPU layers (--ngl) value is ignored if this is on."
+                }
+                checked={fitOn}
+                onChange={setFitOn}
+              />
               <Toggle
                 label="Offload mmproj to GPU"
                 flag="--no-mmproj-offload"

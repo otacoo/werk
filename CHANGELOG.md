@@ -65,6 +65,10 @@
 
 ### Fixed
 
+- Router mode shows the Fit toggle now, and `--fit` is passed to the router
+  launch so each child inherits it — previously the flag was single-mode only
+  while the memory estimate still reported Fit behavior, with no way to
+  change it. Per-role context and GPU-layer overrides still win.
 - Image work no longer tempts the shell: the file-tool rule now covers images
   ("you cannot view image files through shell commands or scripts"), subagent
   prompts carry the same file-tool rule as the orchestrator, `exec`'s
