@@ -442,14 +442,15 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
               </button>
             </div>
             <div className="section-desc space-y-1">
+              <p>Use this if you want to use llama-server's own chat UI.</p>
               <p>
-                llama-server ships its own chat UI with the server. Enable the <b>Web UI</b>{" "}
+                Enable the <b>Web UI</b>{" "}
                 launch option (Run → Extra), then launch it from here.
               </p>
               <p>
                 Note: The Web UI talks to the model with the server's own chat template —{" "}
-                <b>not</b> werk's agent system prompt — so werk's tools (subagents, LSP) are
-                not available there, only MCPs.
+                <b>not</b> werk's agent system prompt — this means werk's tools, subagents, LSP, are
+                not available, only MCPs.
               </p>
             </div>
           </div>

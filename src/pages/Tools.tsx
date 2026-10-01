@@ -525,8 +525,8 @@ export default function Tools({ active = true }: { active?: boolean }) {
             <div className="card">
               <h2 className="section-title mb-1">Built-in Tools</h2>
               <p className="section-desc">
-                File and shell tools <span className="font-bold">llama-server</span> exposes at{" "}
-                <span className="font-mono">/tools</span> to its Web UI and other API clients.
+                The tools here are only for the <span className="font-bold">Web UI</span> and exposed at{" "}
+                <span className="font-mono">/tools</span>.
                 {running && (
                   <span className="text-accent-yellow"> Restart the running server to pick up changes.</span>
                 )}

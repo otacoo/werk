@@ -288,7 +288,7 @@ pub fn plan_router_residency(
         return ResidencyPlan {
             models_max: Some(2),
             note: format!(
-                "Resource plan: role models need ~{:.1} GB; usable VRAM is ~{:.1} GB — keeping \
+                "Resource management: using both models requires ~{:.1} GB; usable VRAM is ~{:.1} GB: keeping \
                  both resident (--models-max 2).",
                 vram_sum as f64 / 1024.0,
                 usable_mb as f64 / 1024.0
@@ -297,16 +297,15 @@ pub fn plan_router_residency(
     }
     let note = if vram_ok {
         format!(
-            "Resource plan: role models need ~{:.1} GB of RAM but only ~{:.1} GB is available — \
-             --models-max 1: the router swaps roles on demand.",
+            "Resource management: using both models requires ~{:.1} GB of RAM but only ~{:.1} GB is available — \
+             the router will swap roles on demand.",
             ram_sum as f64 / 1024.0,
             ram_available_mb as f64 / 1024.0
         )
     } else {
         format!(
-            "Resource plan: role models need ~{:.1} GB but only ~{:.1} GB of VRAM is usable — \
-             --models-max 1: the router swaps orchestrator ↔ worker on subagent turns, and the \
-             orchestrator reloads after each swap.",
+            "Resource management: using both models requires ~{:.1} GB but only ~{:.1} GB of VRAM is usable — \
+             the router will swap orchestrator ↔ worker on subagent turns.",
             vram_sum as f64 / 1024.0,
             usable_mb as f64 / 1024.0
         )

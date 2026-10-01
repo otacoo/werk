@@ -77,8 +77,7 @@ export function AgentToolsCard({ builtin, reload }: { builtin: BuiltinInfo[]; re
     <div className="card">
       <h2 className="section-title mb-1">Agent tools</h2>
       <p className="section-desc">
-        Werk's own tools for the chat agent. Reads run free; writes and shell ask for approval
-        first. MCP tools are listed in the MCP tab. Changes apply to the next run.
+        werk's own tools for the chat agent. Changes are applied on the next run.
       </p>
       <div className="space-y-1 mt-3">
         {builtin.map((t) => (
@@ -190,7 +189,7 @@ export function LspCard({ appConfig, setAppConfig, refresh, reloadTools }: {
     <div className="card">
       <h2 className="section-title mb-1">Language servers</h2>
       <p className="section-desc">
-        Enabled to connect to a stdio language server.<br></br>
+        Enable to connect to a stdio language server.<br></br>
         The program must be on PATH or an absolute path.
       </p>
       <div className="mt-3">
