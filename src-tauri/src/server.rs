@@ -569,11 +569,14 @@ pub fn build_args(config: &ServerConfig) -> (Vec<String>, Vec<String>) {
             args.push("--ctx-size".to_string());
             args.push(config.n_ctx.to_string());
         }
+        args.push("--fit".to_string());
+        args.push(if fit_on { "on" } else { "off" }.to_string());
+    } else if !fit_on {
+        // Fit is the default for router children; only the override rides,
+        // and their preset entries (ctx-size, n-gpu-layers) still win.
+        args.push("--fit".to_string());
+        args.push("off".to_string());
     }
-    // Fit is a load-time arg: router children inherit it from the base args,
-    // while their preset entries (ctx-size, n-gpu-layers) still win.
-    args.push("--fit".to_string());
-    args.push(if fit_on { "on" } else { "off" }.to_string());
 
     if let Some(threads) = config.n_threads {
         args.push("--threads".to_string());
@@ -1105,9 +1108,8 @@ mod tests {
         assert!(!args.contains(&"--model".to_string()));
         assert!(!args.contains(&"--ctx-size".to_string()));
         assert!(!args.contains(&"--n-gpu-layers".to_string()));
-        // Fit rides along: router children inherit it from the base args.
-        let fit = args.iter().position(|a| a == "--fit").expect("router keeps --fit");
-        assert_eq!(args[fit + 1], "on");
+        // Fit on is the default for children, so no flag rides by default.
+        assert!(!args.contains(&"--fit".to_string()));
     }
 
     #[test]
