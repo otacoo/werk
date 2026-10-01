@@ -19,6 +19,10 @@ export function splitExtra(extra: { [key: string]: string } | undefined): {
     }
     rows.push({ key: k, value: v });
   }
+  // Verbosity 3 is the house default; keep it when a preset omits the row.
+  if (!rows.some((r) => r.key === "verbosity")) {
+    rows.push({ key: "verbosity", value: "3" });
+  }
   rows.sort((a, b) => a.key.localeCompare(b.key));
   return { rows, raw };
 }

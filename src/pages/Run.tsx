@@ -203,14 +203,19 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
       setEstimate(null);
       return;
     }
+    // Router mode estimates the orchestrator: its role overrides (written
+    // into the preset) win over the launch ctx/GPU-layer values.
+    const role = routerMode ? appConfig?.harness_role_params?.orchestrator : undefined;
+    const estCtx = role?.ctx_size ?? config.n_ctx;
+    const estNgl = role?.n_gpu_layers ?? config.n_gpu_layers;
     const timer = setTimeout(() => {
       call(
         commands.estimateMemory(
           target,
-          config.n_ctx,
+          estCtx,
           config.cache_type_k || "f16",
           config.cache_type_v || "f16",
-          config.n_gpu_layers,
+          estNgl,
           fitOn,
         ),
       )
@@ -228,6 +233,8 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
     models,
     routerMode,
     appConfig?.harness_roles?.orchestrator,
+    appConfig?.harness_role_params?.orchestrator?.ctx_size,
+    appConfig?.harness_role_params?.orchestrator?.n_gpu_layers,
     externalMode,
     fitOn,
   ]);
@@ -1274,8 +1281,8 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 flag="--fit"
                 hint={
                   routerMode
-                    ? "By default llama.cpp auto sizes each router child to fit (weights + context) in VRAM. Per-role GPU-layer overrides still win if set."
-                    : "By default llama.cpp auto sizes GPU layers to fit (weights + context) in VRAM. GPU layers (--ngl) value is ignored if this is on."
+                    ? "By default, llama.cpp auto sizes each router child to fit (weights + context) in VRAM. Per-role GPU-layer overrides still win if set."
+                    : "By default, llama.cpp auto sizes GPU layers to fit (weights + context) in VRAM. GPU layers (--ngl) value is ignored if this is on."
                 }
                 checked={fitOn}
                 onChange={setFitOn}
@@ -1283,7 +1290,7 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
               <Toggle
                 label="Offload mmproj to GPU"
                 flag="--no-mmproj-offload"
-                hint="GPU offloading for the multimodal projector."
+                hint="By default, multimodal projector is offloaded until needed."
                 checked={!hasExtra("no-mmproj-offload")}
                 onChange={(v) => setExtraFlag("no-mmproj-offload", !v)}
               />
@@ -1500,15 +1507,21 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
               flag="--no-webui"
               hint="Serve llama.cpp's built-in web interface."
               checked={!hasExtra("no-webui")}
-              onChange={(v) => setExtraFlag("no-webui", !v)}
+              onChange={(v) => {
+                setExtraFlag("no-webui", !v);
+                // The MCP proxy only exists for the Web UI.
+                if (!v) setExtraFlag("webui-mcp-proxy", false);
+              }}
             />
-            <Toggle
-              label="WebUI MCP proxy"
-              flag="--webui-mcp-proxy"
-              hint="Enable the experimental MCP CORS proxy."
-              checked={hasExtra("webui-mcp-proxy")}
-              onChange={(v) => setExtraFlag("webui-mcp-proxy", v)}
-            />
+            {!hasExtra("no-webui") && (
+              <Toggle
+                label="WebUI MCP proxy"
+                flag="--webui-mcp-proxy"
+                hint="Enable the experimental MCP CORS proxy."
+                checked={hasExtra("webui-mcp-proxy")}
+                onChange={(v) => setExtraFlag("webui-mcp-proxy", v)}
+              />
+            )}
             <Toggle
               label="Warmup"
               flag="--no-warmup"
@@ -1542,17 +1555,6 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 onChange={(v) => set({ temperature: v })}
               />
               <SliderField
-                label="Top-K"
-                flag="--top-k"
-                hint="Keep the K most likely tokens."
-                min={0}
-                max={200}
-                step={1}
-                value={config.top_k}
-                disabled={!sampling}
-                onChange={(v) => set({ top_k: Math.round(v) })}
-              />
-              <SliderField
                 label="Top-P"
                 flag="--top-p"
                 hint="Nucleus sampling cutoff."
@@ -1563,6 +1565,17 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 disabled={!sampling}
                 format={(v) => v.toFixed(2)}
                 onChange={(v) => set({ top_p: v })}
+              />
+              <SliderField
+                label="Top-K"
+                flag="--top-k"
+                hint="Keep the K most likely tokens."
+                min={0}
+                max={200}
+                step={1}
+                value={config.top_k}
+                disabled={!sampling}
+                onChange={(v) => set({ top_k: Math.round(v) })}
               />
               <SliderField
                 label="Min-P"

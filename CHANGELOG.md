@@ -46,6 +46,9 @@
 
 ### Changed
 
+- Sampling lists Top-P before Top-K, verbosity 3 stays the default even when
+  a preset omits it, and the WebUI MCP proxy option hides (and is cleared)
+  when the Web UI is off.
 - Deleting a chat session moves its file to the OS recycle bin (trash on
   Linux/macOS) instead of erasing it, so even after the undo window the
   transcript stays recoverable outside the app.
@@ -65,6 +68,9 @@
 
 ### Fixed
 
+- The memory estimate honours the orchestrator's per-role ctx and GPU-layer
+  overrides in router mode — editing them previously had no effect on the
+  estimate (the router-wide resource plan already counted both roles).
 - Number inputs behave the same in every theme: the up/down arrows appear on
   hover/focus only — the werk theme pinned them on with a sepia tint — and
   the glyph follows each theme's color scheme. The per-role Ctx/GPU fields
