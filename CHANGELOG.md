@@ -4,6 +4,15 @@
 
 ### Added
 
+- Run page launch options grew: prompt-cache controls (`--cache-reuse`,
+  `--cache-ram`, idle-slot caching, `--slot-save-path`), `--fit-ctx`, output
+  constraints (`--json-schema[-file]`, `--grammar[-file]`), mmproj GPU
+  offload, ngram speculative decoding (map-k / map-k4v modes plus per-mode
+  tuning fields), `--no-kv-offload`, `--swa-full`, `--sleep-idle-seconds`,
+  `--logit-bias`, and template parsing toggles (chat parsing, prefill
+  assistant, preserve reasoning). Every new field stays unset by default, so
+  llama.cpp's own defaults apply; the toggles show the server's current
+  behavior as their checked state and only emit the flag when it changes.
 - Deleting a chat session shows an Undo button in the sidebar for ~12 seconds
   — the transcript is kept in memory for the window, so a misclick is one
   click away from being reverted.

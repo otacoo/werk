@@ -71,6 +71,30 @@ export const DEFAULT_CONFIG: ServerConfig = {
 
 const CACHE_TYPES = ["f16", "bf16", "f32", "q8_0", "q5_1", "q5_0", "q4_1", "q4_0", "iq4_nl"];
 
+/// Tuning knobs per ngram speculation mode; all default to the server's own.
+const NGRAM_FIELDS: Record<string, { label: string; flag: string; hint: string; placeholder: string }[]> = {
+  "ngram-simple": [
+    { label: "Simple lookup N", flag: "spec-ngram-simple-size-n", hint: "Lookup n-gram length.", placeholder: "12" },
+    { label: "Simple draft M", flag: "spec-ngram-simple-size-m", hint: "Draft m-gram length.", placeholder: "48" },
+    { label: "Simple min hits", flag: "spec-ngram-simple-min-hits", hint: "Minimum hits to draft.", placeholder: "1" },
+  ],
+  "ngram-map-k": [
+    { label: "Map-K lookup N", flag: "spec-ngram-map-k-size-n", hint: "Lookup n-gram length.", placeholder: "12" },
+    { label: "Map-K draft M", flag: "spec-ngram-map-k-size-m", hint: "Draft m-gram length.", placeholder: "48" },
+    { label: "Map-K min hits", flag: "spec-ngram-map-k-min-hits", hint: "Minimum hits to draft.", placeholder: "1" },
+  ],
+  "ngram-map-k4v": [
+    { label: "Map-K4V lookup N", flag: "spec-ngram-map-k4v-size-n", hint: "Lookup n-gram length.", placeholder: "12" },
+    { label: "Map-K4V draft M", flag: "spec-ngram-map-k4v-size-m", hint: "Draft m-gram length.", placeholder: "48" },
+    { label: "Map-K4V min hits", flag: "spec-ngram-map-k4v-min-hits", hint: "Minimum hits to draft.", placeholder: "1" },
+  ],
+  "ngram-mod": [
+    { label: "Mod min draft", flag: "spec-ngram-mod-n-min", hint: "Minimum ngram tokens to draft.", placeholder: "48" },
+    { label: "Mod max draft", flag: "spec-ngram-mod-n-max", hint: "Maximum ngram tokens to draft.", placeholder: "64" },
+    { label: "Mod lookup length", flag: "spec-ngram-mod-n-match", hint: "ngram-mod lookup length.", placeholder: "24" },
+  ],
+};
+
 
 const LAUNCH_TABS: { id: LaunchTab; label: string }[] = [
   { id: "context", label: "Context" },
@@ -503,6 +527,11 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
   };
   const templateFile = extraValue("chat-template-file");
   const templateKwargs = extraValue("chat-template-kwargs");
+  // `--spec-type` accepts a comma-separated list; match exact tokens.
+  const specTypes = extraValue("spec-type")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
   const setExtraField = (key: string, value: string) => {
     setExtraRows((rows) => {
       const idx = rows.findIndex((r) => r.key === key);
@@ -1094,7 +1123,70 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 />
               </Field>
             </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <Field
+                label="Cache reuse"
+                flag="--cache-reuse"
+                hint="Min chunk size to reuse from the prompt cache via KV shifting; 0 = off (server default)."
+              >
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  className="input w-full py-1 px-2 text-xs"
+                  value={extraValue("cache-reuse")}
+                  onChange={(e) => setExtraField("cache-reuse", e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Prompt cache RAM"
+                flag="--cache-ram"
+                hint="Host-RAM prompt cache in MiB; -1 = no limit, 0 = disable (default 8192)."
+              >
+                <input
+                  type="number"
+                  min={-1}
+                  placeholder="8192"
+                  className="input w-full py-1 px-2 text-xs"
+                  value={extraValue("cache-ram")}
+                  onChange={(e) => setExtraField("cache-ram", e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Slot cache path"
+                flag="--slot-save-path"
+                hint="Directory for saved slot KV caches; empty = disabled (server default)."
+              >
+                <input
+                  className="input w-full py-1 px-2 text-xs font-mono"
+                  placeholder="disabled"
+                  value={extraValue("slot-save-path")}
+                  onChange={(e) => setExtraField("slot-save-path", e.target.value)}
+                />
+              </Field>
+            </div>
             <div className="mt-4 space-y-3">
+              <Toggle
+                label="KV cache offload"
+                flag="--no-kv-offload"
+                hint="Keep the KV cache in GPU memory."
+                checked={!hasExtra("no-kv-offload")}
+                onChange={(v) => setExtraFlag("no-kv-offload", !v)}
+              />
+              <Toggle
+                label="Idle slot cache"
+                flag="--no-cache-idle-slots"
+                hint="Save idle slots to the prompt cache on new tasks (needs the prompt cache)."
+                checked={!hasExtra("no-cache-idle-slots")}
+                onChange={(v) => setExtraFlag("no-cache-idle-slots", !v)}
+              />
+              <Toggle
+                label="Full SWA cache"
+                flag="--swa-full"
+                hint="Full-size sliding-window attention cache (more VRAM, fewer rewinds)."
+                checked={hasExtra("swa-full")}
+                onChange={(v) => setExtraFlag("swa-full", v)}
+              />
               <Toggle
                 label="Context shift"
                 flag="--context-shift"
@@ -1157,6 +1249,20 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                   <option value="attn_cpu">attn_cpu</option>
                 </select>
               </Field>
+              <Field
+                label="Fit min context"
+                flag="--fit-ctx"
+                hint="Smallest context size --fit may shrink to (default 4096)."
+              >
+                <input
+                  type="number"
+                  min={512}
+                  placeholder="4096"
+                  className="input w-full py-1 px-2 text-xs"
+                  value={extraValue("fit-ctx")}
+                  onChange={(e) => setExtraField("fit-ctx", e.target.value)}
+                />
+              </Field>
             </div>
             <div className="mt-4 space-y-3">
               {!routerMode && (
@@ -1168,6 +1274,13 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                   onChange={setFitOn}
                 />
               )}
+              <Toggle
+                label="Offload mmproj to GPU"
+                flag="--no-mmproj-offload"
+                hint="GPU offloading for the multimodal projector."
+                checked={!hasExtra("no-mmproj-offload")}
+                onChange={(v) => setExtraFlag("no-mmproj-offload", !v)}
+              />
             </div>
           </Group>
           <Group title="CPU">
@@ -1327,11 +1440,25 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 min={0}
                 placeholder="3600"
                 className="input w-full py-1 px-2 text-xs"
-                value={extraValue("timeout")}
-                onChange={(e) => setExtraField("timeout", e.target.value)}
-              />
-            </Field>
-            <Field label="Verbosity" flag="--verbosity" hint="Log verbosity level.">
+                  value={extraValue("timeout")}
+                  onChange={(e) => setExtraField("timeout", e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Sleep after idle"
+                flag="--sleep-idle-seconds"
+                hint="Seconds of idleness before the server unloads; empty = never (default -1)."
+              >
+                <input
+                  type="number"
+                  min={-1}
+                  placeholder="never"
+                  className="input w-full py-1 px-2 text-xs"
+                  value={extraValue("sleep-idle-seconds")}
+                  onChange={(e) => setExtraField("sleep-idle-seconds", e.target.value)}
+                />
+              </Field>
+              <Field label="Verbosity" flag="--verbosity" hint="Log verbosity level.">
               <select
                 className="input w-full py-1 px-2 text-xs"
                 value={extraValue("verbosity")}
@@ -1489,6 +1616,19 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                   }
                 />
               </Field>
+              <Field
+                label="Logit bias"
+                flag="--logit-bias"
+                hint="Adjust token logits, e.g. EOS-inf to suppress EOS; comma-separated."
+              >
+                <input
+                  className="input w-full py-1 px-2 text-xs font-mono"
+                  placeholder="EOS-inf"
+                  disabled={!sampling}
+                  value={extraValue("logit-bias")}
+                  onChange={(e) => setExtraField("logit-bias", e.target.value)}
+                />
+              </Field>
             </div>
             <div className="mt-4 space-y-3">
               <Toggle
@@ -1537,6 +1677,20 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 hint="Use the Jinja template engine."
                 checked={!hasExtra("no-jinja")}
                 onChange={(v) => setExtraFlag("no-jinja", !v)}
+              />
+              <Toggle
+                label="Chat parsing"
+                flag="--no-skip-chat-parsing"
+                hint="Parse reasoning and tool calls out of the output (off = pure content)."
+                checked={!hasExtra("skip-chat-parsing")}
+                onChange={(v) => setExtraFlag("skip-chat-parsing", !v)}
+              />
+              <Toggle
+                label="Prefill assistant"
+                flag="--no-prefill-assistant"
+                hint="Prefill the assistant's response when the last message is from the assistant."
+                checked={!hasExtra("no-prefill-assistant")}
+                onChange={(v) => setExtraFlag("no-prefill-assistant", !v)}
               />
             </div>
           </Group>
@@ -1614,6 +1768,15 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 </select>
               </Field>
             </div>
+            <div className="mt-4 space-y-3">
+              <Toggle
+                label="Preserve reasoning"
+                flag="--no-reasoning-preserve"
+                hint="Keep reasoning traces in the full history, not just the last assistant message."
+                checked={!hasExtra("no-reasoning-preserve")}
+                onChange={(v) => setExtraFlag("no-reasoning-preserve", !v)}
+              />
+            </div>
           </Group>
           <Group title="Output">
             <div className="space-y-3">
@@ -1639,6 +1802,58 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 onChange={(v) => setExtraFlag("spm-infill", v)}
               />
             </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <Field
+                label="JSON schema file"
+                flag="--json-schema-file"
+                hint="Constrain output to a JSON schema loaded from a file."
+              >
+                <input
+                  className="input w-full py-1 px-2 text-xs font-mono"
+                  placeholder="path to schema.json"
+                  value={extraValue("json-schema-file")}
+                  onChange={(e) => setExtraField("json-schema-file", e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Grammar file"
+                flag="--grammar-file"
+                hint="Constrain output with a GBNF grammar loaded from a file."
+              >
+                <input
+                  className="input w-full py-1 px-2 text-xs font-mono"
+                  placeholder="path to grammar.gbnf"
+                  value={extraValue("grammar-file")}
+                  onChange={(e) => setExtraField("grammar-file", e.target.value)}
+                />
+              </Field>
+            </div>
+            <div className="mt-3">
+              <label className="label">
+                JSON schema{" "}
+                <span className="font-mono text-[0.625rem] text-faint">--json-schema</span>
+              </label>
+              <textarea
+                className="input w-full mt-1 font-mono text-xs min-h-[56px]"
+                placeholder='{"type":"object"}'
+                value={extraValue("json-schema")}
+                onChange={(e) => setExtraField("json-schema", e.target.value)}
+              />
+            </div>
+            <div className="mt-3">
+              <label className="label">
+                Grammar <span className="font-mono text-[0.625rem] text-faint">--grammar</span>
+              </label>
+              <textarea
+                className="input w-full mt-1 font-mono text-xs min-h-[56px]"
+                placeholder={'root ::= "yes" | "no"'}
+                value={extraValue("grammar")}
+                onChange={(e) => setExtraField("grammar", e.target.value)}
+              />
+            </div>
+            <p className="text-[0.6875rem] text-faint mt-2">
+              A schema or grammar constrains every generation — including tool calls.
+            </p>
           </Group>
         </div>
 
@@ -1693,6 +1908,8 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                   <option value="draft-eagle3">draft-eagle3</option>
                   <option value="ngram-cache">ngram-cache</option>
                   <option value="ngram-simple">ngram-simple</option>
+                  <option value="ngram-map-k">ngram-map-k</option>
+                  <option value="ngram-map-k4v">ngram-map-k4v</option>
                   <option value="ngram-mod">ngram-mod</option>
                 </select>
               </Field>
@@ -1745,6 +1962,22 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 />
               </Field>
             </div>
+            {specTypes.some((t) => NGRAM_FIELDS[t]) && (
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                {specTypes.flatMap((t) => NGRAM_FIELDS[t] ?? []).map((f) => (
+                  <Field key={f.flag} label={f.label} flag={`--${f.flag}`} hint={f.hint}>
+                    <input
+                      type="number"
+                      min={1}
+                      placeholder={f.placeholder}
+                      className="input w-full py-1 px-2 text-xs"
+                      value={extraValue(f.flag)}
+                      onChange={(e) => setExtraField(f.flag, e.target.value)}
+                    />
+                  </Field>
+                ))}
+              </div>
+            )}
           </Group>
           )}
           <Group title="Flags">
