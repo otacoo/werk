@@ -816,7 +816,7 @@ mod tests {
         ];
         let plan = plan_router_residency(&kids, 12287, 64000);
         assert_eq!(plan.models_max, Some(1));
-        assert!(plan.note.contains("models-max 1"), "{}", plan.note);
+        assert!(plan.note.contains("swap") && plan.note.contains("VRAM"), "{}", plan.note);
     }
 
     #[test]

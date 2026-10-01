@@ -601,6 +601,11 @@ export type LaunchPreview = {
 	args: string[],
 	notes: string[],
 	attachments: AttachmentInfo[],
+	/**
+	 *  Router resource-management note (VRAM/RAM plan); shown with the memory
+	 *  estimate, not the launch command.
+	 */
+	residency?: string | null,
 };
 
 /**  A user-defined language server, spawned over stdio. */

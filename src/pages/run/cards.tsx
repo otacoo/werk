@@ -5,16 +5,27 @@ import type { LaunchPreview, MemoryEstimate } from "../../bindings";
 export function EstimateCard({
   estimate,
   notes,
+  residency,
   estimating,
   canEstimate,
   onEstimate,
 }: {
   estimate: MemoryEstimate | null;
   notes: string[];
+  /** Router resource-management note, shown above the estimate notes. */
+  residency?: string | null;
   estimating: boolean;
   canEstimate: boolean;
   onEstimate: () => void;
 }) {
+  const allNotes = residency ? [residency, ...notes] : notes;
+  const noteList = (
+    <ul className="space-y-0.5">
+      {allNotes.map((n, i) => (
+        <li key={i} className="text-xs text-faint">{n}</li>
+      ))}
+    </ul>
+  );
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-3">
@@ -31,14 +42,12 @@ export function EstimateCard({
       {estimate ? (
         <>
           <MemoryVisualizer estimate={estimate} />
-          {notes.length > 0 && (
-            <ul className="space-y-0.5 mt-3 pt-3 border-t border-border">
-              {notes.map((n, i) => (
-                <li key={i} className="text-xs text-faint">{n}</li>
-              ))}
-            </ul>
+          {allNotes.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-border">{noteList}</div>
           )}
         </>
+      ) : allNotes.length > 0 ? (
+        noteList
       ) : (
         <p className="text-xs text-dim">Select a model to estimate memory.</p>
       )}

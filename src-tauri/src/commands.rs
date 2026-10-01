@@ -558,6 +558,10 @@ pub struct LaunchPreview {
     pub args: Vec<String>,
     pub notes: Vec<String>,
     pub attachments: Vec<AttachmentInfo>,
+    /// Router resource-management note (VRAM/RAM plan); shown with the memory
+    /// estimate, not the launch command.
+    #[serde(default)]
+    pub residency: Option<String>,
 }
 
 /// Auto-attached companion file; `auto` ones can be toggled off.
@@ -627,16 +631,11 @@ pub async fn preview_server_args(
     } else {
         None
     };
-    let mut notes = Vec::new();
+    let mut residency = None;
     if let Some(entries) = &router_entries {
-        if let Some(note) =
-            apply_router_residency(&mut config, entries, &app_config.all_model_dirs())
-        {
-            notes.push(note);
-        }
+        residency = apply_router_residency(&mut config, entries, &app_config.all_model_dirs());
     }
-    let (mut args, build_notes) = crate::server::build_args(&config);
-    notes.extend(build_notes);
+    let (mut args, notes) = crate::server::build_args(&config);
 
     // Companion files the launch will pick up (or not).
     let mut attachments = Vec::new();
@@ -721,7 +720,7 @@ pub async fn preview_server_args(
             }
         }
     }
-    Ok(LaunchPreview { binary, args, notes, attachments })
+    Ok(LaunchPreview { binary, args, notes, attachments, residency })
 }
 
 // ── Project files ─────────────────────────────────────────────────────────

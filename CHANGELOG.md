@@ -54,7 +54,8 @@
   router is capped at one (`--models-max 1`) so it swaps orchestrator ↔
   worker on subagent turns and the orchestrator reloads afterwards at full
   speed instead of both models degrading each other. An explicit
-  `--models-max` in Extra args always wins.
+  `--models-max` in Extra args always wins. The plan is reported on the
+  Memory estimate card (and the server log), not the Launch command card.
 - The built-in prompt only suggests delegating to a researcher subagent in
   router mode — single and external modes have no worker model, so they no
   longer mention subagents. The file-tool rule now leads the prompt ("never

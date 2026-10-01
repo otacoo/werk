@@ -2044,6 +2044,7 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
         <EstimateCard
           estimate={estimate}
           notes={suggestionNotes ?? []}
+          residency={preview?.residency ?? null}
           estimating={estimating}
           canEstimate={!externalMode && !!(config.model_path || selected)}
           onEstimate={autoEstimate}
