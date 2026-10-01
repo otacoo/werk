@@ -5,7 +5,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -26,6 +26,16 @@ pub fn os_shell_snippet() -> String {
 }
 
 // ── Subagents ─────────────────────────────────────────────────────────────
+
+/// Same rule the orchestrator gets: shell for programs, file tools for files.
+const FILE_TOOL_RULE: &str = "Use the native file tools for all file work — never use shell \
+    commands to read, list, search, or edit files; `exec` is only for running programs.";
+
+/// Subagents only see an image when the task attaches one; small models
+/// otherwise confabulate visual detail from filenames and context.
+const IMAGE_RULE: &str = "You cannot view image files through shell commands or scripts. If \
+    your task includes an attached image, describe only what is actually visible in it — never \
+    invent or embellish visual details; if no image is attached, say so instead of guessing.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubagentKind {
@@ -60,7 +70,7 @@ impl SubagentKind {
                 When asked to verify a claim, end your report with a verdict block: `Verdict: confirmed | refuted | uncertain`, one evidence line each."
             }
         };
-        format!("{base} {}", os_shell_snippet())
+        format!("{base} {FILE_TOOL_RULE} {IMAGE_RULE} {}", os_shell_snippet())
     }
 
     fn allowed_tools(&self) -> &'static [&'static str] {
@@ -78,6 +88,77 @@ impl SubagentKind {
     }
 }
 
+/// True for the image extensions the chat accepts.
+pub(crate) fn is_image_path(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref(),
+        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp")
+    )
+}
+
+/// MIME for the image extensions the chat accepts.
+fn image_mime(path: &std::path::Path) -> &'static str {    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        _ => "image/png",
+    }
+}
+
+/// The single image path a subagent goal names, if there is exactly one.
+/// Small orchestrators often write "describe migu.jpg" without passing the
+/// `image` argument; attaching it keeps the first spawn from being wasted.
+fn image_path_in_goal(goal: &str, jail: &crate::sandbox::PathJail) -> Option<String> {
+    let mut found: Vec<(String, std::path::PathBuf)> = Vec::new();
+    for raw in goal.split_whitespace() {
+        let token = raw
+            .trim_matches(|c: char| {
+                matches!(c, '"' | '\'' | '`' | '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | ',')
+            })
+            .trim_end_matches(['.', ';', ':']);
+        if !is_image_path(std::path::Path::new(token)) {
+            continue;
+        }
+        let Ok(resolved) = jail.check_read(token) else { continue };
+        if !resolved.is_file() {
+            continue;
+        }
+        if found.iter().any(|(_, p)| *p == resolved) {
+            continue;
+        }
+        found.push((token.to_string(), resolved));
+    }
+    if found.len() == 1 {
+        found.pop().map(|(token, _)| token)
+    } else {
+        None
+    }
+}
+
+/// Standard base64; keeps the harness dependency-free.
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        out.push(ALPHABET[(n >> 18) as usize & 63] as char);
+        out.push(ALPHABET[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { ALPHABET[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { ALPHABET[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
 pub struct Subagents<'a> {
     pub jail: Arc<crate::sandbox::PathJail>,
     pub max_turns: usize,
@@ -88,6 +169,52 @@ pub struct Subagents<'a> {
     pub context_limit: Option<u64>,
     /// External worker provider; None uses the orchestrator's client.
     pub client: Option<&'a LlmClient>,
+    /// Allowed `spawn_subagent(model=...)` overrides, validated against this.
+    pub choices: Vec<SubagentChoice<'a>>,
+    /// Whether the default subagent model can view images; None = unknown.
+    pub vision: Option<bool>,
+}
+
+/// One named model override a subagent may request.
+pub struct SubagentChoice<'a> {
+    /// What the model passes (e.g. `provider:model` or `worker`).
+    pub target: String,
+    /// Model id to send; None means the client's default.
+    pub model: Option<String>,
+    /// None uses the orchestrator's client.
+    pub client: Option<&'a LlmClient>,
+    /// Vision capability of this choice; None = unknown (provider models).
+    pub vision: Option<bool>,
+}
+
+impl std::fmt::Debug for SubagentChoice<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SubagentChoice")
+            .field("target", &self.target)
+            .field("model", &self.model)
+            .field("external_client", &self.client.is_some())
+            .finish()
+    }
+}
+
+/// Resolve the requested subagent model against the configured choices.
+fn resolve_subagent_choice<'a>(
+    choices: &'a [SubagentChoice<'a>],
+    requested: Option<&str>,
+) -> Result<Option<&'a SubagentChoice<'a>>> {
+    let Some(name) = requested.map(str::trim).filter(|n| !n.is_empty()) else {
+        return Ok(None);
+    };
+    match choices.iter().find(|c| c.target.eq_ignore_ascii_case(name)) {
+        Some(choice) => Ok(Some(choice)),
+        None if choices.is_empty() => {
+            bail!("Unknown subagent model '{name}': no alternative models are configured.")
+        }
+        None => {
+            let allowed: Vec<&str> = choices.iter().map(|c| c.target.as_str()).collect();
+            bail!("Unknown subagent model '{name}'. Available: {}", allowed.join(", "))
+        }
+    }
 }
 
 // ── Events ────────────────────────────────────────────────────────────────
@@ -97,7 +224,14 @@ pub struct Subagents<'a> {
 pub enum AgentEvent {
     ToolCall { call_id: String, tool: String, args: String },
     ToolResult { call_id: String, ok: bool, output: String },
-    SubagentSpawned { call_id: String, kind: String, goal: String },
+    SubagentSpawned {
+        call_id: String,
+        kind: String,
+        goal: String,
+        /// Model the subagent runs on, when known (UI attribution).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+    },
     SubagentFinished { call_id: String, kind: String, summary: String },
     /// Transcript was compacted mid-run; the UI shows how much folded away.
     Compacted { removed: usize },
@@ -314,8 +448,10 @@ pub struct AgentRun<'a> {
     pub verify_mode: VerifyMode,
     /// Effective context size for compaction; None disables it.
     pub context_limit: Option<u64>,
-    /// Cuts recorded as they happen — read after ANY outcome.
+    /// Cuts recorded as they happen - read after ANY outcome.
     pub compactions_log: Arc<Mutex<Vec<usize>>>,
+    /// Housekeeping model for compaction: (client, model). None = the run's.
+    pub utility: Option<(&'a LlmClient, Option<String>)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -372,6 +508,11 @@ impl AgentRun<'_> {
             let usable = limit.saturating_sub(schema_overhead);
             ((usable as f64 * 0.9) as u64).max(2_048.min(limit))
         };
+        // Housekeeping runs (compaction) go to the utility model when set.
+        let (house_client, house_model) = match &self.utility {
+            Some((client, model)) => (*client, model.as_deref()),
+            None => (self.client, self.model.as_deref()),
+        };
         loop {
             if should_stop() {
                 bail!("aborted");
@@ -383,8 +524,8 @@ impl AgentRun<'_> {
             // Fold oldest turns before they overflow; free, checked each turn.
             if let Some(limit) = self.context_limit {
                 if let Some(info) = crate::compact::compact_history(
-                    self.client,
-                    self.model.as_deref(),
+                    house_client,
+                    house_model,
                     history,
                     history_budget(limit),
                     false,
@@ -452,8 +593,8 @@ impl AgentRun<'_> {
                         text: "Context overflow — compacting and retrying…".into(),
                     });
                     match crate::compact::compact_history(
-                        self.client,
-                        self.model.as_deref(),
+                        house_client,
+                        house_model,
                         history,
                         history_budget(self.context_limit.unwrap_or(u64::MAX)),
                         true,
@@ -868,10 +1009,78 @@ impl AgentRun<'_> {
         let kind = SubagentKind::parse(
             args_value.get("agent_type").and_then(|v| v.as_str()).unwrap_or(""),
         )?;
+        let choice = resolve_subagent_choice(
+            &sub.choices,
+            args_value.get("model").and_then(|v| v.as_str()),
+        )?;
+        let vision = choice.and_then(|c| c.vision).or(sub.vision);
+        let explicit_image = args_value
+            .get("image")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(str::to_string);
+        // Small orchestrators forget the argument; when the goal names exactly
+        // one existing image and the model can see, attach it anyway.
+        let mut auto_image = false;
+        let image_arg = match explicit_image {
+            Some(path) => Some(path),
+            None if vision == Some(true) => match image_path_in_goal(&goal, &sub.jail) {
+                Some(path) => {
+                    auto_image = true;
+                    Some(path)
+                }
+                None => None,
+            },
+            None => None,
+        };
+        let image_url = match &image_arg {
+            None => None,
+            Some(path) => {
+                if vision == Some(false) {
+                    bail!(
+                        "The subagent's model has no vision — describe the image in the main \
+                        chat, or pick a vision-capable subagent model."
+                    );
+                }
+                let resolved = sub.jail.check_read(path)?;
+                let bytes = std::fs::read(&resolved)
+                    .with_context(|| format!("Cannot read image {}", resolved.display()))?;
+                const IMAGE_CAP: usize = 8 * 1024 * 1024;
+                if bytes.len() > IMAGE_CAP {
+                    bail!("Image too large ({} bytes; 8 MiB max)", bytes.len());
+                }
+                Some(format!(
+                    "data:{};base64,{}",
+                    image_mime(&resolved),
+                    base64_encode(&bytes)
+                ))
+            }
+        };
+        // Name the file in the task text: the model sees the pixels, but a
+        // path keeps the task unambiguous when the goal says "the image".
+        let task_text = match &image_arg {
+            Some(path) if auto_image => {
+                format!("{goal}\n\n[Attached image: {path} (auto-attached from the goal)]")
+            }
+            Some(path) => format!("{goal}\n\n[Attached image: {path}]"),
+            None => goal.clone(),
+        };
+        let (run_client, run_model) = match choice {
+            Some(c) => (
+                c.client.unwrap_or(self.client),
+                c.model.clone().or_else(|| self.model.clone()),
+            ),
+            None => (
+                sub.client.unwrap_or(self.client),
+                sub.model.clone().or_else(|| self.model.clone()),
+            ),
+        };
         on_event(AgentEvent::SubagentSpawned {
             call_id: format!("sub{seq}"),
             kind: format!("{kind:?}").to_lowercase(),
             goal: short_args(&goal),
+            model: run_model.clone(),
         });
         let mut registry =
             ToolRegistry::project_tools(sub.jail.clone()).without(&["spawn_subagent"]);
@@ -880,15 +1089,24 @@ impl AgentRun<'_> {
         }
         let refs: Vec<&str> = kind.allowed_tools().to_vec();
         let registry = Arc::new(registry.only(&refs));
-        let mut history = vec![
-            ChatMessage::system(kind.prompt()),
-            ChatMessage::user(goal.clone()),
-        ];
+        let mut history = vec![ChatMessage::system(kind.prompt())];
+        history.push(match image_url {
+            Some(url) => ChatMessage {
+                role: "user".into(),
+                content: Some(json!([
+                    {"type": "text", "text": task_text},
+                    {"type": "image_url", "image_url": {"url": url}},
+                ])),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            None => ChatMessage::user(task_text),
+        });
         let run = AgentRun {
-            client: sub.client.unwrap_or(self.client),
+            client: run_client,
             registry,
             engine: self.engine.clone(),
-            model: sub.model.clone().or_else(|| self.model.clone()),
+            model: run_model,
             project: self.project.clone(),
             reasoning_effort: self.reasoning_effort.clone(),
             max_turns: sub.max_turns,
@@ -896,21 +1114,22 @@ impl AgentRun<'_> {
             verify_mode: self.verify_mode,
             context_limit: sub.context_limit.or(self.context_limit),
             compactions_log: Arc::new(Mutex::new(Vec::new())),
+            utility: self.utility.clone(),
         };
         let no_steer: Arc<dyn Fn() -> Vec<String> + Send + Sync> =
             Arc::new(|| Vec::new());
         let mut noop = |_ev: StreamEvent| {};
         let mut nested = |ev: AgentEvent| {
-            // Subagent tool traffic is namespaced so the parent transcript
-            // can tell whose call each card belongs to.
+            // Subagent tool traffic is namespaced by the spawn it belongs to,
+            // so the parent transcript can attribute each card to its model.
             let ev = match ev {
                 AgentEvent::ToolCall { call_id, tool, args } => AgentEvent::ToolCall {
-                    call_id: format!("sub:{call_id}"),
+                    call_id: format!("sub{seq}:{call_id}"),
                     tool,
                     args,
                 },
                 AgentEvent::ToolResult { call_id, ok, output } => AgentEvent::ToolResult {
-                    call_id: format!("sub:{call_id}"),
+                    call_id: format!("sub{seq}:{call_id}"),
                     ok,
                     output,
                 },
@@ -983,6 +1202,7 @@ mod tests {
             verify_mode: VerifyMode::Normal,
             context_limit: None,
             compactions_log: Arc::new(Mutex::new(Vec::new())),
+            utility: None,
         }
     }
 
@@ -1097,6 +1317,70 @@ mod tests {
             assert!(!t.suppress(&k));
         }
         assert!(!t.suppress(&key), "evicted from window");
+    }
+
+    #[test]
+    fn base64_encodes_images_and_mime_maps() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"Hello"), "SGVsbG8=");
+        let p = |s: &str| image_mime(std::path::Path::new(s));
+        assert_eq!(p("a.JPG"), "image/jpeg");
+        assert_eq!(p("a.webp"), "image/webp");
+        assert_eq!(p("a.gif"), "image/gif");
+        assert_eq!(p("a.png"), "image/png");
+        assert_eq!(p("noext"), "image/png");
+    }
+
+    #[test]
+    fn goal_image_auto_attach_is_narrow() {
+        let dir = std::env::temp_dir().join(format!("werk-autoimg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("migu.jpg"), b"x").unwrap();
+        std::fs::write(dir.join("other.png"), b"x").unwrap();
+        std::fs::write(dir.join("notes.txt"), b"x").unwrap();
+        let jail = crate::sandbox::PathJail::new(&dir, &[]).unwrap();
+
+        let hit = image_path_in_goal("Describe the image migu.jpg, then stop.", &jail);
+        assert_eq!(hit.as_deref(), Some("migu.jpg"));
+        // The same file named twice (relative and absolute) is one image.
+        let both = format!("look at migu.jpg and {}", dir.join("migu.jpg").display());
+        assert_eq!(image_path_in_goal(&both, &jail).as_deref(), Some("migu.jpg"));
+        // Two different images are ambiguous; non-images and outside paths
+        // never auto-attach.
+        assert_eq!(image_path_in_goal("compare migu.jpg with other.png", &jail), None);
+        assert_eq!(image_path_in_goal("read notes.txt", &jail), None);
+        assert_eq!(image_path_in_goal(r"describe C:\outside\x.jpg", &jail), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn subagent_model_choices_validate_and_resolve() {
+        let choices = vec![
+            SubagentChoice {
+                target: "provider:big".into(),
+                model: Some("big".into()),
+                client: None,
+                vision: None,
+            },
+            SubagentChoice {
+                target: "worker".into(),
+                model: Some("w-1".into()),
+                client: None,
+                vision: Some(false),
+            },
+        ];
+        assert!(resolve_subagent_choice(&choices, None).unwrap().is_none());
+        assert!(resolve_subagent_choice(&choices, Some("  ")).unwrap().is_none());
+        let hit = resolve_subagent_choice(&choices, Some("WORKER")).unwrap().unwrap();
+        assert_eq!(hit.model.as_deref(), Some("w-1"));
+        let err = resolve_subagent_choice(&choices, Some("ghost")).unwrap_err().to_string();
+        assert!(err.contains("provider:big") && err.contains("worker"), "{err}");
+        let err = resolve_subagent_choice(&[], Some("ghost")).unwrap_err().to_string();
+        assert!(err.contains("no alternative models"), "{err}");
     }
 
     #[test]

@@ -220,6 +220,100 @@ pub fn estimate_memory(
     }
 }
 
+// ── Router residency ──────────────────────────────────────────────────────
+
+/// Per-child memory footprint for router residency planning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChildFootprint {
+    pub vram_mb: u64,
+    pub ram_mb: u64,
+}
+
+/// Weights + KV + overhead for one router child. `None` n_gpu_layers means
+/// "all layers on GPU" (llama.cpp's default when no override is set).
+pub fn child_footprint(
+    meta: &ModelMetadata,
+    weights_mb: u64,
+    n_ctx: u32,
+    cache_type_k: &str,
+    cache_type_v: &str,
+    n_gpu_layers: Option<i32>,
+) -> ChildFootprint {
+    let est = estimate_memory(
+        meta,
+        weights_mb,
+        n_ctx,
+        cache_type_k,
+        cache_type_v,
+        n_gpu_layers.unwrap_or(-1),
+        true,
+        0,
+        0,
+    );
+    ChildFootprint { vram_mb: est.vram_used_mb as u64, ram_mb: est.ram_used_mb as u64 }
+}
+
+/// Router residency decision: keep both role models loaded when they fit,
+/// otherwise cap the router at one so it swaps roles on demand (the router
+/// evicts idle children beyond `--models-max`).
+#[derive(Debug, Clone)]
+pub struct ResidencyPlan {
+    /// Value for `--models-max`; None leaves the router default alone.
+    pub models_max: Option<u8>,
+    pub note: String,
+}
+
+pub fn plan_router_residency(
+    children: &[ChildFootprint],
+    vram_total_mb: u64,
+    ram_available_mb: u64,
+) -> ResidencyPlan {
+    if children.len() < 2 {
+        return ResidencyPlan { models_max: None, note: String::new() };
+    }
+    let vram_sum: u64 = children.iter().map(|c| c.vram_mb).sum();
+    let ram_sum: u64 = children.iter().map(|c| c.ram_mb).sum();
+    if vram_sum > 0 && vram_total_mb == 0 {
+        return ResidencyPlan {
+            models_max: None,
+            note: "VRAM not detected — cannot plan role swapping; add --models-max 1 to Extra \
+                   args if the orchestrator slows down after subagents."
+                .to_string(),
+        };
+    }
+    let usable_mb = vram_total_mb.saturating_sub((vram_total_mb / 10).max(1024));
+    let vram_ok = vram_sum == 0 || vram_sum <= usable_mb;
+    let ram_ok = ram_available_mb == 0 || ram_sum + 1024 <= ram_available_mb;
+    if vram_ok && ram_ok {
+        return ResidencyPlan {
+            models_max: Some(2),
+            note: format!(
+                "Resource plan: role models need ~{:.1} GB; usable VRAM is ~{:.1} GB — keeping \
+                 both resident (--models-max 2).",
+                vram_sum as f64 / 1024.0,
+                usable_mb as f64 / 1024.0
+            ),
+        };
+    }
+    let note = if vram_ok {
+        format!(
+            "Resource plan: role models need ~{:.1} GB of RAM but only ~{:.1} GB is available — \
+             --models-max 1: the router swaps roles on demand.",
+            ram_sum as f64 / 1024.0,
+            ram_available_mb as f64 / 1024.0
+        )
+    } else {
+        format!(
+            "Resource plan: role models need ~{:.1} GB but only ~{:.1} GB of VRAM is usable — \
+             --models-max 1: the router swaps orchestrator ↔ worker on subagent turns, and the \
+             orchestrator reloads after each swap.",
+            vram_sum as f64 / 1024.0,
+            usable_mb as f64 / 1024.0
+        )
+    };
+    ResidencyPlan { models_max: Some(1), note }
+}
+
 // ── Launch suggestions ────────────────────────────────────────────────────
 
 /// Model dimensions from the GGUF header; unknown fields use dense-model defaults.
@@ -701,5 +795,64 @@ mod tests {
         let config = suggest_config(4000, 8192, 16384, 8, 16);
         // The estimator always picks an explicit context now (never 0).
         assert!(config.n_ctx >= 4096, "ctx should be explicit, got {}", config.n_ctx);
+    }
+
+    #[test]
+    fn residency_plan_keeps_models_that_fit() {
+        let kids = [
+            ChildFootprint { vram_mb: 4000, ram_mb: 600 },
+            ChildFootprint { vram_mb: 3000, ram_mb: 600 },
+        ];
+        let plan = plan_router_residency(&kids, 12287, 64000);
+        assert_eq!(plan.models_max, Some(2));
+        assert!(plan.note.contains("both resident"), "{}", plan.note);
+    }
+
+    #[test]
+    fn residency_plan_serializes_when_over_vram() {
+        // 9B Q8 + 3B VL worker on a 12 GB card: they cannot coexist.
+        let kids = [
+            ChildFootprint { vram_mb: 9100, ram_mb: 600 },
+            ChildFootprint { vram_mb: 3800, ram_mb: 600 },
+        ];
+        let plan = plan_router_residency(&kids, 12287, 64000);
+        assert_eq!(plan.models_max, Some(1));
+        assert!(plan.note.contains("models-max 1"), "{}", plan.note);
+    }
+
+    #[test]
+    fn residency_plan_single_and_cpu_children_are_left_alone() {
+        let one = [ChildFootprint { vram_mb: 9000, ram_mb: 600 }];
+        assert_eq!(plan_router_residency(&one, 12287, 64000).models_max, None);
+        let cpu = [
+            ChildFootprint { vram_mb: 0, ram_mb: 9000 },
+            ChildFootprint { vram_mb: 0, ram_mb: 4000 },
+        ];
+        let plan = plan_router_residency(&cpu, 12287, 64000);
+        assert_eq!(plan.models_max, Some(2));
+        assert!(plan.note.contains("both resident"), "{}", plan.note);
+    }
+
+    #[test]
+    fn residency_plan_unknown_vram_only_warns() {
+        let kids = [
+            ChildFootprint { vram_mb: 9000, ram_mb: 600 },
+            ChildFootprint { vram_mb: 4000, ram_mb: 600 },
+        ];
+        let plan = plan_router_residency(&kids, 0, 64000);
+        assert_eq!(plan.models_max, None);
+        assert!(plan.note.contains("not detected"), "{}", plan.note);
+    }
+
+    #[test]
+    fn residency_plan_respects_ram() {
+        let kids = [
+            ChildFootprint { vram_mb: 0, ram_mb: 9000 },
+            ChildFootprint { vram_mb: 1000, ram_mb: 8000 },
+        ];
+        // GPU share fits, but the CPU-side role does not fit in RAM.
+        let plan = plan_router_residency(&kids, 12287, 10000);
+        assert_eq!(plan.models_max, Some(1));
+        assert!(plan.note.contains("RAM"), "{}", plan.note);
     }
 }

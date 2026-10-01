@@ -143,8 +143,12 @@ fn system_prompt_for(
     format!(
         "You are Werk's agent, working inside a sandboxed project directory. \
         File tools are rooted at that directory; relative paths resolve there. \
+        Use the native file tools for all file work: read_file to read, write_file to create, \
+        edit_file for search/replace edits, find_files to list, search_content to search. \
+        Never use shell commands to read, list, search, or edit files — `exec` is only for \
+        running programs (builds, tests, git, servers). You cannot view image files through \
+        shell commands or scripts — images reach you only when attached to the conversation. \
         {} \
-        Prefer the native file tools (read_file, find_files, search_content) over shell listing/searching. \
         Read-only operations run automatically; writes and shell commands may require user approval — \
         if denied, adapt instead of retrying the same call. \
         Learn across sessions: when the user states a durable preference or corrects you, save it with the \
@@ -1165,15 +1169,75 @@ pub async fn harness_agent_send(
         }
     }
     let mut history = std::mem::take(&mut *state.harness.history.lock().unwrap());
+    // Subagent model choices the prompt may advertise.
+    let subagent_targets: Vec<String> = match mode {
+        crate::config::ServerMode::External => app_config
+            .provider_favorites
+            .iter()
+            .filter(|t| crate::config::Provider::split_target(t, &app_config.providers).is_some())
+            .cloned()
+            .collect(),
+        // Model ids, not role names: the choices are what `model` takes, and
+        // role names read like `agent_type` values.
+        crate::config::ServerMode::Router => {
+            let mut ids: Vec<String> = ["orchestrator", "worker"]
+                .iter()
+                .filter_map(|role| {
+                    let path = if *role == "orchestrator" {
+                        app_config.harness_roles.orchestrator.clone()
+                    } else {
+                        app_config.harness_roles.worker.clone()
+                    };
+                    path.filter(|p| !p.trim().is_empty()).map(|p| model_id(&p))
+                })
+                .collect();
+            ids.dedup();
+            ids
+        }
+        crate::config::ServerMode::Single => Vec::new(),
+    };
     if !history.iter().any(|m| m.role == "system") {
         let base = {
             let c = state.config.lock().unwrap();
             let verify = c.verify_mode;
             let server_mode = c.server_mode;
-            c.harness_system_prompt
+            let mut base = c
+                .harness_system_prompt
                 .clone()
                 .filter(|p| !p.trim().is_empty())
-                .unwrap_or_else(move || system_prompt_for(verify, server_mode))
+                .unwrap_or_else(move || system_prompt_for(verify, server_mode));
+            if !subagent_targets.is_empty() {
+                base.push_str(&format!(
+                    "\n\nSubagent model choices: {} (pass one as spawn_subagent's `model`; \
+                     `agent_type` is always 'coder' or 'researcher').",
+                    subagent_targets.join(", ")
+                ));
+            }
+            if mode == crate::config::ServerMode::Router {
+                let sub_model = app_config
+                    .harness_roles
+                    .worker
+                    .clone()
+                    .or_else(|| app_config.harness_roles.orchestrator.clone());
+                let label = sub_model
+                    .as_deref()
+                    .map(crate::server::file_stem_or_self)
+                    .unwrap_or_else(|| "the main model".to_string());
+                let vision = sub_model
+                    .as_deref()
+                    .map(|p| crate::server::find_mmproj_sibling(std::path::Path::new(p)).is_some())
+                    .unwrap_or(false);
+                base.push_str(&format!(
+                    "\n\nSubagents run on {label} (vision: {}) inside the same project sandbox. \
+                    'coder' can read/write/edit and run commands; 'researcher' is read-only. \
+                    To let a subagent view one image, pass `image: <path>` to spawn_subagent — \
+                    it must be inside the project or the read allowlist, and the subagent's model \
+                    must have vision. A path alone is not enough: subagents cannot open image \
+                    files themselves, so an image reaches one only through this argument.",
+                    if vision { "yes" } else { "no" }
+                ));
+            }
+            base
         };
         let memory = harness::memory::load_block(
             global_base.as_deref().map(|b| b.join("MEMORY.md")).as_deref(),
@@ -1225,17 +1289,22 @@ pub async fn harness_agent_send(
         None
     };
 
-    // One HTTP client per external provider in use, built before borrowing.
+    // One HTTP client per external provider in use (orchestrator, utility,
+    // subagent favorites), built before borrowing.
     let mut external: Vec<(String, LlmClient)> = Vec::new();
     for (provider, _) in orch_target.iter() {
-        if !external.iter().any(|(id, _)| id == &provider.id) {
-            external.push((
-                provider.id.clone(),
-                LlmClient::with_key(
-                    provider.base_url.trim_end_matches('/').to_string(),
-                    provider.api_key.clone(),
-                ),
-            ));
+        ensure_external_client(&mut external, provider);
+    }
+    if let Some((p, _)) = app_config
+        .utility_target
+        .as_deref()
+        .and_then(|t| crate::config::Provider::split_target(t, &app_config.providers))
+    {
+        ensure_external_client(&mut external, p);
+    }
+    for fav in &app_config.provider_favorites {
+        if let Some((p, _)) = crate::config::Provider::split_target(fav, &app_config.providers) {
+            ensure_external_client(&mut external, p);
         }
     }
     let external_client = |provider: &crate::config::Provider| -> &LlmClient {
@@ -1313,6 +1382,69 @@ pub async fn harness_agent_send(
         }),
     );
 
+    // Subagent model overrides: external favorites or the local router roles.
+    let mut subagent_choices: Vec<harness::agent::SubagentChoice> = Vec::new();
+    match mode {
+        crate::config::ServerMode::External => {
+            for target in &subagent_targets {
+                if let Some((p, m)) =
+                    crate::config::Provider::split_target(target, &app_config.providers)
+                {
+                    subagent_choices.push(harness::agent::SubagentChoice {
+                        target: target.clone(),
+                        model: Some(m.to_string()),
+                        client: Some(external_client(p)),
+                        // Remote vision is unknown; let the provider decide.
+                        vision: None,
+                    });
+                }
+            }
+        }
+        crate::config::ServerMode::Router => {
+            for role in ["orchestrator", "worker"] {
+                let path = if role == "orchestrator" {
+                    app_config.harness_roles.orchestrator.clone()
+                } else {
+                    app_config.harness_roles.worker.clone()
+                };
+                let Some(path) = path.filter(|p| !p.trim().is_empty()) else { continue };
+                let id = model_id(&path);
+                if subagent_choices.iter().any(|c| c.target.eq_ignore_ascii_case(&id)) {
+                    continue;
+                }
+                subagent_choices.push(harness::agent::SubagentChoice {
+                    target: id.clone(),
+                    model: Some(id),
+                    client: None,
+                    vision: Some(
+                        crate::server::find_mmproj_sibling(std::path::Path::new(&path)).is_some(),
+                    ),
+                });
+            }
+        }
+        _ => {}
+    }
+    let subagent_vision = if mode == crate::config::ServerMode::External {
+        None
+    } else {
+        let path = app_config
+            .harness_roles
+            .worker
+            .clone()
+            .or_else(|| app_config.harness_roles.orchestrator.clone())
+            .or_else(|| app_config.selected_model.clone());
+        path.as_deref()
+            .map(|p| crate::server::find_mmproj_sibling(std::path::Path::new(p)).is_some())
+    };
+
+    // Housekeeping model for compaction; None falls back to the run's model.
+    let utility_target = app_config
+        .utility_target
+        .as_deref()
+        .and_then(|t| utility_target_client(&state, &app_config, t));
+    let utility: Option<(&LlmClient, Option<String>)> =
+        utility_target.as_ref().map(|(c, m)| (c, m.clone()));
+
     let gate = Arc::new(UiGate { app: app.clone(), runtime: state.harness.clone() });
     let steer_rt = state.harness.clone();
     let steer: Arc<dyn Fn() -> Vec<String> + Send + Sync> =
@@ -1341,6 +1473,7 @@ pub async fn harness_agent_send(
         context_limit,
         verify_mode,
         compactions_log: Arc::new(Mutex::new(Vec::new())),
+        utility,
         subagents: Some(harness::agent::Subagents {
             jail,
             max_turns: subagent_max_turns,
@@ -1348,6 +1481,8 @@ pub async fn harness_agent_send(
             exec_enabled: true,
             context_limit: worker_limit,
             client: worker_client,
+            choices: subagent_choices,
+            vision: subagent_vision,
         }),
     };
 
@@ -1509,9 +1644,15 @@ pub async fn harness_distill(app: AppHandle, state: State<'_, AppState>) -> Resu
         return Err("Nothing to distill yet".to_string());
     }
 
-    // Same target rules as a normal run: the external provider, or the local
-    // server (router mode picks the orchestrator id).
-    let (client, model) = if app_config.server_mode == crate::config::ServerMode::External {
+    // Prefer the utility model when configured; else the same target rules as
+    // a normal run (external provider, or the local server).
+    let (client, model) = if let Some(resolved) = app_config
+        .utility_target
+        .as_deref()
+        .and_then(|t| utility_target_client(&state, &app_config, t))
+    {
+        resolved
+    } else if app_config.server_mode == crate::config::ServerMode::External {
         let target = app_config
             .external_target
             .clone()
@@ -2398,6 +2539,80 @@ pub async fn set_system_prompt_presets(
     let mut config = state.config.lock().unwrap();
     config.system_prompt_presets = cleaned;
     config.save().map_err(|e| e.to_string())
+}
+
+/// Housekeeping model target (`provider:model`, `orchestrator`, `worker` or
+/// none); next run.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_utility_target(
+    target: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().unwrap();
+    config.utility_target = target.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    config.save().map_err(|e| e.to_string())
+}
+
+/// Reuse or create the HTTP client for an external provider.
+fn ensure_external_client(
+    external: &mut Vec<(String, LlmClient)>,
+    provider: &crate::config::Provider,
+) {
+    if !external.iter().any(|(id, _)| id == &provider.id) {
+        external.push((
+            provider.id.clone(),
+            LlmClient::with_key(
+                provider.base_url.trim_end_matches('/').to_string(),
+                provider.api_key.clone(),
+            ),
+        ));
+    }
+}
+
+/// Owned client + model id for a target string: an external `provider:model`
+/// or a local role name. None when empty, unknown, or the server is down.
+fn utility_target_client(
+    state: &AppState,
+    app_config: &crate::config::AppConfig,
+    target: &str,
+) -> Option<(LlmClient, Option<String>)> {
+    let target = target.trim();
+    if target.is_empty() {
+        return None;
+    }
+    if let Some((p, m)) = crate::config::Provider::split_target(target, &app_config.providers) {
+        return Some((
+            LlmClient::with_key(p.base_url.trim_end_matches('/').to_string(), p.api_key.clone()),
+            Some(m.to_string()),
+        ));
+    }
+    let role_path = match target {
+        "orchestrator" => app_config.harness_roles.orchestrator.clone(),
+        "worker" => app_config.harness_roles.worker.clone(),
+        _ => return None,
+    };
+    let port = match state.server.lock().unwrap().status.clone() {
+        crate::server::ServerStatus::Running { port, .. } => port,
+        _ => return None,
+    };
+    // Single mode serves the loaded model; only the router takes ids.
+    let model = if app_config.server_mode == crate::config::ServerMode::Router {
+        role_path.as_deref().filter(|p| !p.trim().is_empty()).map(|p| {
+            let ids = crate::server::router_model_names(&router_role_entries(
+                &app_config.harness_roles,
+                &app_config.harness_role_params,
+                None,
+                false,
+            ));
+            ids.get(p)
+                .cloned()
+                .unwrap_or_else(|| crate::server::file_stem_or_self(p))
+        })
+    } else {
+        None
+    };
+    Some((server_client(port, state), model))
 }
 
 /// Toggle language-server diagnostics and the `lsp` tool for the next run.

@@ -4,6 +4,23 @@
 
 ### Added
 
+- A subagent goal that names exactly one existing image auto-attaches it when
+  the subagent's model has vision and no `image:` was passed — small
+  orchestrators forget the argument, and this keeps the first spawn from
+  being wasted on "the image is not text" errors.
+- Subagent tool cards name the model that ran them — a badge with the model
+  stem on every subagent call and spawn card, so orchestrator and worker
+  traffic is distinguishable at a glance.
+- `spawn_subagent` can attach one local image (`image: <path>`) when the
+  subagent's model has vision (a worker/main GGUF with an mmproj; provider
+  models are left to decide). The file must be inside the project or the read
+  allowlist, capped at 8 MiB.
+- Utility model (Settings → Agent): context compaction and `/distill` run on
+  a cheap provider model or a local role instead of your main model.
+- `spawn_subagent` accepts a `model` choice — a favorite from External API
+  mode or the local orchestrator/worker role in router mode. The allowed
+  choices are listed in the prompt and validated, so a typo errors instead of
+  silently using the default.
 - `/distill`: summarize the session into memory, coalesce all memories with a
   short model pass (the previous file is kept as `MEMORY.md.bak`), then start
   a fresh chat — clearing the context without losing the learnings. Memory
@@ -17,9 +34,36 @@
 
 ### Changed
 
+- Router launches plan residency from the role models' estimated footprints:
+  both stay loaded when they fit VRAM/RAM (`--models-max 2`), otherwise the
+  router is capped at one (`--models-max 1`) so it swaps orchestrator ↔
+  worker on subagent turns and the orchestrator reloads afterwards at full
+  speed instead of both models degrading each other. An explicit
+  `--models-max` in Extra args always wins.
 - The built-in prompt only suggests delegating to a researcher subagent in
   router mode — single and external modes have no worker model, so they no
-  longer mention subagents.
+  longer mention subagents. The file-tool rule now leads the prompt ("never
+  use shell commands to read, list, search, or edit files; `exec` is for
+  programs") before the shell-syntax guidance, and router-mode prompts state
+  the subagent model's vision capability and the `image` argument.
+
+### Fixed
+
+- Image work no longer tempts the shell: the file-tool rule now covers images
+  ("you cannot view image files through shell commands or scripts"), subagent
+  prompts carry the same file-tool rule as the orchestrator, `exec`'s
+  description warns against file work and images, and the router prompt states
+  that a path alone doesn't let a subagent see an image — only `image:` does.
+- Subagent model choices are advertised as model ids, not role names — the
+  orchestrator kept conflating `model` ("orchestrator"/"worker") with
+  `agent_type` ("coder"/"researcher") and spawning invalid calls. The
+  attached image's path is now named in the subagent's task text, so the
+  worker knows which file it is looking at.
+- Subagents are told to describe only what is actually visible in an attached
+  image, and to say so when none is attached, instead of confabulating visual
+  detail from the filename.
+- Chat says "Loading model…" while the server (or a router child) loads
+  instead of "Thinking…" — the loading state is now driven by the server log.
 
 ## [0.3.5] - 2026-09-30
 

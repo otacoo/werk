@@ -88,12 +88,55 @@ function BehaviorCard({ appConfig, setAppConfig }: {
   );
 }
 
+function UtilityModelCard({ appConfig, setAppConfig }: {
+  appConfig: AppConfig | null;
+  setAppConfig: React.Dispatch<React.SetStateAction<AppConfig | null>>;
+}) {
+  const favorites = appConfig?.provider_favorites ?? [];
+  const roles: { value: string; label: string }[] = [];
+  if (appConfig?.server_mode === "router") {
+    if (appConfig.harness_roles?.orchestrator) {
+      roles.push({ value: "orchestrator", label: "Local: orchestrator" });
+    }
+    if (appConfig.harness_roles?.worker) {
+      roles.push({ value: "worker", label: "Local: worker" });
+    }
+  }
+  return (
+    <div className="card">
+      <h2 className="section-title mb-1">Utility model</h2>
+      <p className="section-desc">
+        Runs housekeeping turns — context compaction and /distill — keeping them off your main
+        model. Favorites come from the Mode tab.
+      </p>
+      <select
+        className="input w-full py-1 px-2 text-xs mt-3"
+        value={appConfig?.utility_target ?? ""}
+        onChange={async (e) => {
+          const target = e.target.value || null;
+          setAppConfig((c) => (c ? { ...c, utility_target: target } : c));
+          try {
+            await call(commands.setUtilityTarget(target));
+          } catch {}
+        }}
+      >
+        <option value="">Same as the main model</option>
+        {roles.map((r) => (
+          <option key={r.value} value={r.value}>{r.label}</option>
+        ))}
+        {favorites.map((t) => (
+          <option key={t} value={t}>{t}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function SystemPromptCard({ appConfig, setAppConfig }: {
   appConfig: AppConfig | null;
   setAppConfig: React.Dispatch<React.SetStateAction<AppConfig | null>>;
 }) {
-  const [promptDraft, setPromptDraft] = useState<string | null>(null);
-  const [builtInPrompt, setBuiltInPrompt] = useState("");
+  const [promptDraft, setPromptDraft] = useState<string | null>(null);  const [builtInPrompt, setBuiltInPrompt] = useState("");
   const [renaming, setRenaming] = useState<{ name: string; value: string } | null>(null);
 
   useEffect(() => {
@@ -899,6 +942,7 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange 
             <div className="grid grid-cols-2 gap-4 items-start">
               <div className="space-y-4">
                 <BehaviorCard appConfig={appConfig} setAppConfig={setAppConfig} />
+                <UtilityModelCard appConfig={appConfig} setAppConfig={setAppConfig} />
                 <SystemPromptCard appConfig={appConfig} setAppConfig={setAppConfig} />
               </div>
               <div className="space-y-4">

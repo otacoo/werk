@@ -59,8 +59,18 @@ impl Tool for ReadFileTool {
     }
     fn execute(&self, args: &Value) -> Result<String> {
         let path = self.jail.check_read(&str_arg(args, "path")?)?;
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("Cannot read {}", path.display()))?;
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            // Images are binary: point at the paths that can actually use them.
+            Err(_) if crate::agent::is_image_path(&path) => bail!(
+                "{} is an image, not text. Attach it in the chat, or pass it to \
+                 spawn_subagent as `image` (the subagent's model needs vision).",
+                path.display()
+            ),
+            Err(e) => {
+                return Err(e).with_context(|| format!("Cannot read {}", path.display()));
+            }
+        };
         if text.chars().count() > READ_CAP {
             let n = text.chars().count();
             let head: String = text.chars().take(READ_CAP).collect();
@@ -480,7 +490,9 @@ impl Tool for ExecTool {
         "exec".to_string()
     }
     fn description(&self) -> String {
-        "Run a shell command in the project directory. Read-only commands run free.".to_string()
+        "Run a shell command in the project directory. Read-only commands run free. Not for \
+         file work (use the file tools) or viewing images."
+            .to_string()
     }
     fn parameters(&self) -> Value {
         json!({
@@ -633,7 +645,9 @@ impl Tool for SpawnSubagentTool {
             "type": "object",
             "properties": {
                 "goal": { "type": "string", "description": "Self-contained task for the subagent" },
-                "agent_type": { "type": "string", "enum": ["coder", "researcher"] }
+                "agent_type": { "type": "string", "enum": ["coder", "researcher"], "description": "Specialist kind: 'coder' edits files and runs commands, 'researcher' is read-only. Not a model." },
+                "model": { "type": "string", "description": "Optional model id for this subagent — one of the model choices listed in your instructions (e.g. the worker model). Omit for the default." },
+                "image": { "type": "string", "description": "Optional path to one local image to attach for a vision-capable subagent (inside the project or the read allowlist)" }
             },
             "required": ["goal", "agent_type"]
         })
@@ -966,8 +980,22 @@ mod tests {
     }
 
     #[test]
-    #[cfg(windows)]
+    fn read_file_hints_images_instead_of_binary_garbage() {
+        let root = temp_dir("read-image");
+        let reg = registry_for(&root);
+        std::fs::write(root.join("pic.png"), [0x89u8, 0x50, 0x4E, 0x47, 0x00]).unwrap();
+        let err = reg
+            .get("read_file")
+            .unwrap()
+            .execute(&json!({"path": "pic.png"}))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("image") && err.contains("spawn_subagent"), "{err}");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     #[test]
+    #[cfg(windows)]
     fn exec_returns_when_grandchild_holds_the_pipe() {
         let root = temp_dir("exec-pipe");
         let jail = Arc::new(crate::sandbox::PathJail::new(&root, &[]).unwrap());

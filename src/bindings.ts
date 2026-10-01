@@ -56,6 +56,11 @@ export const commands = {
 	setSystemPrompt: (prompt: string) => typedError<null, string>(__TAURI_INVOKE("set_system_prompt", { prompt })),
 	/**  Replace the named system prompt presets (max 5, names trimmed). */
 	setSystemPromptPresets: (presets: SystemPromptPreset[]) => typedError<null, string>(__TAURI_INVOKE("set_system_prompt_presets", { presets })),
+	/**
+	 *  Housekeeping model target (`provider:model`, `orchestrator`, `worker` or
+	 *  none); next run.
+	 */
+	setUtilityTarget: (target: string | null) => typedError<null, string>(__TAURI_INVOKE("set_utility_target", { target })),
 	/**  Toggle language-server diagnostics and the `lsp` tool for the next run. */
 	setLspEnabled: (enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_lsp_enabled", { enabled })),
 	/**  Enable/disable one agent tool for future runs. */
@@ -204,6 +209,11 @@ export type AppConfig_Deserialize = {
 	harness_system_prompt?: string | null,
 	/**  Named system prompt presets (quick swap in Settings). */
 	system_prompt_presets?: SystemPromptPreset[],
+	/**
+	 *  Housekeeping model for compaction and distillation: a `provider:model`
+	 *  target or a local role (`orchestrator`/`worker`). None = main model.
+	 */
+	utility_target?: string | null,
 	/**  Language-server diagnostics after edits and the `lsp` query tool. */
 	lsp_enabled?: boolean,
 	/**  Single-model or router server mode (Mode tab). */
@@ -272,6 +282,11 @@ export type AppConfig_Serialize = {
 	harness_system_prompt?: string | null,
 	/**  Named system prompt presets (quick swap in Settings). */
 	system_prompt_presets?: SystemPromptPreset[],
+	/**
+	 *  Housekeeping model for compaction and distillation: a `provider:model`
+	 *  target or a local role (`orchestrator`/`worker`). None = main model.
+	 */
+	utility_target?: string | null,
 	/**  Language-server diagnostics after edits and the `lsp` query tool. */
 	lsp_enabled: boolean,
 	/**  Single-model or router server mode (Mode tab). */

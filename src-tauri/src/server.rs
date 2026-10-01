@@ -850,6 +850,7 @@ pub async fn start_server(
     config: &ServerConfig,
     state: SharedServerState,
     router_preset: Option<&Path>,
+    extra_notes: Vec<String>,
     on_log: impl FnMut(String) + Send + 'static,
 ) -> Result<()> {
     {
@@ -880,7 +881,7 @@ pub async fn start_server(
             cb(line);
         }
     };
-    for note in notes {
+    for note in notes.into_iter().chain(extra_notes) {
         emit(&state, note);
     }
     let mut cmd = Command::new(server_binary);
@@ -1322,6 +1323,7 @@ mod tests {
             &single_model(),
             state.clone(),
             None,
+            Vec::new(),
             move |line| probe.lock().unwrap().push(line),
         )
         .await
@@ -1351,6 +1353,7 @@ mod tests {
             &single_model(),
             state.clone(),
             None,
+            Vec::new(),
             |_| {},
         )
         .await

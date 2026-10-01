@@ -233,6 +233,10 @@ pub struct AppConfig {
     /// Named system prompt presets (quick swap in Settings).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_prompt_presets: Vec<SystemPromptPreset>,
+    /// Housekeeping model for compaction and distillation: a `provider:model`
+    /// target or a local role (`orchestrator`/`worker`). None = main model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub utility_target: Option<String>,
     /// Language-server diagnostics after edits and the `lsp` query tool.
     #[serde(default = "default_true")]
     pub lsp_enabled: bool,
@@ -341,6 +345,7 @@ impl Default for AppConfig {
             verify_mode: Default::default(),
             harness_system_prompt: None,
             system_prompt_presets: Vec::new(),
+            utility_target: None,
             lsp_enabled: true,
             lsp_servers: Some(default_lsp_servers()),
             server_mode: ServerMode::Single,

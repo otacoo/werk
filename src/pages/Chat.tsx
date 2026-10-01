@@ -65,7 +65,15 @@ type Item =
       /** Local-only entries (/help) — never in backend history. */
       local?: boolean;
     }
-  | { kind: "tool"; callId: string; tool: string; args: string; output?: { ok: boolean; text: string } }
+  | {
+      kind: "tool";
+      callId: string;
+      tool: string;
+      args: string;
+      output?: { ok: boolean; text: string };
+      /** Model a subagent spawn card or subagent tool call ran on. */
+      subagentModel?: string;
+    }
   | { kind: "reasoning"; text: string }
   | { kind: "sys"; text: string }
   | { kind: "changes"; files: RunChange[]; added: number; removed: number }
@@ -88,6 +96,14 @@ interface ChatAttachment {
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+/** Model that ran a subagent tool call, resolved from its `sub{seq}:...` id. */
+function subagentModelFor(callId: string, items: Item[]): string | undefined {
+  const m = /^(sub\d+):/.exec(callId);
+  if (!m) return undefined;
+  const spawn = items.find((it) => it.kind === "tool" && it.callId === m[1]);
+  return spawn && spawn.kind === "tool" ? spawn.subagentModel : undefined;
 }
 
 export default function Chat({ go, active = true }: { go: (t: Tab) => void; active?: boolean }) {
@@ -253,6 +269,8 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
 
   // Hidden tabs keep their stream state but pause the stats polling.
   const activeRef = useRef(active);
+  // Mirrors `streaming` for the server-log listener (registered once).
+  const streamingRef = useRef(streaming);
 
   useEffect(() => {
     const refreshCaps = () => {
@@ -301,6 +319,26 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     activeRef.current = active;
     if (active) call(commands.harnessContextStats()).then(setSlotCtx).catch(() => {});
   }, [active]);
+
+  useEffect(() => {
+    streamingRef.current = streaming;
+  }, [streaming]);
+
+  // Router children announce their loads in the server log; reflect them while
+  // a run waits so the status reads "Loading model…" instead of "Thinking…".
+  useEffect(() => {
+    const unlisten = listen<string>("server_log", (e) => {
+      const line = e.payload ?? "";
+      if (/loading model|ensure_model|waiting until model/i.test(line)) {
+        if (streamingRef.current) setRunStatus("loading");
+      } else if (/model loaded|listening on/i.test(line)) {
+        if (streamingRef.current) setRunStatus("thinking");
+      }
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
 
   const restoreFromBackend = async () => {
     try {
@@ -561,6 +599,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
                 callId: (ev.call_id as string) ?? "",
                 tool: `⟳ ${(ev.kind as string) ?? "worker"} subagent`,
                 args: (ev.goal as string) ?? "",
+                subagentModel: typeof ev.model === "string" ? ev.model : undefined,
               },
             ];
           });
@@ -1141,6 +1180,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
                   tool={it.tool}
                   args={it.args}
                   output={it.output}
+                  subagentModel={it.subagentModel ?? subagentModelFor(it.callId, items)}
                 />
               );
             }

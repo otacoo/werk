@@ -415,6 +415,57 @@ fn reject_external_router_roles(app_config: &crate::config::AppConfig) -> Result
     Ok(())
 }
 
+/// Auto `--models-max` for router launches: keep both role models resident
+/// when they fit, otherwise cap the router at one so it swaps roles on
+/// subagent turns. An explicit `--models-max` always wins. Returns a note
+/// for the server log / launch preview.
+fn apply_router_residency(
+    config: &mut crate::server::ServerConfig,
+    entries: &[crate::server::PresetEntry],
+    model_dirs: &[std::path::PathBuf],
+) -> Option<String> {
+    if entries.len() < 2 || config.extra_params.contains_key("models-max") {
+        return None;
+    }
+    let raw = config.extra_params.get("__raw__").map(String::as_str).unwrap_or("");
+    if raw.contains("--models-max") {
+        return None;
+    }
+    let system = crate::hardware::get_system_info().ok()?;
+    let vram_total_mb = system.gpus.iter().map(|g| g.vram_mb).sum();
+    let cache_k = if config.cache_type_k.is_empty() { "f16" } else { &config.cache_type_k };
+    let cache_v = if config.cache_type_v.is_empty() { "f16" } else { &config.cache_type_v };
+    let installed = crate::models::list_installed_models(model_dirs);
+    let children: Vec<crate::estimate::ChildFootprint> = entries
+        .iter()
+        .map(|entry| {
+            let size_bytes = installed
+                .iter()
+                .find(|m| m.path == entry.path)
+                .map(|m| m.size_bytes)
+                .or_else(|| std::fs::metadata(&entry.path).map(|m| m.len()).ok())
+                .unwrap_or(0);
+            let weights_mb = size_bytes / 1024 / 1024
+                + crate::server::companion_bytes(&entry.path) / 1024 / 1024;
+            let meta = crate::models::read_model_metadata(std::path::Path::new(&entry.path));
+            crate::estimate::child_footprint(
+                meta.as_ref().unwrap_or(&crate::models::ModelMetadata::default()),
+                weights_mb,
+                entry.ctx_size.unwrap_or(0),
+                cache_k,
+                cache_v,
+                entry.n_gpu_layers,
+            )
+        })
+        .collect();
+    let plan =
+        crate::estimate::plan_router_residency(&children, vram_total_mb, system.available_ram_mb);
+    if let Some(cap) = plan.models_max {
+        config.extra_params.insert("models-max".to_string(), cap.to_string());
+    }
+    (!plan.note.is_empty()).then_some(plan.note)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn start_server(
@@ -465,6 +516,7 @@ pub async fn start_server(
     )
     .map_err(|e| e.to_string())?;
     // Router preset from roles in router mode; single mode loads its model.
+    let mut router_notes = Vec::new();
     let preset = if mode == crate::config::ServerMode::Router {
         let base_ctx = if config.n_ctx > 0 { Some(config.n_ctx) } else { None };
         let explicit = config.extra_params.contains_key("chat-template-file")
@@ -478,6 +530,10 @@ pub async fn start_server(
         if entries.is_empty() {
             return Err("Router mode: pick an orchestrator model on the Run page first".to_string());
         }
+        if let Some(note) = apply_router_residency(&mut config, &entries, &app_config.all_model_dirs())
+        {
+            router_notes.push(note);
+        }
         let dir = crate::config::data_dir()
             .map(|d| d.join("werk"))
             .ok_or_else(|| "Cannot find data directory".to_string())?;
@@ -485,7 +541,7 @@ pub async fn start_server(
     } else {
         None
     };
-    crate::server::start_server(&binary, &config, state.server.clone(), preset.as_deref(), {
+    crate::server::start_server(&binary, &config, state.server.clone(), preset.as_deref(), router_notes, {
         let app = app.clone();
         move |line: String| {
             let _ = app.emit("server_log", &line);
@@ -558,7 +614,29 @@ pub async fn preview_server_args(
         .and_then(|base| crate::runtime::server_binary(&app_config, &base).ok())
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| "llama-server".to_string());
-    let (mut args, notes) = crate::server::build_args(&config);
+    let router_entries = if config.model_path.is_empty() {
+        let explicit = config.extra_params.contains_key("chat-template-file")
+            || config.extra_params.contains_key("chat-template");
+        let base_ctx = if config.n_ctx > 0 { Some(config.n_ctx) } else { None };
+        Some(crate::chat::router_role_entries(
+            &app_config.harness_roles,
+            &app_config.harness_role_params,
+            base_ctx,
+            explicit,
+        ))
+    } else {
+        None
+    };
+    let mut notes = Vec::new();
+    if let Some(entries) = &router_entries {
+        if let Some(note) =
+            apply_router_residency(&mut config, entries, &app_config.all_model_dirs())
+        {
+            notes.push(note);
+        }
+    }
+    let (mut args, build_notes) = crate::server::build_args(&config);
+    notes.extend(build_notes);
 
     // Companion files the launch will pick up (or not).
     let mut attachments = Vec::new();
@@ -592,16 +670,7 @@ pub async fn preview_server_args(
     }
 
     // Router mode: role entries land in a preset file passed at launch.
-    if config.model_path.is_empty() {
-        let explicit = config.extra_params.contains_key("chat-template-file")
-            || config.extra_params.contains_key("chat-template");
-        let base_ctx = if config.n_ctx > 0 { Some(config.n_ctx) } else { None };
-        let entries = crate::chat::router_role_entries(
-            &app_config.harness_roles,
-            &app_config.harness_role_params,
-            base_ctx,
-            explicit,
-        );
+    if let Some(entries) = &router_entries {
         if !entries.is_empty() {
             if let Some(dir) = crate::config::data_dir().map(|d| d.join("werk")) {
                 args.push("--models-preset".to_string());

@@ -200,12 +200,21 @@ function DiffStat({ text }: { text: string }) {
   );
 }
 
+/** Short display label for a model id (router stem, provider id, or path). */
+export function shortModelLabel(id: string): string {
+  const leaf = id.split(/[\\/]/).pop() ?? id;
+  const stem = leaf.replace(/\.gguf$/i, "");
+  return stem.length > 20 ? `${stem.slice(0, 19)}…` : stem;
+}
+
 // ── Tool call card: collapsed by default so long outputs (PowerShell error
 // walls included) don't flood the transcript. Chevron expands args + output.
-export const ToolCard = memo(function ToolCard({ tool, args, output }: {
+// Subagent calls carry the model that ran them as a badge.
+export const ToolCard = memo(function ToolCard({ tool, args, output, subagentModel }: {
   tool: string;
   args: string;
   output?: { ok: boolean; text: string };
+  subagentModel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [showSnippets, setShowSnippets] = useState(getShowToolSnippets());
@@ -222,6 +231,14 @@ export const ToolCard = memo(function ToolCard({ tool, args, output }: {
         >
           <Wrench size={11} className="text-faint shrink-0" />
           <span className="text-ink font-medium">{tool}</span>
+          {subagentModel && (
+            <span
+              className="badge-gray text-[0.625rem] shrink-0 max-w-[9rem] truncate"
+              title={`Ran on ${subagentModel} (subagent)`}
+            >
+              {shortModelLabel(subagentModel)}
+            </span>
+          )}
           {showSnippets && <span className="text-faint truncate">{args}</span>}
           {output && (
             <span className={`shrink-0 text-[0.625rem] ${output.ok ? "text-accent-green" : "text-accent-yellow"}`}>
