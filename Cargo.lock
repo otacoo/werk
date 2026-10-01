@@ -1133,7 +1133,7 @@ dependencies = [
 
 [[package]]
 name = "export-bindings"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "specta-typescript",
  "werk",
@@ -1640,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "harness"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "futures",
@@ -5416,7 +5416,7 @@ dependencies = [
 
 [[package]]
 name = "werk"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "flate2",
