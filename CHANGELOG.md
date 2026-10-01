@@ -6,6 +6,9 @@
 
 ### Added
 
+- Runs start with context: date/time (UTC), git branch + short HEAD + dirty
+  count, and a capped top-level listing of the project, injected into the
+  system prompt.
 - Run page launch options grew: prompt-cache controls (`--cache-reuse`,
   `--cache-ram`, idle-slot caching, `--slot-save-path`), `--fit-ctx`, output
   constraints (`--json-schema[-file]`, `--grammar[-file]`), mmproj GPU

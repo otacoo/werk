@@ -14,6 +14,7 @@ mod caption_hit_test;
 pub mod mcp;
 pub mod models;
 pub mod presets;
+pub mod run_context;
 pub mod recommended;
 pub mod runtime;
 pub mod server;

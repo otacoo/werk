@@ -1259,10 +1259,11 @@ pub async fn harness_agent_send(
             global_base.as_deref().map(|b| b.join("MEMORY.md")).as_deref(),
             &root,
         );
+        let run_context = crate::run_context::run_context_block(&root);
         history.insert(
             0,
             ChatMessage::system(format!(
-                "{base}\n\nProject directory: {}{memory}",
+                "{base}\n\nProject directory: {}{run_context}{memory}",
                 root.display()
             )),
         );
