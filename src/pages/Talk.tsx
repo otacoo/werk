@@ -13,10 +13,9 @@ import {
   X,
 } from "lucide-react";
 import { commands } from "../bindings";
-import type { AppConfig, ContextStats, ServerStatus } from "../bindings";
+import type { AppConfig, ContextStats } from "../bindings";
 import { call } from "../utils/ipc";
 import { subscribeConfigChanged } from "../utils/appSettings";
-import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
 import { playNotificationSound } from "../utils/sounds";
 import { Markdown } from "./chat/markdown";
 import { ContextRing, CopyButton, ReasoningBlock, SysNotice, ToolCard } from "./chat/components";
@@ -62,7 +61,6 @@ const SLASH = [
 /// Roleplay chat surface: one continuous discussion per character, with
 /// avatars and no agent tooling beyond remember.
 export default function Talk({ go, active = true }: { go: (t: Tab) => void; active?: boolean }) {
-  const [status, setStatus] = useState<ServerStatus>(getServerStatus());
   const [items, setItems] = useState<Item[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -84,7 +82,6 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const [userName, setUserName] = useState("User");
   const [activeProject, setActiveProject] = useState<string | null>(null);
-  const [autoStart, setAutoStart] = useState(false);
   const [externalMode, setExternalMode] = useState(false);
   const [externalTarget, setExternalTarget] = useState("");
 
@@ -103,7 +100,6 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
 
   const applyConfig = (c: AppConfig) => {
     setActiveProject(c.harness_active_project ?? null);
-    setAutoStart(c.server_auto_start ?? false);
     const external = c.server_mode === "external";
     setExternalMode(external);
     setExternalTarget(external ? (c.external_target ?? "").trim() : "");
@@ -178,14 +174,12 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
     };
     poll();
     const id = setInterval(poll, 2000);
-    const unsubStatus = subscribeServerStatus(setStatus);
     const unsubConfig = subscribeConfigChanged(() => {
       refreshConfig();
       loadUserAvatar();
     });
     return () => {
       clearInterval(id);
-      unsubStatus();
       unsubConfig();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -327,10 +321,7 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
     return () => cancelAnimationFrame(raf);
   }, [items, streamText, reasoningText]);
 
-  const serverRunning = status.type === "running";
-  const canSend =
-    (serverRunning || (externalMode && externalTarget !== "") || (autoStart && !externalMode)) &&
-    activeProject != null;
+  const canSend = (externalMode ? externalTarget !== "" : true) && activeProject != null;
 
   const ensureServerReady = async () => {
     if (externalMode) return true;
@@ -818,7 +809,7 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
           <textarea
             className="input flex-1 resize-none text-sm"
             rows={1}
-            placeholder={canSend ? `Reply as ${userName}…` : "Start the server or pick a project first"}
+            placeholder={canSend ? `Reply as ${userName}…` : "Select a project first"}
             value={input}
             disabled={!canSend && !input.startsWith("/")}
             onChange={(e) => setInput(e.target.value)}

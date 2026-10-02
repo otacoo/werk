@@ -17,6 +17,7 @@
 - Roleplay's Generation settings card gains a reasoning-effort picker sourced from the model's chat template.
 - Roleplay gets an editable System prompt card that falls back to the card's prompt or the built-in default, and the You card moves beside Characters.
 - ask_user answer options can carry an optional description shown under the title.
+- Sending now starts the local server on demand; the Local server card keeps only the idle unload.
 
 ## [0.5.0] - 2026-10-02
 

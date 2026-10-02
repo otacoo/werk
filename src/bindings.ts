@@ -175,12 +175,12 @@ export const commands = {
 	testProvider: (baseUrl: string, apiKey: string | null) => typedError<string[], string>(__TAURI_INVOKE("test_provider", { baseUrl, apiKey })),
 	startServer: (config: ServerConfig) => typedError<null, string>(__TAURI_INVOKE("start_server", { config })),
 	/**
-	 *  Auto-start the local server before a chat run when enabled; waits until it
-	 *  is ready. No-op when disabled, already running, or in External mode.
+	 *  Start the local server before a chat run when it isn't running; waits until
+	 *  it is ready. No-op in External mode.
 	 */
 	ensureServer: () => typedError<null, string>(__TAURI_INVOKE("ensure_server")),
 	/**  Save the local-server lifecycle settings. */
-	setServerLifecycle: (autoStart: boolean, idleUnloadMinutes: number) => typedError<null, string>(__TAURI_INVOKE("set_server_lifecycle", { autoStart, idleUnloadMinutes })),
+	setServerLifecycle: (idleUnloadMinutes: number) => typedError<null, string>(__TAURI_INVOKE("set_server_lifecycle", { idleUnloadMinutes })),
 	/**  Current terminal working directory; `reset` re-derives it from the project. */
 	terminalCwd: (reset: boolean) => typedError<string, string>(__TAURI_INVOKE("terminal_cwd", { reset })),
 	/**
@@ -297,8 +297,6 @@ export type AppConfig_Deserialize = {
 	sensitive_patterns?: string[],
 	/**  Exceptions to the sensitive-file policy (globs). */
 	sensitive_allow?: string[],
-	/**  Start the local server automatically when a chat run begins. */
-	server_auto_start?: boolean,
 	/**  Stop the local server after this many idle minutes; 0 disables. */
 	server_idle_unload_minutes?: number,
 	/**  stdio language servers by name; None seeds the defaults. */
@@ -384,8 +382,6 @@ export type AppConfig_Serialize = {
 	sensitive_patterns: string[],
 	/**  Exceptions to the sensitive-file policy (globs). */
 	sensitive_allow: string[],
-	/**  Start the local server automatically when a chat run begins. */
-	server_auto_start: boolean,
 	/**  Stop the local server after this many idle minutes; 0 disables. */
 	server_idle_unload_minutes: number,
 	/**  stdio language servers by name; None seeds the defaults. */

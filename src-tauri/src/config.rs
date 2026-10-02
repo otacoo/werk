@@ -317,9 +317,6 @@ pub struct AppConfig {
     /// Exceptions to the sensitive-file policy (globs).
     #[serde(default)]
     pub sensitive_allow: Vec<String>,
-    /// Start the local server automatically when a chat run begins.
-    #[serde(default)]
-    pub server_auto_start: bool,
     /// Stop the local server after this many idle minutes; 0 disables.
     #[serde(default = "default_idle_unload")]
     pub server_idle_unload_minutes: u32,
@@ -436,7 +433,6 @@ impl Default for AppConfig {
             agent_files_hidden: false,
             sensitive_patterns: Vec::new(),
             sensitive_allow: Vec::new(),
-            server_auto_start: false,
             server_idle_unload_minutes: default_idle_unload(),
             harness_roles: Default::default(),
             providers: Vec::new(),

@@ -570,16 +570,12 @@ async fn start_server_inner(
     .map_err(|e| e.to_string())
 }
 
-/// Auto-start the local server before a chat run when enabled; waits until it
-/// is ready. No-op when disabled, already running, or in External mode.
+/// Start the local server before a chat run when it isn't running; waits until
+/// it is ready. No-op in External mode.
 #[tauri::command]
 #[specta::specta]
 pub async fn ensure_server(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let (auto, mode) = {
-        let c = state.config.lock().unwrap();
-        (c.server_auto_start, c.server_mode)
-    };
-    if !auto || mode == crate::config::ServerMode::External {
+    if state.config.lock().unwrap().server_mode == crate::config::ServerMode::External {
         return Ok(());
     }
     let status = state.server.lock().unwrap().status.clone();
@@ -592,9 +588,9 @@ pub async fn ensure_server(app: AppHandle, state: State<'_, AppState>) -> Result
     }
     // Launch with the saved preset; the model comes from the selection (or
     // the router roles).
-    let (preset_name, selected) = {
+    let (preset_name, selected, mode) = {
         let c = state.config.lock().unwrap();
-        (c.last_preset.clone(), c.selected_model.clone())
+        (c.last_preset.clone(), c.selected_model.clone(), c.server_mode)
     };
     let dir = crate::presets::presets_dir().map_err(|e| e.to_string())?;
     crate::presets::ensure_default(&dir).map_err(|e| e.to_string())?;
@@ -606,8 +602,7 @@ pub async fn ensure_server(app: AppHandle, state: State<'_, AppState>) -> Result
         config.model_path = selected
             .filter(|p| !p.trim().is_empty())
             .ok_or_else(|| {
-                "No model selected yet — pick one on the Run page (or turn auto-start off)"
-                    .to_string()
+                "No model selected yet — pick one on the Run page".to_string()
             })?;
     }
     start_server_inner(&app, config, &state).await?;
@@ -634,12 +629,10 @@ async fn wait_server_ready(state: &AppState) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn set_server_lifecycle(
-    auto_start: bool,
     idle_unload_minutes: u32,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut config = state.config.lock().unwrap();
-    config.server_auto_start = auto_start;
     config.server_idle_unload_minutes = idle_unload_minutes.min(24 * 60);
     config.save().map_err(|e| e.to_string())
 }

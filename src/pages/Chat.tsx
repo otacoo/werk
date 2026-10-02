@@ -151,7 +151,6 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   const [activeProject, setActiveProject] = useState<string | null>(null);
   /// External API mode: chat works server-less through the configured provider.
   const [externalMode, setExternalMode] = useState(false);
-  const [autoStart, setAutoStart] = useState(false);
   const [externalTarget, setExternalTarget] = useState("");
   const [favorites, setFavorites] = useState<string[]>([]);
   const [runStatus, setRunStatus] = useState<"thinking" | "loading" | "working" | null>(null);
@@ -252,7 +251,6 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     const external = c.server_mode === "external";
     setExternalMode(external);
     setExternalTarget(external ? (c.external_target ?? "").trim() : "");
-    setAutoStart(c.server_auto_start ?? false);
     if (external) setFavorites(c.provider_favorites ?? []);
   };
 
@@ -1013,11 +1011,9 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   };
 
   // The view is always available: chats are consultable without the server,
-  // and sending requires a running server + an active project directory.
+  // and sending starts it on demand (External needs a picked provider model).
   const serverRunning = status.type === "running";
-  const canSend =
-    (serverRunning || (externalMode && externalTarget !== "") || (autoStart && !externalMode)) &&
-    activeProject != null;
+  const canSend = (externalMode ? externalTarget !== "" : true) && activeProject != null;
   // Bubble alignment: user on the right by default; the model takes the other side.
   const userSide = bubbleAlign === "right";
   const userJustify = userSide ? "justify-end" : "justify-start";
@@ -1444,11 +1440,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
                 !canSend
                   ? activeProject == null
                     ? "Select a project to start chatting…"
-                    : externalMode
-                      ? "Pick a model on the Mode tab to start chatting…"
-                      : autoStart
-                        ? "The server starts when you send…"
-                        : "Start the server to start chatting…"
+                    : "Pick a model on the Mode tab to start chatting…"
                   : streaming
                     ? "Steer the running agent… (Enter to send)"
                     : "Send a message…"
@@ -1515,7 +1507,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
                 !canSend
                   ? externalMode
                     ? "Pick a model on the Mode tab to start chatting"
-                    : "Needs a running server and an active project"
+                    : "Select a project to start chatting"
                   : streaming
                     ? "Steer the running agent"
                     : "Send"

@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { commands } from "../../bindings";
 import type { AppConfig } from "../../bindings";
 import { call } from "../../utils/ipc";
-import Toggle from "../../components/Toggle";
 
 export function BehaviorCard({ appConfig, setAppConfig }: {
   appConfig: AppConfig | null;
@@ -85,14 +84,13 @@ export function ServerLifecycleCard({ appConfig, refresh }: {
 }) {
   const [flash, setFlash] = useState<string | null>(null);
   const [idleDraft, setIdleDraft] = useState("5");
-  const autoStart = appConfig?.server_auto_start ?? false;
   const idle = appConfig?.server_idle_unload_minutes ?? 5;
 
   useEffect(() => setIdleDraft(String(idle)), [idle]);
 
-  const save = async (nextAuto: boolean, nextIdle: number) => {
+  const save = async (nextIdle: number) => {
     try {
-      await call(commands.setServerLifecycle(nextAuto, nextIdle));
+      await call(commands.setServerLifecycle(nextIdle));
       await refresh();
       setFlash("Saved");
     } catch (e) {
@@ -104,15 +102,11 @@ export function ServerLifecycleCard({ appConfig, refresh }: {
     <div className="card">
       <h2 className="section-title mb-1">Local server</h2>
       <p className="section-desc">
-        Lifecycle for the local llama.cpp server (single, router, and mixed modes). External API
-        mode is unaffected, and the idle unload is skipped while the Web UI is enabled.
+        Lifecycle for the local llama.cpp server (single, router, and mixed modes). It starts on
+        demand when you send a message; External API mode is unaffected, and the idle unload is
+        skipped while the Web UI is enabled.
       </p>
       <div className="mt-3 space-y-3">
-        <Toggle
-          label="Start automatically when chatting"
-          checked={autoStart}
-          onChange={(v) => save(v, idle)}
-        />
         <label className="label flex items-center gap-2">
           <span title="Stop the server after this many minutes without chat activity; 0 disables.">
             Unload after idle (minutes)
@@ -127,7 +121,7 @@ export function ServerLifecycleCard({ appConfig, refresh }: {
             onBlur={() => {
               const n = Math.max(0, Math.min(1440, Number(idleDraft) || 0));
               setIdleDraft(String(n));
-              if (n !== idle) save(autoStart, n);
+              if (n !== idle) save(n);
             }}
           />
         </label>
