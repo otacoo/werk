@@ -70,11 +70,10 @@ export function SensitiveShieldingCard({ appConfig, refresh }: {
     <div className="card">
       <h2 className="section-title mb-1">Sensitive shielding</h2>
       <p className="section-desc">
-        Credential paths are blocked from every agent tool — reads, writes, globs, and search —
-        by built-in patterns (<span className="font-mono">.env*</span>,{" "}
+        Add patterns or files to keep away from the model, or add an exception to the general rule: credential paths are blocked from every agent tool by default with built-in patterns (<span className="font-mono">.env*</span>,{" "}
         <span className="font-mono">*.pem</span>, <span className="font-mono">.ssh/</span>,{" "}
         <span className="font-mono">*.sqlite</span>, …) and everything matched by the project's{" "}
-        <span className="font-mono">.gitignore</span>. Built-ins always win over repo rules.
+        <span className="font-mono">.gitignore</span>. The rules here will win over git repo rules.
       </p>
       <label className="label flex flex-col gap-1 mt-3">
         <span title="Extra globs blocked on top of the built-ins; a pattern with a slash matches the project path.">

@@ -652,7 +652,7 @@ export default function Mode({
             <p className="text-xs text-dim">
               Tip:{" "}
               To mix a provider model with a local GGUF, switch to{" "}
-              <b>Router mode</b> and pick an external favorite as a role.{" "}
+              <b>Router mode</b> and pick an external favorite for a role.{" "}
               {running && (
                 <>
                   The local server is still running, wasting VRAM —{" "}

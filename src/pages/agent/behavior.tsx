@@ -51,8 +51,7 @@ export function UtilityModelCard({ appConfig, setAppConfig }: {
     <div className="card">
       <h2 className="section-title mb-1">Utility model</h2>
       <p className="section-desc">
-        Runs housekeeping turns — context compaction and /distill — keeping them off your main
-        model. Favorites come from the Mode tab.
+        Pick the housekeeping model for context compaction and /distill.
       </p>
       <select
         className="input w-full py-1 px-2 text-xs mt-3"
@@ -102,8 +101,7 @@ export function ServerLifecycleCard({ appConfig, refresh }: {
     <div className="card">
       <h2 className="section-title mb-1">Local server</h2>
       <p className="section-desc">
-        Lifecycle for the local llama.cpp server (single, router, and mixed modes). It starts on
-        demand when you send a message; External API mode is unaffected, and the idle unload is
+        Lifecycle for the local llama.cpp server; the idle unload is
         skipped while the Web UI is enabled.
       </p>
       <div className="mt-3 space-y-3">
