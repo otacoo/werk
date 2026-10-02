@@ -16,6 +16,7 @@
 - Talk reloads the user avatar after an import or clear, without needing a restart.
 - Roleplay's Generation settings card gains a reasoning-effort picker sourced from the model's chat template.
 - Roleplay gets an editable System prompt card that falls back to the card's prompt or the built-in default, and the You card moves beside Characters.
+- ask_user answer options can carry an optional description shown under the title.
 
 ## [0.5.0] - 2026-10-02
 

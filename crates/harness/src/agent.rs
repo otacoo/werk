@@ -259,11 +259,19 @@ pub struct ApprovalRequest {
     pub args_pretty: String,
 }
 
+/// One answer option: a short title plus an optional explanation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QuestionOption {
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 /// Multiple-choice question for the user (the `ask_user` tool).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QuestionRequest {
     pub question: String,
-    pub options: Vec<String>,
+    pub options: Vec<QuestionOption>,
 }
 
 /// Answer to a question; `cancelled` when the run ended while parked.
@@ -988,14 +996,35 @@ impl AgentRun<'_> {
             .unwrap_or("")
             .trim()
             .to_string();
-        let options: Vec<String> = args_value
+        let options: Vec<QuestionOption> = args_value
             .get("options")
             .and_then(|v| v.as_array())
             .map(|a| {
                 a.iter()
-                    .filter_map(|v| v.as_str())
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
+                    .filter_map(|v| match v {
+                        // Bare strings are a tolerated legacy shape.
+                        Value::String(s) => {
+                            let title = s.trim().to_string();
+                            (!title.is_empty()).then_some(QuestionOption {
+                                title,
+                                description: None,
+                            })
+                        }
+                        Value::Object(m) => {
+                            let title =
+                                m.get("title").and_then(|t| t.as_str())?.trim().to_string();
+                            if title.is_empty() {
+                                return None;
+                            }
+                            let description = m
+                                .get("description")
+                                .and_then(|d| d.as_str())
+                                .map(|d| d.trim().to_string())
+                                .filter(|d| !d.is_empty());
+                            Some(QuestionOption { title, description })
+                        }
+                        _ => None,
+                    })
                     .take(6)
                     .collect()
             })
@@ -1213,6 +1242,7 @@ mod tests {
 
     struct AnswerGate {
         answer: String,
+        seen: std::sync::Mutex<Option<QuestionRequest>>,
     }
     impl ApprovalGate for AnswerGate {
         fn decide(&self, _req: ApprovalRequest) -> Pin<Box<dyn Future<Output = Approved> + Send>> {
@@ -1220,9 +1250,10 @@ mod tests {
         }
         fn ask_question(
             &self,
-            _req: QuestionRequest,
+            req: QuestionRequest,
         ) -> Pin<Box<dyn Future<Output = QuestionAnswer> + Send>> {
             let answer = self.answer.clone();
+            *self.seen.lock().unwrap() = Some(req);
             Box::pin(async { QuestionAnswer { answer, cancelled: false } })
         }
     }
@@ -1443,22 +1474,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let jail = Arc::new(crate::sandbox::PathJail::new(&dir, &[]).unwrap());
-        let gate: Arc<dyn ApprovalGate> = Arc::new(AnswerGate {
+        let gate = Arc::new(AnswerGate {
             answer: "the second option".to_string(),
+            seen: std::sync::Mutex::new(None),
         });
-        let args = serde_json::json!({"question": "Which way?", "options": ["first", "second"]});
+        let dyn_gate: Arc<dyn ApprovalGate> = gate.clone();
+        let args = serde_json::json!({"question": "Which way?", "options": [
+            {"title": "first", "description": "the short road"},
+            {"title": "second"},
+            "bare legacy option",
+        ]});
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let run = test_run(jail);
         let mut events = Vec::new();
         let text = rt.block_on(async {
             let mut push = |ev: AgentEvent| events.push(ev);
-            run.ask_user(&args, "q1", &gate, &mut push).await
+            run.ask_user(&args, "q1", &dyn_gate, &mut push).await
         });
         assert!(text.contains("the second option"), "{text}");
         assert!(
             events.iter().any(|e| matches!(e, AgentEvent::ToolResult { call_id, ok: true, .. } if call_id == "q1")),
             "{events:?}"
         );
+        let seen = gate.seen.lock().unwrap().clone().unwrap();
+        assert_eq!(seen.options.len(), 3);
+        assert_eq!(seen.options[0].title, "first");
+        assert_eq!(seen.options[0].description.as_deref(), Some("the short road"));
+        assert_eq!(seen.options[1].title, "second");
+        assert_eq!(seen.options[1].description, None);
+        assert_eq!(seen.options[2].title, "bare legacy option");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1472,9 +1516,10 @@ mod tests {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let run = test_run(jail);
         for args in [
-            serde_json::json!({"question": "", "options": ["a", "b"]}),
-            serde_json::json!({"question": "Which?", "options": ["only"]}),
+            serde_json::json!({"question": "", "options": [{"title": "a"}, {"title": "b"}]}),
+            serde_json::json!({"question": "Which?", "options": [{"title": "only"}]}),
             serde_json::json!({"question": "Which?"}),
+            serde_json::json!({"question": "Which?", "options": [{"description": "no title"}, {"title": "b"}]}),
         ] {
             let mut events = Vec::new();
             let text = rt.block_on(async {

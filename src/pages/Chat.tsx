@@ -206,7 +206,10 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   };
   const approvalSeq = useRef(0);
   // Pending ask_user question (the loop parks until the user answers).
-  const [pendingQuestion, setPendingQuestion] = useState<{ question: string; options: string[] } | null>(null);
+  const [pendingQuestion, setPendingQuestion] = useState<{
+    question: string;
+    options: { title: string; description?: string }[];
+  } | null>(null);
   const [questionDraft, setQuestionDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -490,7 +493,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     const unlisten = listen<{
       type: string;
       question: string;
-      options: string[];
+      options: { title: string; description?: string }[];
     }>("harness_question", (event) => {
       const p = event.payload;
       void playNotificationSound("permissions");
@@ -1372,13 +1375,18 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
                 {pendingQuestion.question}
               </p>
               <div className="flex flex-col items-stretch gap-1.5 mb-1.5">
-                {pendingQuestion.options.map((o) => (
+                {pendingQuestion.options.map((o, i) => (
                   <button
-                    key={o}
-                    className="btn-secondary py-1 px-2 text-xs text-left"
-                    onClick={() => answerQuestion(o)}
+                    key={`${o.title}-${i}`}
+                    className="btn-secondary py-1.5 px-2.5 text-xs text-left"
+                    onClick={() => answerQuestion(o.title)}
                   >
-                    {o}
+                    <span className="block text-ink">{o.title}</span>
+                    {o.description && (
+                      <span className="block text-faint text-[0.6875rem] leading-snug mt-0.5">
+                        {o.description}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>

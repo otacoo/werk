@@ -751,14 +751,29 @@ impl Tool for AskUserTool {
         "ask_user".to_string()
     }
     fn description(&self) -> String {
-        "Ask the user one multiple-choice question (2-4 options) when their input is genuinely needed. Never use it for facts you can look up.".to_string()
+        "Ask the user one multiple-choice question (2-6 options) when their input is genuinely needed. Each option is a short title with an optional description of what it entails. Never use it for facts you can look up.".to_string()
     }
     fn parameters(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
                 "question": { "type": "string" },
-                "options": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 6 }
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": { "type": "string", "description": "Short answer label." },
+                            "description": {
+                                "type": "string",
+                                "description": "Optional explanation of what choosing this answer entails."
+                            }
+                        },
+                        "required": ["title"]
+                    },
+                    "minItems": 2,
+                    "maxItems": 6
+                }
             },
             "required": ["question", "options"]
         })
