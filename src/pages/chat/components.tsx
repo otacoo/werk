@@ -379,7 +379,7 @@ export function fmtTok(n: number): string {
   return `${n}`;
 }
 
-export function ContextRing({ used, total, avgTokps, model, genTokens, liveGenTps, livePromptTps }: {
+export function ContextRing({ used, total, avgTokps, model, genTokens, liveGenTps, livePromptTps, dropDown = false }: {
   used: number | null;
   total: number | null;
   avgTokps: number | null;
@@ -387,6 +387,8 @@ export function ContextRing({ used, total, avgTokps, model, genTokens, liveGenTp
   genTokens?: number;
   liveGenTps?: number | null;
   livePromptTps?: number | null;
+  /** Open the details downward (header placement) instead of upward. */
+  dropDown?: boolean;
 }) {
   const [hover, setHover] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -434,7 +436,11 @@ export function ContextRing({ used, total, avgTokps, model, genTokens, liveGenTp
         </span>
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 mb-2 w-64 border border-border bg-surface-2 p-3 z-50 select-text rounded">
+        <div
+          className={`absolute w-64 border border-border bg-surface-2 p-3 z-50 select-text rounded ${
+            dropDown ? "top-full mt-2 right-0" : "bottom-full mb-2 left-0"
+          }`}
+        >
           <div className="flex items-center gap-2 text-xs font-semibold text-ink">
             <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
             <span>

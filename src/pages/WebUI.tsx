@@ -45,9 +45,6 @@ export default function WebUI({ go }: { go: (t: Tab) => void; active?: boolean }
       <div className="flex items-center gap-2 px-4 py-1.5 border-b border-border text-[0.6875rem] text-dim shrink-0">
         <Globe size={11} className="shrink-0" />
         <span className="font-mono truncate">{url}</span>
-        <span className="text-faint truncate hidden md:inline">
-          llama-server's own UI — werk's prompt and tools don't apply.
-        </span>
         <button
           className="ml-auto shrink-0 text-accent hover:underline inline-flex items-center gap-1"
           onClick={() => url && void openUrl(url).catch(() => {})}

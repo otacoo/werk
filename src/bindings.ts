@@ -31,6 +31,10 @@ export const commands = {
 	talkCompact: () => typedError<number, string>(__TAURI_INVOKE("talk_compact")),
 	/**  Distill the talk thread into the character's memory, then start fresh. */
 	talkDistill: () => typedError<string, string>(__TAURI_INVOKE("talk_distill")),
+	/**  Context usage for the roleplay/Talk transcript. */
+	talkContextStats: () => typedError<ContextStats_Serialize, string>(__TAURI_INVOKE("talk_context_stats")),
+	/**  Answer an ask_user question parked by the talk run. */
+	talkQuestionAnswer: (answer: string) => typedError<null, string>(__TAURI_INVOKE("talk_question_answer", { answer })),
 	/**  Clear the task list (user action from the checkpoint strip). */
 	harnessTodosClear: () => typedError<null, string>(__TAURI_INVOKE("harness_todos_clear")),
 	/**  Distill the session into memory, coalesce the memories, then start fresh. */

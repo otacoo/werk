@@ -75,6 +75,8 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
   const [slotCtx, setSlotCtx] = useState<ContextStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<"loading" | "thinking" | null>(null);
+  const [pendingQuestion, setPendingQuestion] = useState<{ question: string; options: string[] } | null>(null);
+  const [questionDraft, setQuestionDraft] = useState("");
   const [card, setCard] = useState<{ name: string; avatar: string | null } | null>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const [userName, setUserName] = useState("User");
@@ -169,7 +171,7 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
     void restore();
     const poll = () => {
       if (!activeRef.current) return;
-      call(commands.harnessContextStats()).then(setSlotCtx).catch(() => {});
+      call(commands.talkContextStats()).then(setSlotCtx).catch(() => {});
     };
     poll();
     const id = setInterval(poll, 2000);
@@ -190,7 +192,7 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
     activeRef.current = active;
     if (active) {
       void restore();
-      call(commands.harnessContextStats()).then(setSlotCtx).catch(() => {});
+      call(commands.talkContextStats()).then(setSlotCtx).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
@@ -296,6 +298,18 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
     };
   }, []);
 
+  // ask_user questions arrive while the send invoke is still pending.
+  useEffect(() => {
+    const unlisten = listen<{ question: string; options: string[] }>("talk_question", (event) => {
+      const p = event.payload;
+      setQuestionDraft("");
+      setPendingQuestion({ question: p.question, options: p.options ?? [] });
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+
   // Stay pinned to the newest message.
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -345,6 +359,8 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
   const restart = async () => {
     if (streaming) return;
     setError(null);
+    setPendingQuestion(null);
+    setQuestionDraft("");
     try {
       await call(commands.roleplayStartChat());
       await restore();
@@ -456,13 +472,27 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
       setReasoningText(null);
       setReasoningLive(false);
       setAttachments([]);
+      setPendingQuestion(null);
+      setQuestionDraft("");
       setRunStatus(null);
     }
   };
 
   const stop = async () => {
+    setPendingQuestion(null);
+    setQuestionDraft("");
     try {
       await call(commands.talkAbort());
+    } catch {}
+  };
+
+  const answerQuestion = async (answer: string) => {
+    const text = answer.trim();
+    if (!text || !pendingQuestion) return;
+    setPendingQuestion(null);
+    setQuestionDraft("");
+    try {
+      await call(commands.talkQuestionAnswer(text));
     } catch {}
   };
 
@@ -545,6 +575,7 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
             used={slotCtx?.used ?? contextUsed}
             total={slotCtx?.total ?? null}
             avgTokps={null}
+            dropDown
           />
           <button
             className="btn-ghost py-1 px-2 text-[0.625rem]"
@@ -686,6 +717,45 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
             <button className="shrink-0" onClick={() => setError(null)} title="Dismiss">
               <X size={11} />
             </button>
+          </div>
+        )}
+        {pendingQuestion && (
+          <div className="mb-2 rounded border border-accent/60 bg-accent/10 px-3 py-2">
+            <p className="text-xs text-ink mb-1.5">
+              <span className="text-accent-soft font-medium">Question: </span>
+              {pendingQuestion.question}
+            </p>
+            <div className="flex flex-col items-stretch gap-1.5 mb-1.5">
+              {pendingQuestion.options.map((o) => (
+                <button
+                  key={o}
+                  className="btn-secondary py-1 px-2 text-xs text-left"
+                  onClick={() => answerQuestion(o)}
+                >
+                  {o}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <input
+                className="input flex-1 py-1 px-2 text-xs"
+                placeholder="Or type your own answer…"
+                value={questionDraft}
+                onChange={(e) => setQuestionDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    answerQuestion(questionDraft);
+                  }
+                }}
+              />
+              <button
+                className="btn-primary py-1 px-2 text-xs"
+                onClick={() => answerQuestion(questionDraft)}
+              >
+                Answer
+              </button>
+            </div>
           </div>
         )}
         {attachments.length > 0 && (

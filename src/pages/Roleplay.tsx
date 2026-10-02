@@ -166,8 +166,7 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
             <h2 className="section-title mb-1">Talk</h2>
             <p className="section-desc">
               One continuous discussion per character, with only the remember tool and no
-              approvals. A custom system prompt in Agent → Prompt overrides the card's
-              instructions.
+              approvals.
             </p>
           </div>
           <button

@@ -7,6 +7,9 @@
 - Chat profiles: the Mode page flows from the server mode to a profile row (general/code, WebUI, roleplay), where roleplay swaps Chat for a Talk tab with character avatars, one continuous discussion per character, and distill into character memory.
 - The WebUI profile embeds llama-server's own UI in a mounted WebUI tab.
 - The WebUI profile keeps the server's own UI enabled automatically and hides the agent tools and LSP from the Tools page.
+- Talk's context ring drops down from the header and tracks the talk transcript.
+- ask_user is available in roleplay, with its question box in Talk.
+- The WebUI profile card greys out in External API mode.
 
 ## [0.5.0] - 2026-10-02
 

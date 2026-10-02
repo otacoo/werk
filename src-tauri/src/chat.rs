@@ -383,6 +383,8 @@ fn recent_transcript(history: &[ChatMessage]) -> String {
 struct UiGate {
     app: AppHandle,
     runtime: Arc<HarnessRuntime>,
+    /// Event carrying ask_user questions ("harness_question"/"talk_question").
+    question_event: &'static str,
 }
 
 impl ApprovalGate for UiGate {
@@ -420,6 +422,7 @@ impl ApprovalGate for UiGate {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = QuestionAnswer> + Send>> {
         let app = self.app.clone();
         let runtime = self.runtime.clone();
+        let question_event = self.question_event;
         Box::pin(async move {
             let (tx, rx) = tokio::sync::oneshot::channel();
             {
@@ -430,7 +433,7 @@ impl ApprovalGate for UiGate {
                 *pending = Some(tx);
             }
             let _ = app.emit(
-                "harness_question",
+                question_event,
                 serde_json::json!({
                     "type": "question_asked",
                     "question": req.question,
@@ -1479,6 +1482,7 @@ async fn agent_send_impl(
         ToolRegistry::project_tools(jail.clone())
             .only(&[])
             .add(Arc::new(harness::memory::RememberTool::for_file(memory)))
+            .add(Arc::new(harness::tools::AskUserTool))
     } else {
         build_registry(
             jail.clone(),
@@ -1884,7 +1888,11 @@ async fn agent_send_impl(
     let utility: Option<(&LlmClient, Option<String>)> =
         utility_target.as_ref().map(|(c, m)| (c, m.clone()));
 
-    let gate = Arc::new(UiGate { app: app.clone(), runtime: runtime.clone() });
+    let gate = Arc::new(UiGate {
+        app: app.clone(),
+        runtime: runtime.clone(),
+        question_event: if roleplay { "talk_question" } else { "harness_question" },
+    });
     let steer_rt = runtime.clone();
     let steer: Arc<dyn Fn() -> Vec<String> + Send + Sync> =
         Arc::new(move || std::mem::take(&mut *steer_rt.steering.lock().unwrap()));
@@ -2625,7 +2633,23 @@ fn orchestrator_context(state: &AppState) -> Option<u32> {
 pub async fn harness_context_stats(
     state: State<'_, AppState>,
 ) -> Result<ContextStats, String> {
-    let used = harness::compact::estimate_tokens(&state.harness.history.lock().unwrap());
+    context_stats(&state.harness, &state).await
+}
+
+/// Context usage for the roleplay/Talk transcript.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_context_stats(
+    state: State<'_, AppState>,
+) -> Result<ContextStats, String> {
+    context_stats(&state.talk, &state).await
+}
+
+async fn context_stats(
+    runtime: &HarnessRuntime,
+    state: &AppState,
+) -> Result<ContextStats, String> {
+    let used = harness::compact::estimate_tokens(&runtime.history.lock().unwrap());
     let mut stats = ContextStats {
         used: Some(used.min(u32::MAX as u64) as u32),
         total: None,
@@ -2641,11 +2665,11 @@ pub async fn harness_context_stats(
     let port = match status {
         crate::server::ServerStatus::Running { port, .. } if read_live => port,
         _ => {
-            stats.total = orchestrator_context(&state);
+            stats.total = orchestrator_context(state);
             return Ok(stats);
         }
     };
-    let client = server_client(port, &state);
+    let client = server_client(port, state);
     // Live slot sizes reflect the effective --ctx-size/--fit; the GGUF
     // header is only the training maximum.
     if let Ok(Some((ctx, prompt))) = client.slot_fill().await {
@@ -2664,7 +2688,7 @@ pub async fn harness_context_stats(
         }
     }
     if stats.total.is_none() {
-        stats.total = orchestrator_context(&state);
+        stats.total = orchestrator_context(state);
     }
     Ok(stats)
 }
@@ -2753,7 +2777,23 @@ pub async fn harness_question_answer(
     answer: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let sender = state.harness.pending_question.lock().unwrap().take();
+    question_answer_impl(&state.harness, answer);
+    Ok(())
+}
+
+/// Answer an ask_user question parked by the talk run.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_question_answer(
+    answer: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    question_answer_impl(&state.talk, answer);
+    Ok(())
+}
+
+fn question_answer_impl(runtime: &HarnessRuntime, answer: String) {
+    let sender = runtime.pending_question.lock().unwrap().take();
     let answer = answer.trim().to_string();
     if let Some(tx) = sender {
         let _ = tx.send(if answer.is_empty() {
@@ -2762,7 +2802,6 @@ pub async fn harness_question_answer(
             QuestionAnswer { answer, cancelled: false }
         });
     }
-    Ok(())
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────

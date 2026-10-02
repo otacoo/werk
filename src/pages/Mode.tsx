@@ -122,6 +122,12 @@ export default function Mode({
     }
   };
 
+  // External API mode has no local server, so the WebUI profile is moot.
+  useEffect(() => {
+    if (mode === "external" && profile === "webui") chooseProfile("agent");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, profile]);
+
   const selectTarget = async (id: string) => {
     setError(null);
     try {
@@ -294,7 +300,7 @@ export default function Mode({
       icon: ExternalLink,
       title: "WebUI",
       desc: "Use llama-server's own chat UI.",
-      points: ["Embeds the server's own chat UI", "A lightly supported extra"],
+      points: ["Embeds the server's own chat UI", "Can use built-in tools and MCPs"],
       soon: false,
     },
     {
@@ -389,17 +395,18 @@ export default function Mode({
           />
           <div className="grid grid-cols-4 pt-5">
             {profiles.map(({ id, icon: Icon, title, desc, points, soon }) => {
-              const active = !soon && profile === id;
+              const disabled = soon || (id === "webui" && mode === "external");
+              const active = !disabled && profile === id;
               return (
                 <div key={id} className="relative px-2">
                   <div className="absolute -top-5 left-1/2 -translate-x-1/2 h-[21px] w-px bg-border" />
                   <button
-                    onClick={() => !soon && chooseProfile(id as "agent" | "webui" | "roleplay")}
-                    disabled={soon}
+                    onClick={() => !disabled && chooseProfile(id as "agent" | "webui" | "roleplay")}
+                    disabled={disabled}
                     className={`card w-full h-full text-left transition-colors ${
                       active
                         ? "border-accent bg-accent/5"
-                        : soon
+                        : disabled
                           ? "opacity-50 cursor-default"
                           : "hover:bg-surface-2"
                     }`}
@@ -412,6 +419,11 @@ export default function Mode({
                       )}
                       {soon && (
                         <span className="ml-auto badge-gray text-[0.625rem] shrink-0">soon</span>
+                      )}
+                      {disabled && !soon && (
+                        <span className="ml-auto badge-gray text-[0.625rem] shrink-0">
+                          external
+                        </span>
                       )}
                     </div>
                     <p className="text-xs text-dim leading-snug">{desc}</p>

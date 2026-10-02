@@ -118,6 +118,8 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::talk_rewind,
         chat::talk_compact,
         chat::talk_distill,
+        chat::talk_context_stats,
+        chat::talk_question_answer,
         chat::harness_todos_clear,
         chat::harness_distill,
         chat::harness_agent_history,
