@@ -24,8 +24,9 @@
 </p>
 
 ## Status
-
-**werk.** is in *active development* and evolving rapidly. Bug reports and ideas are welcome via [issues](https://github.com/otacoo/werk/issues).
+>[!WARNING]
+>Beta software.
+>**werk.** is in *active development* and evolving rapidly. Bug reports and ideas are welcome via [issues](https://github.com/otacoo/werk/issues).
 
 ## Goals
 
@@ -98,9 +99,9 @@ npm run typecheck  # tsc --noEmit
 - `src/` — the React + TypeScript UI.
 - `tools/export-bindings/` — generates the TypeScript bindings from the Rust types, so an IPC mismatch fails at build time.
 
-## Thanks and considerations
+## Considerations
 
-I'd like to thank @pwilkin; **werk.** was originally a fork with added elements on top of [pwilkin's](https://github.com/pwilkin/) [Catapult](https://github.com/pwilkin/catapult) after it stopped development.
+**werk.** was originally a fork with added elements on top of [pwilkin's](https://github.com/pwilkin/) [Catapult](https://github.com/pwilkin/catapult) after it stopped development.
 Since then I've decided to rewrite the backend and frontend elements from scratch, certain elements may still share some visual similarity with Catapult but **werk.** is now much further along from where Catapult was.
 
 ## License

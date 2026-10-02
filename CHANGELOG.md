@@ -2,46 +2,41 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-02
+
+### Added
+
+- LSP settings got their own tab in the Tools page, after MCP.
+- Settings → Agent → "Agent files": hides `AGENTS.md`/`.agent*` files from
+  every agent tool (reads, writes, edits, globs, content search). Visible by
+  default.
+- `get_time`: current UTC date/time for date-sensitive work; the prompt
+  suggests it before search-style questions.
+- Settings → Memory: "Restore backup" for the pre-`/distill` `MEMORY.md.bak`.
+
 ### Changed
 
-- The agent can no longer write its own tool or skill definitions: project
-  `.werk/plugins` and `.werk/skills` are read-only to the file tools, so a
-  model cannot add a tool — or a no-approval plugin — to its next run.
-- `exec`'s free read-only path is stricter: shell metacharacters
-  (redirection, pipes, chaining, substitution) and mutating git forms
-  (`git remote add`, `git branch -D`, `--output`, `--ext-diff`) now require
-  approval.
-- "New plugin" scaffolds into the global plugins folder (the one the Tools
-  page lists) instead of the active project's `.werk/plugins/`, so it works
-  without a project open.
+- The agent can no longer write its own tool or skill definitions:
+  `.werk/plugins` and `.werk/skills` are read-only to the file tools.
+- `exec`'s free read-only path rejects shell metacharacters (redirection,
+  pipes, chains, substitution) and mutating git forms (`git remote add`,
+  `git branch -D`, `--output`, `--ext-diff`).
+- "New plugin" scaffolds into the global plugins folder, so it works with no
+  project open.
 
 ### Fixed
 
-- The Chat context ring shows the effective context window instead of the
-  model's training maximum: the orchestrator's role override wins, then the
-  launch `--ctx-size` set on the Run page, and only then the GGUF length
-  (a 92K setting now reads as 92K, not 262K). Router mode no longer reads the
-  router's own `/slots`/`/props` — they describe the router, not the loaded
-  child; single-model mode still prefers live slot values, which include
-  `--fit` shrinking.
-- The system prompt no longer names disabled tools: with `remember`,
-  `ask_user`, `spawn_subagent`, the file tools, or `exec` switched off, their
-  sentences are dropped (or the tool list is rewritten) so the model is never
-  told about a tool it cannot call. The tool schemas were already filtered.
+- The Chat context ring shows the effective context window — role override,
+  then the Run page's `--ctx-size`, then the GGUF length — instead of the
+  model's training maximum; router mode no longer reads the router's own
+  `/slots`/`/props`.
+- The system prompt no longer names disabled tools; their sentences and the
+  shell snippet drop out with the tool.
 
 ## [0.3.7] - 2026-10-01
 
 ### Added
 
-- `get_time`: a free tool returning the current UTC date/time and weekday;
-  the prompt suggests calling it before date-sensitive work (search queries,
-  releases, anything "latest").
-- Tools → Agent → "Agent files": hides `AGENTS.md`/`.agent*` files from every
-  agent tool — reads, writes, edits, globs, and content search — for the next
-  run. Visible by default.
-- LSP settings moved to their own tab in the Tools page, after MCP.
-- Settings → Memory shows "Restore backup" when `/distill` left a
-  `MEMORY.md.bak`, so a bad coalesce is one click from recovery.
 - Tool authoring: "New plugin" in Tools → Agent → Plugin tools scaffolds a
   commented plugin (manifest + script) in the active project's
   `.werk/plugins/` and opens it in your editor; a plugin can also be a single
