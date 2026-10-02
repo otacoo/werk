@@ -594,6 +594,13 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
     });
   };
 
+  // The WebUI profile requires the server's own UI; drop --no-webui.
+  const webuiProfile = appConfig?.chat_profile === "webui";
+  useEffect(() => {
+    if (!webuiProfile) return;
+    setExtraRows((rows) => rows.filter((r) => r.key !== "no-webui"));
+  }, [webuiProfile]);
+
   // Live command preview, debounced while the launch options change.
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1569,8 +1576,13 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
             <Toggle
               label="Web UI"
               flag="--no-webui"
-              hint="Serve llama.cpp's built-in web interface."
-              checked={!hasExtra("no-webui")}
+              hint={
+                webuiProfile
+                  ? "Required by the WebUI profile."
+                  : "Serve llama.cpp's built-in web interface."
+              }
+              checked={webuiProfile ? true : !hasExtra("no-webui")}
+              disabled={webuiProfile}
               onChange={(v) => {
                 setExtraFlag("no-webui", !v);
                 // The MCP proxy only exists for the Web UI.

@@ -277,6 +277,23 @@ export default function Tools({ active = true }: { active?: boolean }) {
 
   const running = serverStatus.type === "running" || serverStatus.type === "starting";
   const mode = appConfig?.server_mode ?? "single";
+  const profile = appConfig?.chat_profile ?? "agent";
+  // WebUI clients don't use werk's agent tools or LSP.
+  const panes = (
+    [
+      { id: "live" as const, label: "Live Tools", icon: Activity },
+      { id: "agent" as const, label: "Agent", icon: Bot },
+      { id: "server" as const, label: "Server", icon: Server },
+      { id: "mcp" as const, label: "MCP", icon: Plug },
+      { id: "lsp" as const, label: "LSP", icon: FileCode },
+    ] as const
+  ).filter((p) => !(profile === "webui" && (p.id === "agent" || p.id === "lsp")));
+
+  // Leave a hidden pane when the profile changes.
+  useEffect(() => {
+    if (profile === "webui" && (pane === "agent" || pane === "lsp")) switchPane("server");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, pane]);
 
   const formFields = (
     <>
@@ -367,15 +384,7 @@ export default function Tools({ active = true }: { active?: boolean }) {
         )}
 
         <div className="flex items-center gap-0.5">
-          {(
-            [
-              { id: "live" as const, label: "Live Tools", icon: Activity },
-              { id: "agent" as const, label: "Agent", icon: Bot },
-              { id: "server" as const, label: "Server", icon: Server },
-              { id: "mcp" as const, label: "MCP", icon: Plug },
-              { id: "lsp" as const, label: "LSP", icon: FileCode },
-            ]
-          ).map(({ id, label, icon: Icon }) => (
+          {panes.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => switchPane(id)}

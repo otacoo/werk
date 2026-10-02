@@ -489,6 +489,10 @@ async fn start_server_inner(
 ) -> Result<(), String> {
     let app_config = state.config.lock().unwrap().clone();
     let mode = app_config.server_mode;
+    // The WebUI profile needs llama-server's own UI; never launch without it.
+    if app_config.chat_profile == crate::config::ChatProfile::Webui {
+        config.extra_params.remove("no-webui");
+    }
     if mode == crate::config::ServerMode::External {
         return Err(
             "External API mode does not run the local server — pick a provider and model on \

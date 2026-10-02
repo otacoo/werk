@@ -29,9 +29,9 @@ export default function WebUI({ go }: { go: (t: Tab) => void; active?: boolean }
         <Globe size={22} className="text-faint" />
         <p className="text-sm text-dim">The local server is not running.</p>
         <p className="text-[0.6875rem] text-faint max-w-md">
-          Start it on the Run page (enable the Web UI launch option in Run → Extra first). The
-          embedded UI talks to the model with the server's own template — werk's prompt and tools
-          don't apply.
+          Start it on the Run page — the WebUI profile enables the server's own UI automatically.
+          The embedded UI talks to the model with the server's own template; werk's prompt and
+          tools don't apply.
         </p>
         <button className="btn-primary text-xs py-1 px-2 mt-1" onClick={() => go("run")}>
           <Play size={11} /> Go to Run
