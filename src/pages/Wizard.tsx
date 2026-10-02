@@ -737,7 +737,9 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
             </div>
 
             <div>
-              <p className="label mb-1.5">Corners</p>
+              <p className="label mb-1.5">
+                Corners <span className="text-faint">— Auto follows your OS default.</span>
+              </p>
               <div className="flex items-center gap-2">
                 {(["auto", "sharp", "round"] as CornersMode[]).map((c) => (
                   <button
