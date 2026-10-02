@@ -358,7 +358,9 @@ export default function Tools({ active = true, onOpenSettings }: {
                 ? "What the running server and the agent's MCP servers currently offer."
                 : pane === "mcp"
                   ? "MCP servers are shared — llama-server exposes them to its Web UI/API clients, and werk starts them for the chat agent."
-                  : "Tools that llama-server executes for its own API and Web UI clients."}
+                  : pane === "lsp"
+                    ? "Language-server navigation for the agent: definitions, references, symbols, and post-edit diagnostics."
+                    : "Tools that llama-server executes for its own API and Web UI clients."}
           </p>
         </div>
 

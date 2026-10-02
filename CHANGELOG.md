@@ -33,6 +33,7 @@
 
 ### Fixed
 
+- The LSP tab describes itself instead of showing the Server tab's text.
 - The Chat context ring shows the effective context window — role override,
   then the Run page's `--ctx-size`, then the GGUF length — instead of the
   model's training maximum; router mode no longer reads the router's own
