@@ -57,7 +57,9 @@ pub struct AppState {
     /// File downloads: no total timeout (bodies outlive any deadline).
     pub dl_client: reqwest::Client,
     pub harness: Arc<chat::HarnessRuntime>,
-    pub harness_abort: Arc<AtomicBool>,
+    /// Roleplay/Talk transcript and run state; separate from `harness` so the
+    /// two chats never mix.
+    pub talk: Arc<chat::HarnessRuntime>,
     /// Language servers for diagnostics and the `lsp` tool.
     pub lsp: Arc<harness::lsp::LspManager>,
     /// Harness-side MCP servers (spawned lazily, reused across runs).
@@ -110,6 +112,12 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::harness_agent_steer,
         chat::harness_agent_reset,
         chat::roleplay_start_chat,
+        chat::talk_send,
+        chat::talk_abort,
+        chat::talk_history,
+        chat::talk_rewind,
+        chat::talk_compact,
+        chat::talk_distill,
         chat::harness_todos_clear,
         chat::harness_distill,
         chat::harness_agent_history,
@@ -145,6 +153,8 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         roleplay::roleplay_card_avatar,
         roleplay::set_chat_profile,
         roleplay::set_roleplay_config,
+        roleplay::roleplay_set_user_avatar,
+        roleplay::roleplay_user_avatar,
         chat::set_utility_target,
         chat::set_lsp_enabled,
         chat::set_agent_files_hidden,
@@ -367,7 +377,10 @@ pub fn run() {
                         continue;
                     };
                     let minutes = state.config.lock().unwrap().server_idle_unload_minutes;
-                    if minutes == 0 || state.harness.running.load(Ordering::SeqCst) {
+                    if minutes == 0
+                        || state.harness.running.load(Ordering::SeqCst)
+                        || state.talk.running.load(Ordering::SeqCst)
+                    {
                         continue;
                     }
                     {
@@ -387,7 +400,11 @@ pub fn run() {
                             continue;
                         }
                     }
-                    let idle = state.harness.last_activity.lock().unwrap().elapsed();
+                    let idle = {
+                        let agent = state.harness.last_activity.lock().unwrap().elapsed();
+                        let talk = state.talk.last_activity.lock().unwrap().elapsed();
+                        agent.min(talk)
+                    };
                     if idle < std::time::Duration::from_secs(minutes as u64 * 60) {
                         continue;
                     }
@@ -420,7 +437,7 @@ pub fn run() {
             http_client,
             dl_client,
             harness: Arc::new(chat::HarnessRuntime::new()),
-            harness_abort: Arc::new(AtomicBool::new(false)),
+            talk: Arc::new(chat::HarnessRuntime::new()),
             lsp,
             mcp_agent: mcp::McpAgent::default(),
             terminal: terminal::TerminalRuntime::new(),
@@ -459,7 +476,7 @@ mod tests {
             http_client: reqwest::Client::new(),
             dl_client: reqwest::Client::new(),
             harness: Arc::new(chat::HarnessRuntime::new()),
-            harness_abort: Arc::new(AtomicBool::new(false)),
+            talk: Arc::new(chat::HarnessRuntime::new()),
             lsp: Arc::new(harness::lsp::LspManager::new()),
             mcp_agent: mcp::McpAgent::default(),
             terminal: terminal::TerminalRuntime::new(),

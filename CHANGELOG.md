@@ -4,7 +4,7 @@
 
 ### Added
 
-- Roleplay profile: import SillyTavern V1-V3 and AICC character cards (PNG or JSON), per-character memory, greeting-seeded chats, and sampling overrides.
+- Chat profiles: the Mode page flows from the server mode to a profile row (general/code, WebUI, roleplay), where roleplay swaps Chat for a Talk tab with character avatars, one continuous discussion per character, and distill into character memory.
 
 ## [0.5.0] - 2026-10-02
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { FolderOpen, Plus, Sparkles, Trash2 } from "lucide-react";
+import { FolderOpen, ImagePlus, Plus, Sparkles, Trash2, UserRound, X } from "lucide-react";
 import { commands } from "../bindings";
 import type { CardSummary, CharacterCard, MemoryFileDto } from "../bindings";
 import { call } from "../utils/ipc";
@@ -37,14 +37,44 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
   const [busy, setBusy] = useState(false);
 
   const rp: RP = { ...EMPTY, ...(appConfig?.roleplay ?? {}) };
-  const profile = appConfig?.chat_profile ?? "agent";
   // Persona edits commit on blur so typing does not write the config per key.
   const [personaName, setPersonaName] = useState("");
   const [personaDesc, setPersonaDesc] = useState("");
+  const [avatar, setAvatar] = useState<string | null>(null);
   useEffect(() => {
     setPersonaName(rp.user_name);
     setPersonaDesc(rp.user_description);
   }, [rp.user_name, rp.user_description]);
+
+  const loadAvatar = () => {
+    call(commands.roleplayUserAvatar())
+      .then(setAvatar)
+      .catch(() => setAvatar(null));
+  };
+  useEffect(loadAvatar, []);
+
+  const importAvatar = async () => {
+    const picked = await open({
+      multiple: false,
+      filters: [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+    });
+    if (!picked || typeof picked !== "string") return;
+    try {
+      await call(commands.roleplaySetUserAvatar(picked));
+      loadAvatar();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const clearAvatar = async () => {
+    try {
+      await call(commands.roleplaySetUserAvatar(null));
+      setAvatar(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   const loadCards = () => {
     call(commands.roleplayListCards()).then(setCards).catch((e) => setError(String(e)));
@@ -69,13 +99,6 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
     const merged = { ...rp, ...next };
     setAppConfig((c) => (c ? { ...c, roleplay: merged } : c));
     call(commands.setRoleplayConfig(merged))
-      .then(notifyConfigChanged)
-      .catch((e) => setError(String(e)));
-  };
-
-  const setProfile = (p: "agent" | "roleplay") => {
-    setAppConfig((c) => (c ? { ...c, chat_profile: p } : c));
-    call(commands.setChatProfile(p))
       .then(notifyConfigChanged)
       .catch((e) => setError(String(e)));
   };
@@ -114,8 +137,7 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
     setError(null);
     try {
       await call(commands.roleplayStartChat());
-      window.dispatchEvent(new Event("werk:roleplay-started"));
-      go("chat");
+      go("talk");
     } catch (e) {
       setError(String(e));
     }
@@ -139,47 +161,25 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
           </p>
         </div>
 
-        <div className="card">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="section-title mb-1">Profile</h2>
-              <p className="section-desc">
-                {profile === "roleplay"
-                  ? "Chat uses the roleplay prompt, skips the coding context, and offers only the remember tool. A custom system prompt in Agent → Prompt overrides the card's instructions."
-                  : "Chat runs the coding agent: project context, tools, and agent memory."}
-              </p>
-            </div>
-            <div className="flex items-center gap-0.5 shrink-0">
-              {(["agent", "roleplay"] as const).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setProfile(p)}
-                  className={`px-3 py-1.5 rounded text-xs font-medium capitalize transition-colors ${
-                    profile === p ? "bg-accent/20 text-ink" : "text-dim hover:text-ink hover:bg-accent/10"
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
+        <div className="card flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="section-title mb-1">Talk</h2>
+            <p className="section-desc">
+              One continuous discussion per character, with only the remember tool and no
+              approvals. A custom system prompt in Agent → Prompt overrides the card's
+              instructions.
+            </p>
           </div>
-          {profile === "roleplay" && (
-            <div className="flex items-center gap-2 mt-3">
-              <button
-                className="btn-primary text-xs"
-                disabled={!rp.card_id}
-                onClick={startChat}
-                title={rp.card_id ? "Start a new chat with the greeting" : "Pick a character card first"}
-              >
-                <Sparkles size={12} /> Start chat
-              </button>
-              {activeCard && (
-                <span className="text-[0.6875rem] text-dim truncate">
-                  Opens in Chat as {activeCard.name}
-                </span>
-              )}
-            </div>
-          )}
+          <button
+            className="btn-primary text-xs shrink-0"
+            disabled={!rp.card_id}
+            onClick={startChat}
+            title={
+              rp.card_id ? "Start over with the selected greeting" : "Pick a character card first"
+            }
+          >
+            <Sparkles size={12} /> Start chat
+          </button>
         </div>
 
         <div className="grid grid-cols-2 gap-4 items-start">
@@ -213,10 +213,7 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
                       ? "border-accent bg-accent/10"
                       : "border-border hover:bg-surface-2"
                   }`}
-                  onClick={() => {
-                    if (profile !== "roleplay") setProfile("roleplay");
-                    save({ card_id: card.id, greeting: 0 });
-                  }}
+                  onClick={() => save({ card_id: card.id, greeting: 0 })}
                 >
                   <CardAvatar id={card.id} name={card.name} />
                   <div className="flex-1 min-w-0">
@@ -248,8 +245,38 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
             <div className="card">
               <h2 className="section-title mb-1">You</h2>
               <p className="section-desc">
-                Your name and description; cards reference them as {"{{user}}"}.
+                Your name, description, and avatar for the Talk bubbles; cards reference the name
+                as {"{{user}}"}.
               </p>
+              <div className="flex items-center gap-3 mt-3">
+                {avatar ? (
+                  <img
+                    src={avatar}
+                    alt="Your avatar"
+                    className="w-11 h-11 rounded object-cover border border-border shrink-0"
+                  />
+                ) : (
+                  <div className="w-11 h-11 rounded border border-border bg-surface-2 flex items-center justify-center text-faint shrink-0">
+                    <UserRound size={13} />
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    className="btn-ghost text-[0.625rem] py-0.5 px-1.5"
+                    onClick={importAvatar}
+                  >
+                    <ImagePlus size={11} /> {avatar ? "Replace avatar" : "Import avatar"}
+                  </button>
+                  {avatar && (
+                    <button
+                      className="btn-ghost text-[0.625rem] py-0.5 px-1.5 text-accent-red"
+                      onClick={clearAvatar}
+                    >
+                      <X size={11} /> Clear
+                    </button>
+                  )}
+                </div>
+              </div>
               <label className="block mt-3">
                 <span className="text-[0.6875rem] text-dim">Name</span>
                 <input

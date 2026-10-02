@@ -9,7 +9,7 @@ export const commands = {
 	/**  Crate version for the About surface. */
 	appVersion: () => __TAURI_INVOKE<string>("app_version"),
 	getConfig: () => typedError<AppConfig_Serialize, string>(__TAURI_INVOKE("get_config")),
-	/**  Send a message to the agent; streams over `harness_event`. */
+	/**  Send a message to the coding agent; streams over `harness_event`. */
 	harnessAgentSend: (message: string, reasoningEffort: string | null, attachments: SendAttachment_Deserialize[] | null) => typedError<RunResult_Serialize, string>(__TAURI_INVOKE("harness_agent_send", { message, reasoningEffort, attachments })),
 	/**  Stop the running agent loop. */
 	harnessAgentAbort: () => typedError<null, string>(__TAURI_INVOKE("harness_agent_abort")),
@@ -19,6 +19,18 @@ export const commands = {
 	harnessAgentReset: () => typedError<null, string>(__TAURI_INVOKE("harness_agent_reset")),
 	/**  Start a fresh roleplay chat seeded with the selected greeting. */
 	roleplayStartChat: () => typedError<string | null, string>(__TAURI_INVOKE("roleplay_start_chat")),
+	/**  Send a message in the roleplay profile; streams over `talk_event`. */
+	talkSend: (message: string, reasoningEffort: string | null, attachments: SendAttachment_Deserialize[] | null) => typedError<RunResult_Serialize, string>(__TAURI_INVOKE("talk_send", { message, reasoningEffort, attachments })),
+	/**  Stop the running talk loop. */
+	talkAbort: () => typedError<null, string>(__TAURI_INVOKE("talk_abort")),
+	/**  Current talk transcript; lazily loads the active character's thread. */
+	talkHistory: () => typedError<HistoryView_Serialize, string>(__TAURI_INVOKE("talk_history")),
+	/**  Drop the last exchange from the talk thread. */
+	talkRewind: () => typedError<null, string>(__TAURI_INVOKE("talk_rewind")),
+	/**  Force-summarize older turns in the talk thread. */
+	talkCompact: () => typedError<number, string>(__TAURI_INVOKE("talk_compact")),
+	/**  Distill the talk thread into the character's memory, then start fresh. */
+	talkDistill: () => typedError<string, string>(__TAURI_INVOKE("talk_distill")),
 	/**  Clear the task list (user action from the checkpoint strip). */
 	harnessTodosClear: () => typedError<null, string>(__TAURI_INVOKE("harness_todos_clear")),
 	/**  Distill the session into memory, coalesce the memories, then start fresh. */
@@ -69,6 +81,10 @@ export const commands = {
 	roleplayCardAvatar: (id: string) => typedError<string | null, string>(__TAURI_INVOKE("roleplay_card_avatar", { id })),
 	setChatProfile: (profile: ChatProfile) => typedError<null, string>(__TAURI_INVOKE("set_chat_profile", { profile })),
 	setRoleplayConfig: (roleplay: RoleplayConfig_Deserialize) => typedError<null, string>(__TAURI_INVOKE("set_roleplay_config", { roleplay })),
+	/**  Import (or clear) the user's avatar for Talk bubbles. */
+	roleplaySetUserAvatar: (path: string | null) => typedError<null, string>(__TAURI_INVOKE("roleplay_set_user_avatar", { path })),
+	/**  The user's avatar as a data URL, when one is set. */
+	roleplayUserAvatar: () => typedError<string | null, string>(__TAURI_INVOKE("roleplay_user_avatar")),
 	/**
 	 *  Housekeeping model target (`provider:model`, `orchestrator`, `worker` or
 	 *  none); next run.
@@ -516,8 +532,8 @@ export type CharacterCard = {
 	lorebook: LorebookEntry[],
 };
 
-/**  Chat profile: the coding agent or a roleplay character. */
-export type ChatProfile = "agent" | "roleplay";
+/**  Chat profile: the coding agent, the llama.cpp Web UI, or roleplay. */
+export type ChatProfile = "agent" | "webui" | "roleplay";
 
 /**  Live context gauge: slot usage first, GGUF length as fallback. */
 export type ContextStats = ContextStats_Serialize | ContextStats_Deserialize;
@@ -1115,6 +1131,8 @@ export type RoleplayConfig_Deserialize = {
 	temperature?: number | null,
 	top_p?: number | null,
 	repeat_penalty?: number | null,
+	/**  Imported avatar image for the user's chat bubbles. */
+	user_avatar?: string | null,
 };
 
 /**
@@ -1129,6 +1147,8 @@ export type RoleplayConfig_Serialize = {
 	temperature?: number | null,
 	top_p?: number | null,
 	repeat_penalty?: number | null,
+	/**  Imported avatar image for the user's chat bubbles. */
+	user_avatar?: string | null,
 };
 
 export type RouterModelStatus = {

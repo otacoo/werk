@@ -2,16 +2,20 @@ import { useEffect, useState } from "react";
 import {
   Boxes,
   Cloud,
+  Drama,
   ExternalLink,
+  MessageCircleHeart,
+  MessageSquare,
   Network,
   Pencil,
   Plus,
   RefreshCw,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { commands } from "../bindings";
-import type { AppConfig, Provider, ServerStatus } from "../bindings";
+import type { AppConfig, CharacterCard, Provider, ServerStatus } from "../bindings";
 import { call } from "../utils/ipc";
 import { notifyConfigChanged } from "../utils/appSettings";
 import { subscribeServerStatus } from "../utils/serverStatus";
@@ -20,7 +24,11 @@ import ModelPicker, { type PickerItem } from "../components/ModelPicker";
 const splitList = (raw: string) =>
   raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
 
-export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
+export default function Mode({
+  go,
+}: {
+  go: (t: "run" | "chat" | "talk" | "roleplay") => void;
+}) {
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [status, setStatus] = useState<ServerStatus>({ type: "stopped" });
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +36,7 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   // Inline provider editor.
   const [editing, setEditing] = useState<number | "new" | null>(null);
+  const [roleplayCard, setRoleplayCard] = useState<CharacterCard | null>(null);
   const [pId, setPId] = useState("");
   const [pUrl, setPUrl] = useState("");
   const [pKey, setPKey] = useState("");
@@ -45,6 +54,7 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
   }, []);
 
   const mode = appConfig?.server_mode ?? "single";
+  const profile = appConfig?.chat_profile ?? "agent";
   const running = status.type === "running" || status.type === "starting";
   const port = status.type === "running" ? status.port : null;
   const providers = appConfig?.providers ?? [];
@@ -75,6 +85,35 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
           await call(commands.setHarnessRoles(c.selected_model, c.harness_roles?.worker ?? null));
         }
       }
+      await refresh();
+      notifyConfigChanged();
+    } catch (e) {
+      setError(String(e));
+      await refresh();
+    }
+  };
+
+  useEffect(() => {
+    const id = appConfig?.roleplay?.card_id;
+    if (!id) {
+      setRoleplayCard(null);
+      return;
+    }
+    let alive = true;
+    call(commands.roleplayGetCard(id))
+      .then((c) => alive && setRoleplayCard(c))
+      .catch(() => alive && setRoleplayCard(null));
+    return () => {
+      alive = false;
+    };
+  }, [appConfig?.roleplay?.card_id]);
+
+  const chooseProfile = async (next: "agent" | "webui" | "roleplay") => {
+    if (next === profile) return;
+    setError(null);
+    setAppConfig((c) => (c ? { ...c, chat_profile: next } : c));
+    try {
+      await call(commands.setChatProfile(next));
       await refresh();
       notifyConfigChanged();
     } catch (e) {
@@ -241,6 +280,41 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
     },
   ];
 
+  const profiles = [
+    {
+      id: "agent" as const,
+      icon: MessageSquare,
+      title: "General / code",
+      desc: "The full coding agent.",
+      points: ["Chat with tools, projects, git, sessions", "Agent, Tools, and Bench tabs"],
+      soon: false,
+    },
+    {
+      id: "webui" as const,
+      icon: ExternalLink,
+      title: "WebUI",
+      desc: "Use llama-server's own chat UI.",
+      points: ["Werk's chat tabs step aside", "A lightly supported extra"],
+      soon: false,
+    },
+    {
+      id: "roleplay" as const,
+      icon: Drama,
+      title: "Roleplay",
+      desc: "Character cards with the Talk tab.",
+      points: ["Per-character memory and greetings", "Compaction and distill for long stories"],
+      soon: false,
+    },
+    {
+      id: "assistant" as const,
+      icon: Sparkles,
+      title: "Assistant",
+      desc: "A different kind of helper.",
+      points: ["Coming later"],
+      soon: true,
+    },
+  ];
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-4 max-w-6xl mx-auto">
@@ -293,6 +367,55 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
               </button>
             );
           })}
+        </div>
+
+        {/* Flow: the server mode feeds the chat profile below. */}
+        <div className="relative h-5">
+          <div className="absolute left-1/2 top-0 h-full w-px bg-border" />
+        </div>
+        <div className="relative">
+          <div className="absolute left-[12.5%] right-[12.5%] top-0 h-px bg-border" />
+          <div className="grid grid-cols-4 gap-4 pt-5">
+            {profiles.map(({ id, icon: Icon, title, desc, points, soon }) => {
+              const active = !soon && profile === id;
+              return (
+                <div key={id} className="relative">
+                  <div className="absolute left-1/2 -top-5 h-5 w-px bg-border" />
+                  <button
+                    onClick={() => !soon && chooseProfile(id as "agent" | "webui" | "roleplay")}
+                    disabled={soon}
+                    className={`card w-full h-full text-left transition-colors ${
+                      active
+                        ? "border-accent bg-accent/5"
+                        : soon
+                          ? "opacity-50 cursor-default"
+                          : "hover:bg-surface-2"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Icon size={15} className={active ? "text-accent" : "text-dim"} />
+                      <span className="text-sm font-semibold text-ink">{title}</span>
+                      {active && (
+                        <span className="ml-auto badge-green text-[0.625rem] shrink-0">active</span>
+                      )}
+                      {soon && (
+                        <span className="ml-auto badge-gray text-[0.625rem] shrink-0">soon</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-dim leading-snug">{desc}</p>
+                    <ul className="mt-2 space-y-1">
+                      {points.map((p) => (
+                        <li key={p} className="text-[0.6875rem] text-faint flex gap-1.5">
+                          <span className="text-faint/60">·</span>
+                          {p}
+                        </li>
+                      ))}
+                    </ul>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {mode === "external" && (
@@ -429,7 +552,7 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
           </div>
         )}
 
-        {mode !== "external" && (
+        {mode !== "external" && profile !== "roleplay" && (
           <div className="card">
             <div className="flex items-center justify-between mb-1">
               <h2 className="section-title mb-0">Web UI</h2>
@@ -456,6 +579,37 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
           </div>
         )}
 
+        {profile === "roleplay" && (
+          <div className="card">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <h2 className="section-title mb-0">Roleplay</h2>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button className="btn-secondary text-xs py-1 px-2" onClick={() => go("roleplay")}>
+                  <Drama size={12} /> Roleplay page
+                </button>
+                <button className="btn-primary text-xs py-1 px-2" onClick={() => go("talk")}>
+                  <MessageCircleHeart size={12} /> Open Talk
+                </button>
+              </div>
+            </div>
+            <div className="section-desc space-y-1">
+              {roleplayCard ? (
+                <p>
+                  Active character: <b>{roleplayCard.name}</b> ({roleplayCard.spec},{" "}
+                  {1 + roleplayCard.alternate_greetings.length} greeting
+                  {roleplayCard.alternate_greetings.length === 0 ? "" : "s"}).
+                </p>
+              ) : (
+                <p>No character card yet — import one on the Roleplay page.</p>
+              )}
+              <p>
+                Talk keeps one continuous discussion per character; compact it when the window
+                fills, or distill it into the character's memory.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="card">
           {mode === "external" ? (
             <p className="text-xs text-dim">
@@ -471,8 +625,11 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
                   .{" "}
                 </>
               )}
-              <button className="text-accent hover:underline" onClick={() => go("chat")}>
-                Open Chat
+              <button
+                className="text-accent hover:underline"
+                onClick={() => go(profile === "roleplay" ? "talk" : "chat")}
+              >
+                Open {profile === "roleplay" ? "Talk" : "Chat"}
               </button>
               .
             </p>
@@ -485,8 +642,11 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
                 Go to Run
               </button>{" "}
               to configure and start it, or{" "}
-              <button className="text-accent hover:underline" onClick={() => go("chat")}>
-                open Chat
+              <button
+                className="text-accent hover:underline"
+                onClick={() => go(profile === "roleplay" ? "talk" : "chat")}
+              >
+                open {profile === "roleplay" ? "Talk" : "Chat"}
               </button>
               .
             </p>

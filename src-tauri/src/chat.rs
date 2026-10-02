@@ -45,6 +45,9 @@ pub struct HarnessRuntime {
     pub todos: harness::todos::TodoList,
     /// Last harness activity, for the idle server unload.
     pub last_activity: Mutex<std::time::Instant>,
+    /// Stop flag for the in-flight run; per runtime so Chat and Talk are
+    /// independent.
+    pub abort: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl HarnessRuntime {
@@ -61,6 +64,7 @@ impl HarnessRuntime {
             deleted_session: Mutex::new(None),
             todos: std::sync::Arc::new(Mutex::new(Vec::new())),
             last_activity: Mutex::new(std::time::Instant::now()),
+            abort: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 }
@@ -901,33 +905,62 @@ fn session_path(id: &str) -> Option<PathBuf> {
     sessions_dir().map(|d| d.join(format!("{id}.json")))
 }
 
-fn save_session(state: &AppState, title: Option<String>) -> Result<()> {
-    let messages = state.harness.history.lock().unwrap().clone();
-    save_session_messages(state, &messages, title)
+/// Transcript path for a runtime: agent sessions live in the sessions dir,
+/// roleplay threads one per character under the roleplay data dir.
+fn transcript_path(id: &str, roleplay: bool) -> Option<PathBuf> {
+    if id.is_empty() || id.contains(['/', '\\', '.']) {
+        return None;
+    }
+    if roleplay {
+        crate::roleplay::roleplay_dir().map(|d| d.join("sessions").join(format!("{id}.json")))
+    } else {
+        sessions_dir().map(|d| d.join(format!("{id}.json")))
+    }
+}
+
+/// Stable talk session id: the active card, or `general`.
+fn talk_session_id(app_config: &crate::config::AppConfig) -> String {
+    app_config
+        .roleplay
+        .card_id
+        .clone()
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| "general".to_string())
+}
+
+fn save_transcript_current(
+    state: &AppState,
+    runtime: &HarnessRuntime,
+    roleplay: bool,
+    title: Option<String>,
+) -> Result<()> {
+    let messages = runtime.history.lock().unwrap().clone();
+    save_transcript(state, runtime, &messages, title, roleplay)
 }
 
 /// Snapshot a transcript for the open session. Also called right after the
 /// first send so a new chat shows up in the sessions list while it streams.
-fn save_session_messages(
+fn save_transcript(
     state: &AppState,
+    runtime: &HarnessRuntime,
     messages: &[ChatMessage],
     title: Option<String>,
+    roleplay: bool,
 ) -> Result<()> {
-    let (id, project) = {
-        let sid = state.harness.session_id.lock().unwrap().clone();
-        let project = state.config.lock().unwrap().harness_active_project.clone();
+    let id = {
+        let sid = runtime.session_id.lock().unwrap().clone();
         match sid {
-            Some(id) => (id, project),
+            Some(id) => id,
             None => return Ok(()),
         }
     };
-    let Some(path) = session_path(&id) else {
+    let Some(path) = transcript_path(&id, roleplay) else {
         return Ok(());
     };
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let meta = state.harness.meta.lock().unwrap().clone();
+    let meta = runtime.meta.lock().unwrap().clone();
     let title = title.unwrap_or_else(|| {
         messages
             .iter()
@@ -944,6 +977,16 @@ fn save_session_messages(
         .and_then(|t| serde_json::from_str::<SessionFile>(&t).ok())
         .map(|s| s.created)
         .unwrap_or(now);
+    let project = if roleplay {
+        None
+    } else {
+        state.config.lock().unwrap().harness_active_project.clone()
+    };
+    let todos = if roleplay {
+        Vec::new()
+    } else {
+        runtime.todos.lock().unwrap().clone()
+    };
     let file = SessionFile {
         id,
         title,
@@ -952,14 +995,14 @@ fn save_session_messages(
         updated: now,
         messages: messages.to_vec(),
         meta,
-        todos: state.harness.todos.lock().unwrap().clone(),
+        todos,
     };
     std::fs::write(&path, serde_json::to_string_pretty(&file)?)?;
     Ok(())
 }
 
-fn truncate_meta(state: &AppState, len: usize) {
-    state.harness.meta.lock().unwrap().retain(|&i, _| i < len);
+fn truncate_meta(runtime: &HarnessRuntime, len: usize) {
+    runtime.meta.lock().unwrap().retain(|&i, _| i < len);
 }
 
 /// Files the agent wrote or edited since the last user turn, compared against
@@ -1173,11 +1216,11 @@ fn count_file_lines(path: &std::path::Path) -> u32 {
 /// Reindex footer metadata after compaction cuts: each cut removed
 /// `history[1..cut]` and inserted one summary. Entries inside a removed
 /// span are dropped; the system message (index 0) always survives.
-fn shift_meta_for_compaction(state: &AppState, cuts: &[usize]) {
+fn shift_meta_for_compaction(runtime: &HarnessRuntime, cuts: &[usize]) {
     if cuts.is_empty() {
         return;
     }
-    let mut meta = state.harness.meta.lock().unwrap();
+    let mut meta = runtime.meta.lock().unwrap();
     let mut shifted = HashMap::new();
     for (index, entry) in meta.drain() {
         if index == 0 {
@@ -1326,7 +1369,7 @@ fn with_attachments(message: &str, attachments: &[SendAttachment]) -> (ChatMessa
 
 // ── Commands ──────────────────────────────────────────────────────────────
 
-/// Send a message to the agent; streams over `harness_event`.
+/// Send a message to the coding agent; streams over `harness_event`.
 #[tauri::command]
 #[specta::specta]
 pub async fn harness_agent_send(
@@ -1336,6 +1379,54 @@ pub async fn harness_agent_send(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<RunResult, String> {
+    let runtime = state.harness.clone();
+    agent_send_impl(
+        state,
+        app,
+        runtime,
+        false,
+        "harness_event",
+        message,
+        reasoning_effort,
+        attachments,
+    )
+    .await
+}
+
+/// Send a message in the roleplay profile; streams over `talk_event`.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_send(
+    message: String,
+    reasoning_effort: Option<String>,
+    attachments: Option<Vec<SendAttachment>>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<RunResult, String> {
+    let runtime = state.talk.clone();
+    agent_send_impl(
+        state,
+        app,
+        runtime,
+        true,
+        "talk_event",
+        message,
+        reasoning_effort,
+        attachments,
+    )
+    .await
+}
+
+async fn agent_send_impl(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    runtime: Arc<HarnessRuntime>,
+    roleplay: bool,
+    event_name: &'static str,
+    message: String,
+    reasoning_effort: Option<String>,
+    attachments: Option<Vec<SendAttachment>>,
+) -> Result<RunResult, String> {
     if state
         .harness
         .running
@@ -1344,13 +1435,15 @@ pub async fn harness_agent_send(
     {
         return Err("An agent run is already in progress".to_string());
     }
-    let _running_guard = RunningGuard(state.harness.clone());
+    let _running_guard = RunningGuard(runtime.clone());
     // A stale Stop from the previous run must not kill this one.
-    state.harness_abort.store(false, Ordering::SeqCst);
-    *state.harness.last_activity.lock().unwrap() = std::time::Instant::now();
-    state.harness.steering.lock().unwrap().clear();
+    runtime.abort.store(false, Ordering::SeqCst);
+    *runtime.last_activity.lock().unwrap() = std::time::Instant::now();
+    runtime.steering.lock().unwrap().clear();
 
-    load_permission_grants(&state);
+    if !roleplay {
+        load_permission_grants(&state);
+    }
     let root = project_root(&state).map_err(|e| e.to_string())?;
     let global_base = global_base_dir();
     let app_config = state.config.lock().unwrap().clone();
@@ -1365,7 +1458,6 @@ pub async fn harness_agent_send(
         &app_config.sensitive_allow,
     ));
     let jail = Arc::new(jail.shield(sensitive));
-    let roleplay = app_config.chat_profile == crate::config::ChatProfile::Roleplay;
     let disabled = app_config.plugin_disabled.clone();
     let lsp = app_config.lsp_enabled.then(|| state.lsp.clone());
     let (mcp_tools, mcp_errors) = if roleplay {
@@ -1377,7 +1469,7 @@ pub async fn harness_agent_send(
     };
     for text in mcp_errors {
         let _ = app.emit(
-            "harness_event",
+            event_name,
             serde_json::json!({"type": "notice", "text": text}),
         );
     }
@@ -1394,7 +1486,7 @@ pub async fn harness_agent_send(
             global_base.as_deref(),
             &disabled,
             &app_config.agent_tools_disabled,
-            &state.harness.todos,
+            &runtime.todos,
             lsp,
             mcp_tools,
         )
@@ -1452,19 +1544,19 @@ pub async fn harness_agent_send(
     };
 
     // History: resume the open session, then ensure one system prompt.
-    if state.harness.history.lock().unwrap().is_empty() {
-        if let Some(id) = state.harness.session_id.lock().unwrap().clone() {
-            if let Some(path) = session_path(&id) {
+    if runtime.history.lock().unwrap().is_empty() {
+        if let Some(id) = runtime.session_id.lock().unwrap().clone() {
+            if let Some(path) = transcript_path(&id, roleplay) {
                 if let Ok(text) = std::fs::read_to_string(&path) {
                     if let Ok(saved) = serde_json::from_str::<SessionFile>(&text) {
-                        *state.harness.history.lock().unwrap() = saved.messages;
-                        *state.harness.meta.lock().unwrap() = saved.meta;
+                        *runtime.history.lock().unwrap() = saved.messages;
+                        *runtime.meta.lock().unwrap() = saved.meta;
                     }
                 }
             }
         }
     }
-    let mut history = std::mem::take(&mut *state.harness.history.lock().unwrap());
+    let mut history = std::mem::take(&mut *runtime.history.lock().unwrap());
     // Subagent model choices the prompt may advertise.
     let subagent_targets: Vec<String> = match mode {
         crate::config::ServerMode::External => app_config
@@ -1539,20 +1631,26 @@ pub async fn harness_agent_send(
     }
     let (user_msg, _attached_images) = with_attachments(&message, &attachments.unwrap_or_default());
     history.push(user_msg);
-    if state.harness.session_id.lock().unwrap().is_none() {        let base = format!("s{}", now_secs());
-        let mut id = base.clone();
-        let mut n = 2;
-        while session_path(&id).map(|p| p.exists()).unwrap_or(false) {
-            id = format!("{base}-{n}");
-            n += 1;
-        }
-        *state.harness.session_id.lock().unwrap() = Some(id);
+    if runtime.session_id.lock().unwrap().is_none() {
+        let id = if roleplay {
+            talk_session_id(&app_config)
+        } else {
+            let base = format!("s{}", now_secs());
+            let mut id = base.clone();
+            let mut n = 2;
+            while session_path(&id).map(|p| p.exists()).unwrap_or(false) {
+                id = format!("{base}-{n}");
+                n += 1;
+            }
+            id
+        };
+        *runtime.session_id.lock().unwrap() = Some(id);
     }
     // Persist the sent transcript right away so the new chat appears in the
     // sessions list while the first reply streams (and survives a crash).
-    if let Err(e) = save_session_messages(&state, &history, None) {
+    if let Err(e) = save_transcript(&state, &runtime, &history, None, roleplay) {
         let _ = app.emit(
-            "harness_event",
+            event_name,
             serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
         );
     }
@@ -1786,8 +1884,8 @@ pub async fn harness_agent_send(
     let utility: Option<(&LlmClient, Option<String>)> =
         utility_target.as_ref().map(|(c, m)| (c, m.clone()));
 
-    let gate = Arc::new(UiGate { app: app.clone(), runtime: state.harness.clone() });
-    let steer_rt = state.harness.clone();
+    let gate = Arc::new(UiGate { app: app.clone(), runtime: runtime.clone() });
+    let steer_rt = runtime.clone();
     let steer: Arc<dyn Fn() -> Vec<String> + Send + Sync> =
         Arc::new(move || std::mem::take(&mut *steer_rt.steering.lock().unwrap()));
 
@@ -1796,11 +1894,11 @@ pub async fn harness_agent_send(
         if let StreamEvent::Usage { prompt_tokens, completion_tokens } = &ev {
             last_usage = Some((*prompt_tokens as u32, *completion_tokens as u32));
         }
-        let _ = app.emit("harness_event", serde_json::to_value(&ev).unwrap_or_default());
+        let _ = app.emit(event_name, serde_json::to_value(&ev).unwrap_or_default());
     };
     let app_events = app.clone();
     let mut event_sink = move |ev: AgentEvent| {
-        let _ = app_events.emit("harness_event", serde_json::to_value(&ev).unwrap_or_default());
+        let _ = app_events.emit(event_name, serde_json::to_value(&ev).unwrap_or_default());
     };
 
     // Roleplay sampling overrides ride the request; llama.cpp and most
@@ -1828,7 +1926,7 @@ pub async fn harness_agent_send(
     let run = AgentRun {
         client,
         registry: Arc::new(registry),
-        engine: state.harness.engine.clone(),
+        engine: runtime.engine.clone(),
         model: model.clone(),
         project: state.config.lock().unwrap().harness_active_project.clone(),
         reasoning_effort: reasoning_effort.filter(|e| !e.is_empty()),
@@ -1838,7 +1936,7 @@ pub async fn harness_agent_send(
         verify_mode,
         compactions_log: Arc::new(Mutex::new(Vec::new())),
         utility,
-        todos: Some(state.harness.todos.clone()),
+        todos: Some(runtime.todos.clone()),
         subagents: Some(harness::agent::Subagents {
             jail,
             max_turns: subagent_max_turns,
@@ -1851,9 +1949,9 @@ pub async fn harness_agent_send(
         }),
     };
 
-    let should_stop = state.harness_abort.clone();
+    let should_stop = runtime.abort.clone();
     let run_started = std::time::Instant::now();
-    let base_head = git_head(&root);
+    let base_head = if roleplay { None } else { git_head(&root) };
     let result = run
         .run(
             &mut history,
@@ -1864,17 +1962,17 @@ pub async fn harness_agent_send(
             &mut event_sink,
         )
         .await;
-    *state.harness.last_activity.lock().unwrap() = std::time::Instant::now();
+    *runtime.last_activity.lock().unwrap() = std::time::Instant::now();
 
-    *state.harness.history.lock().unwrap() = history;
-    shift_meta_for_compaction(&state, &run.compactions_log.lock().unwrap().clone());
+    *runtime.history.lock().unwrap() = history;
+    shift_meta_for_compaction(&runtime, &run.compactions_log.lock().unwrap().clone());
     // A failed run still persists its transcript before surfacing the error.
     let outcome = match result {
         Ok(outcome) => outcome,
         Err(e) => {
-            if let Err(e) = save_session(&state, None) {
+            if let Err(e) = save_transcript_current(&state, &runtime, roleplay, None) {
                 let _ = app.emit(
-                    "harness_event",
+                    event_name,
                     serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
                 );
             }
@@ -1904,12 +2002,16 @@ pub async fn harness_agent_send(
         .unwrap()
         .iter()
         .rposition(|m| m.role == "assistant");
-    let changes = last_run_changes(&state, &root, base_head.as_deref());
+    let changes = if roleplay {
+        None
+    } else {
+        last_run_changes(&state, &root, base_head.as_deref())
+    };
     if let Some(index) = footer_index {
         // Elapsed covers the whole run (prompt, every turn, tool calls), not
         // just the last generation the way the model outcome reports it.
         let total_ms = run_started.elapsed().as_millis().min(u32::MAX as u128) as u32;
-        state.harness.meta.lock().unwrap().insert(
+        runtime.meta.lock().unwrap().insert(
             index,
             MessageMeta {
                 model: model.clone(),
@@ -1922,9 +2024,9 @@ pub async fn harness_agent_send(
             },
         );
         // One save with the final transcript and footer metadata.
-        if let Err(e) = save_session(&state, None) {
+        if let Err(e) = save_transcript_current(&state, &runtime, roleplay, None) {
             let _ = app.emit(
-                "harness_event",
+                event_name,
                 serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
             );
         }
@@ -1945,15 +2047,27 @@ pub async fn harness_agent_send(
 #[tauri::command]
 #[specta::specta]
 pub async fn harness_agent_abort(state: State<'_, AppState>) -> Result<(), String> {
-    state.harness_abort.store(true, Ordering::SeqCst);
-    if let Some(tx) = state.harness.pending.lock().unwrap().take() {
+    abort_runtime(&state.harness);
+    Ok(())
+}
+
+/// Stop the running talk loop.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_abort(state: State<'_, AppState>) -> Result<(), String> {
+    abort_runtime(&state.talk);
+    Ok(())
+}
+
+fn abort_runtime(runtime: &HarnessRuntime) {
+    runtime.abort.store(true, Ordering::SeqCst);
+    if let Some(tx) = runtime.pending.lock().unwrap().take() {
         let _ = tx.send(Approved::Denied);
     }
-    if let Some(tx) = state.harness.pending_question.lock().unwrap().take() {
+    if let Some(tx) = runtime.pending_question.lock().unwrap().take() {
         let _ = tx.send(QuestionAnswer::cancelled());
     }
-    state.harness.steering.lock().unwrap().clear();
-    Ok(())
+    runtime.steering.lock().unwrap().clear();
 }
 
 /// Queue a user message into the running loop (next turn boundary).
@@ -1992,11 +2106,28 @@ const DISTILL_COALESCE_SYSTEM: &str =
 #[tauri::command]
 #[specta::specta]
 pub async fn harness_distill(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
-    if state.harness.running.load(Ordering::SeqCst) {
+    distill_impl(&state, app, &state.harness, false, "harness_event").await
+}
+
+/// Distill the talk thread into the character's memory, then start fresh.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_distill(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
+    distill_impl(&state, app, &state.talk, true, "talk_event").await
+}
+
+async fn distill_impl(
+    state: &AppState,
+    app: AppHandle,
+    runtime: &HarnessRuntime,
+    roleplay: bool,
+    event_name: &'static str,
+) -> Result<String, String> {
+    if runtime.running.load(Ordering::SeqCst) {
         return Err("Stop the running agent first".to_string());
     }
     let app_config = state.config.lock().unwrap().clone();
-    let history = state.harness.history.lock().unwrap().clone();
+    let history = runtime.history.lock().unwrap().clone();
     let body = if history.first().map(|m| m.role.as_str()) == Some("system") {
         &history[1..]
     } else {
@@ -2059,12 +2190,12 @@ pub async fn harness_distill(app: AppHandle, state: State<'_, AppState>) -> Resu
         (server_client(port, &state), model)
     };
 
-    state.harness_abort.store(false, Ordering::SeqCst);
-    let abort = state.harness_abort.clone();
+    runtime.abort.store(false, Ordering::SeqCst);
+    let abort = runtime.abort.clone();
     let should_stop = move || abort.load(Ordering::SeqCst);
     let emit = |text: &str| {
         let _ = app.emit(
-            "harness_event",
+            event_name,
             serde_json::json!({"type": "distilled", "text": text}),
         );
     };
@@ -2085,12 +2216,23 @@ pub async fn harness_distill(app: AppHandle, state: State<'_, AppState>) -> Resu
     }
 
     emit("Distilling: updating memory…");
-    let root = project_root(&state).ok();
-    let target = root
-        .as_deref()
-        .map(harness::memory::project_memory_path)
-        .or_else(|| crate::config::data_dir().map(|d| d.join("werk").join("MEMORY.md")))
-        .ok_or_else(|| "No memory location available".to_string())?;
+    let (target, place) = if roleplay {
+        (
+            crate::roleplay::character_memory_path(
+                state.config.lock().unwrap().roleplay.card_id.as_deref(),
+            )
+            .ok_or_else(|| "No memory location available".to_string())?,
+            "character",
+        )
+    } else {
+        let root = project_root(state).ok();
+        let target = root
+            .as_deref()
+            .map(harness::memory::project_memory_path)
+            .or_else(|| crate::config::data_dir().map(|d| d.join("werk").join("MEMORY.md")))
+            .ok_or_else(|| "No memory location available".to_string())?;
+        (target, if root.is_some() { "project" } else { "global" })
+    };
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -2138,16 +2280,15 @@ pub async fn harness_distill(app: AppHandle, state: State<'_, AppState>) -> Resu
     }
 
     // Fresh session: the learnings are stored, the transcript can go.
-    state.harness.history.lock().unwrap().clear();
-    state.harness.todos.lock().unwrap().clear();
-    truncate_meta(&state, 0);
-    *state.harness.session_id.lock().unwrap() = None;
-    state.harness.steering.lock().unwrap().clear();
+    runtime.history.lock().unwrap().clear();
+    runtime.todos.lock().unwrap().clear();
+    truncate_meta(runtime, 0);
+    *runtime.session_id.lock().unwrap() = None;
+    runtime.steering.lock().unwrap().clear();
 
-    let place = if root.is_some() { "project" } else { "global" };
     let kept = if backup.is_file() { " (previous file kept as MEMORY.md.bak)" } else { "" };
     Ok(format!(
-        "Distilled into {place} memory: {appended} entr{} written, memories coalesced{kept}. Started a fresh chat.",
+        "Distilled into {place} memory: {appended} entr{} written, memories coalesced{kept}. Started fresh.",
         if appended == 1 { "y" } else { "ies" },
     ))
 }
@@ -2163,18 +2304,23 @@ pub async fn harness_todos_clear(state: State<'_, AppState>) -> Result<(), Strin
 /// Clear the live transcript (keeps saved sessions).
 #[tauri::command]
 #[specta::specta]
-pub async fn harness_agent_reset(state: State<'_, AppState>) -> Result<(), String> {    state.harness.history.lock().unwrap().clear();
-    state.harness.todos.lock().unwrap().clear();
-    truncate_meta(&state, 0);
-    *state.harness.session_id.lock().unwrap() = None;
-    if let Some(tx) = state.harness.pending.lock().unwrap().take() {
+pub async fn harness_agent_reset(state: State<'_, AppState>) -> Result<(), String> {
+    reset_runtime(&state.harness);
+    Ok(())
+}
+
+fn reset_runtime(runtime: &HarnessRuntime) {
+    runtime.history.lock().unwrap().clear();
+    runtime.todos.lock().unwrap().clear();
+    truncate_meta(runtime, 0);
+    *runtime.session_id.lock().unwrap() = None;
+    if let Some(tx) = runtime.pending.lock().unwrap().take() {
         let _ = tx.send(Approved::Denied);
     }
-    if let Some(tx) = state.harness.pending_question.lock().unwrap().take() {
+    if let Some(tx) = runtime.pending_question.lock().unwrap().take() {
         let _ = tx.send(QuestionAnswer::cancelled());
     }
-    state.harness.steering.lock().unwrap().clear();
-    Ok(())
+    runtime.steering.lock().unwrap().clear();
 }
 
 /// Start a fresh roleplay chat seeded with the selected greeting.
@@ -2183,42 +2329,30 @@ pub async fn harness_agent_reset(state: State<'_, AppState>) -> Result<(), Strin
 pub async fn roleplay_start_chat(
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    if state.harness.running.load(Ordering::SeqCst) {
-        return Err("Stop the running agent first".to_string());
+    if state.talk.running.load(Ordering::SeqCst) {
+        return Err("Stop the running talk first".to_string());
     }
-    harness_agent_reset(state.clone()).await?;
-    let (card, greeting_index, user_name) = {
-        let config = state.config.lock().unwrap();
-        let card = config
-            .roleplay
-            .card_id
-            .as_deref()
-            .and_then(|id| crate::roleplay::load_card(id).ok());
-        let user_name = crate::roleplay::display_user_name(&config.roleplay);
-        (card, config.roleplay.greeting, user_name)
-    };
-    let Some(greeting) = card
-        .as_ref()
-        .and_then(|c| crate::roleplay::greeting(c, greeting_index as usize, &user_name))
-    else {
+    reset_runtime(&state.talk);
+    let app_config = state.config.lock().unwrap().clone();
+    let card = app_config
+        .roleplay
+        .card_id
+        .as_deref()
+        .and_then(|id| crate::roleplay::load_card(id).ok());
+    let user_name = crate::roleplay::display_user_name(&app_config.roleplay);
+    let Some(greeting) = card.as_ref().and_then(|c| {
+        crate::roleplay::greeting(c, app_config.roleplay.greeting as usize, &user_name)
+    }) else {
         return Ok(None);
     };
     {
-        let mut history = state.harness.history.lock().unwrap();
+        let mut history = state.talk.history.lock().unwrap();
         history.push(ChatMessage::assistant(greeting.clone()));
     }
-    // Persist right away so the opener shows in the sessions list.
-    let base = format!("s{}", now_secs());
-    let mut id = base.clone();
-    let mut n = 2;
-    while session_path(&id).map(|p| p.exists()).unwrap_or(false) {
-        id = format!("{base}-{n}");
-        n += 1;
-    }
-    *state.harness.session_id.lock().unwrap() = Some(id);
-    let history = state.harness.history.lock().unwrap().clone();
+    *state.talk.session_id.lock().unwrap() = Some(talk_session_id(&app_config));
+    let history = state.talk.history.lock().unwrap().clone();
     let title = card.map(|c| c.name);
-    save_session_messages(&state, &history, title)
+    save_transcript(&state, &state.talk, &history, title, true)
         .map_err(|e| format!("Session save failed: {e}"))?;
     Ok(Some(greeting))
 }
@@ -2227,19 +2361,34 @@ pub async fn roleplay_start_chat(
 #[tauri::command]
 #[specta::specta]
 pub async fn harness_agent_rewind(state: State<'_, AppState>) -> Result<(), String> {
-    if state.harness.running.load(Ordering::SeqCst) {
+    rewind_runtime(&state, &state.harness, false)
+}
+
+/// Drop the last exchange from the talk thread.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_rewind(state: State<'_, AppState>) -> Result<(), String> {
+    rewind_runtime(&state, &state.talk, true)
+}
+
+fn rewind_runtime(
+    state: &AppState,
+    runtime: &HarnessRuntime,
+    roleplay: bool,
+) -> Result<(), String> {
+    if runtime.running.load(Ordering::SeqCst) {
         return Err("Stop the running agent first".to_string());
     }
     let idx = {
-        let mut history = state.harness.history.lock().unwrap();
+        let mut history = runtime.history.lock().unwrap();
         let Some(idx) = history.iter().rposition(|m| m.role == "user") else {
             return Err("Nothing to rewind".to_string());
         };
         history.truncate(idx);
         idx
     };
-    truncate_meta(&state, idx);
-    save_session(&state, None).map_err(|e| e.to_string())
+    truncate_meta(runtime, idx);
+    save_transcript_current(state, runtime, roleplay, None).map_err(|e| e.to_string())
 }
 
 /// Force-summarize older turns now; returns the folded message count.
@@ -2249,7 +2398,27 @@ pub async fn harness_agent_compact(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<u32, String> {
-    if state.harness.running.load(Ordering::SeqCst) {
+    compact_runtime(&state, app, &state.harness, false, "harness_event").await
+}
+
+/// Force-summarize older turns in the talk thread.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_compact(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<u32, String> {
+    compact_runtime(&state, app, &state.talk, true, "talk_event").await
+}
+
+async fn compact_runtime(
+    state: &AppState,
+    app: AppHandle,
+    runtime: &HarnessRuntime,
+    roleplay: bool,
+    event_name: &'static str,
+) -> Result<u32, String> {
+    if runtime.running.load(Ordering::SeqCst) {
         return Err("Stop the running agent first".to_string());
     }
     let port = match state.server.lock().unwrap().status.clone() {
@@ -2277,31 +2446,31 @@ pub async fn harness_agent_compact(
     let Some(limit) = context_limit else {
         return Err("No context limit known — start the server first".to_string());
     };
-    let client = server_client(port, &state);
+    let client = server_client(port, state);
     let app_events = app.clone();
     let mut on_event = move |ev: AgentEvent| {
-        let _ = app_events.emit("harness_event", serde_json::to_value(&ev).unwrap_or_default());
+        let _ = app_events.emit(event_name, serde_json::to_value(&ev).unwrap_or_default());
     };
-    let mut history = std::mem::take(&mut *state.harness.history.lock().unwrap());
+    let mut history = std::mem::take(&mut *runtime.history.lock().unwrap());
     let result = harness::compact::compact_history(
         &client,
         model.as_deref(),
         &mut history,
         limit,
         true,
-        &|| state.harness_abort.load(Ordering::SeqCst),
+        &|| runtime.abort.load(Ordering::SeqCst),
         &mut on_event,
     )
     .await;
-    *state.harness.history.lock().unwrap() = history;
+    *runtime.history.lock().unwrap() = history;
     let info = result.map_err(|e| e.to_string())?.unwrap_or(harness::compact::CompactionInfo {
         cut: None,
         removed: 0,
     });
     if let Some(cut) = info.cut {
-        shift_meta_for_compaction(&state, &[cut]);
+        shift_meta_for_compaction(runtime, &[cut]);
     }
-    save_session(&state, None).map_err(|e| e.to_string())?;
+    save_transcript_current(state, runtime, roleplay, None).map_err(|e| e.to_string())?;
     Ok(info.removed as u32)
 }
 
@@ -2504,9 +2673,34 @@ pub async fn harness_context_stats(
 #[tauri::command]
 #[specta::specta]
 pub async fn harness_agent_history(state: State<'_, AppState>) -> Result<HistoryView, String> {
-    let messages = state.harness.history.lock().unwrap().clone();
-    let meta = state
-        .harness
+    history_view(&state.harness)
+}
+
+/// Current talk transcript; lazily loads the active character's thread.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_history(state: State<'_, AppState>) -> Result<HistoryView, String> {
+    let app_config = state.config.lock().unwrap().clone();
+    let empty = state.talk.history.lock().unwrap().is_empty()
+        && state.talk.session_id.lock().unwrap().is_none();
+    if empty {
+        let id = talk_session_id(&app_config);
+        if let Some(path) = transcript_path(&id, true) {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                if let Ok(saved) = serde_json::from_str::<SessionFile>(&text) {
+                    *state.talk.history.lock().unwrap() = saved.messages;
+                    *state.talk.meta.lock().unwrap() = saved.meta;
+                    *state.talk.session_id.lock().unwrap() = Some(saved.id);
+                }
+            }
+        }
+    }
+    history_view(&state.talk)
+}
+
+fn history_view(runtime: &HarnessRuntime) -> Result<HistoryView, String> {
+    let messages = runtime.history.lock().unwrap().clone();
+    let meta = runtime
         .meta
         .lock()
         .unwrap()
@@ -2516,8 +2710,21 @@ pub async fn harness_agent_history(state: State<'_, AppState>) -> Result<History
     Ok(HistoryView {
         messages: messages.iter().map(to_history_message).collect(),
         meta,
-        todos: todo_dtos(&state.harness.todos.lock().unwrap()),
+        todos: todo_dtos(&runtime.todos.lock().unwrap()),
     })
+}
+
+/// Persist and clear the talk thread; used when the active card changes.
+pub fn flush_talk(state: &AppState) {
+    if state.talk.running.load(Ordering::SeqCst) {
+        return;
+    }
+    if state.talk.history.lock().unwrap().is_empty() {
+        reset_runtime(&state.talk);
+        return;
+    }
+    let _ = save_transcript_current(state, &state.talk, true, None);
+    reset_runtime(&state.talk);
 }
 
 #[tauri::command]
@@ -2626,7 +2833,7 @@ pub async fn harness_session_delete(
     if state.harness.session_id.lock().unwrap().as_deref() == Some(&id) {
         state.harness.history.lock().unwrap().clear();
         state.harness.todos.lock().unwrap().clear();
-        truncate_meta(&state, 0);
+        truncate_meta(&state.harness, 0);
         *state.harness.session_id.lock().unwrap() = None;
     }
     if let Some(path) = session_path(&id) {
@@ -2776,7 +2983,7 @@ pub async fn harness_project_remove(
         config.harness_active_project = None;
         state.harness.history.lock().unwrap().clear();
         state.harness.todos.lock().unwrap().clear();
-        truncate_meta(&state, 0);
+        truncate_meta(&state.harness, 0);
         *state.harness.session_id.lock().unwrap() = None;
     }
     config.save().map_err(|e| e.to_string())
@@ -2800,7 +3007,7 @@ pub async fn harness_project_set_active(
     }
     state.harness.history.lock().unwrap().clear();
     state.harness.todos.lock().unwrap().clear();
-    truncate_meta(&state, 0);
+    truncate_meta(&state.harness, 0);
     *state.harness.session_id.lock().unwrap() = None;
     Ok(())
 }

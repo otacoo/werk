@@ -144,7 +144,8 @@ impl Tool for RememberTool {
     }
     fn approval_key(&self, args: &Value) -> Option<ApprovalKey> {
         let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
-        if action == "show" {
+        // Roleplay curation runs free: there is no approval UI in Talk.
+        if action == "show" || self.single_scope {
             return None;
         }
         Some(ApprovalKey { tool: self.name(), command: None })

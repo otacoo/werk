@@ -749,16 +749,94 @@ pub async fn set_roleplay_config(
     state: State<'_, crate::AppState>,
 ) -> Result<(), String> {
     let mut config = state.config.lock().unwrap();
+    let card_id = roleplay.card_id.filter(|c| valid_id(c));
+    let card_changed = config.roleplay.card_id != card_id;
+    // The avatar is managed by its own command; never cleared by the form.
+    let avatar = config.roleplay.user_avatar.clone();
     config.roleplay = RoleplayConfig {
-        card_id: roleplay.card_id.filter(|c| valid_id(c)),
+        card_id,
         greeting: roleplay.greeting,
         user_name: roleplay.user_name.trim().chars().take(80).collect(),
         user_description: roleplay.user_description.chars().take(4_000).collect(),
         temperature: roleplay.temperature,
         top_p: roleplay.top_p,
         repeat_penalty: roleplay.repeat_penalty,
+        user_avatar: avatar,
     };
+    config.save().map_err(|e| e.to_string())?;
+    drop(config);
+    if card_changed {
+        // Switching characters switches discussions.
+        crate::chat::flush_talk(&state);
+    }
+    Ok(())
+}
+
+/// Import (or clear) the user's avatar for Talk bubbles.
+#[tauri::command]
+#[specta::specta]
+pub async fn roleplay_set_user_avatar(
+    path: Option<String>,
+    state: State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let dir = roleplay_dir()
+        .ok_or_else(|| "Cannot find data directory".to_string())?
+        .join("avatars");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut config = state.config.lock().unwrap();
+    match path {
+        Some(p) => {
+            let src = Path::new(&p);
+            let ext = src
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase())
+                .filter(|e| matches!(e.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif"))
+                .unwrap_or_else(|| "png".to_string());
+            for old in ["png", "jpg", "jpeg", "webp", "gif"] {
+                let _ = std::fs::remove_file(dir.join(format!("user.{old}")));
+            }
+            let target = dir.join(format!("user.{ext}"));
+            let bytes =
+                std::fs::read(src).map_err(|e| format!("Cannot read avatar: {e}"))?;
+            std::fs::write(&target, bytes).map_err(|e| e.to_string())?;
+            config.roleplay.user_avatar = Some(target.to_string_lossy().to_string());
+        }
+        None => {
+            for old in ["png", "jpg", "jpeg", "webp", "gif"] {
+                let _ = std::fs::remove_file(dir.join(format!("user.{old}")));
+            }
+            config.roleplay.user_avatar = None;
+        }
+    }
     config.save().map_err(|e| e.to_string())
+}
+
+/// The user's avatar as a data URL, when one is set.
+#[tauri::command]
+#[specta::specta]
+pub async fn roleplay_user_avatar(
+    state: State<'_, crate::AppState>,
+) -> Result<Option<String>, String> {
+    let path = state.config.lock().unwrap().roleplay.user_avatar.clone();
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Ok(None);
+    };
+    let mime = match Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .as_deref()
+    {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        _ => "image/png",
+    };
+    Ok(Some(format!("data:{mime};base64,{}", base64_encode(&bytes))))
 }
 
 #[cfg(test)]

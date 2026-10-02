@@ -62,12 +62,13 @@ pub struct SystemPromptPreset {
     pub prompt: String,
 }
 
-/// Chat profile: the coding agent or a roleplay character.
+/// Chat profile: the coding agent, the llama.cpp Web UI, or roleplay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatProfile {
     #[default]
     Agent,
+    Webui,
     Roleplay,
 }
 
@@ -89,6 +90,9 @@ pub struct RoleplayConfig {
     pub top_p: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repeat_penalty: Option<f32>,
+    /// Imported avatar image for the user's chat bubbles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_avatar: Option<String>,
 }
 
 impl Default for RoleplayConfig {
@@ -101,6 +105,7 @@ impl Default for RoleplayConfig {
             temperature: None,
             top_p: None,
             repeat_penalty: None,
+            user_avatar: None,
         }
     }
 }
