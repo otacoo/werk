@@ -17,3 +17,5 @@ tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] 
 walkdir = "2"
 glob = "0.3"
 regex = "1"
+# .gitignore matching for the sensitive-file policy (ripgrep's engine).
+ignore = "0.4"

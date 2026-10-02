@@ -6,6 +6,13 @@
 
 ### Added
 
+- Sensitive shielding: credential paths are blocked from every agent tool —
+  built-in patterns (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `.ssh/`, `.aws/`,
+  `*.sqlite`, …), everything matched by the project's `.gitignore`, and a user
+  pattern list in Settings → Agent. An allow list exempts exceptions (e.g.
+  test fixtures), and built-ins always win over repo negations.
+- `exec` output is scrubbed for key-shaped strings (OpenAI/GitHub/AWS/Slack
+  keys, JWTs, `api_key: …` values) before it reaches the model or the session.
 - The agent keeps a task list with the `todo` tool (add / complete / drop,
   max 10). It is re-injected into every request, shown as checkpoints above
   the composer (`2/5 · current item`, expandable, clearable), saved with the
@@ -24,6 +31,8 @@
 
 ### Changed
 
+- `exec`'s free read-only path also rejects environment reads (`$env:KEY`,
+  `echo $HOME`); they need approval now.
 - The built-in system prompt is ~35% shorter (1.3K chars) with the same
   rules — tighter wording, bare tool names, condensed subagent notes. A test
   caps its size so it can't creep back up.

@@ -249,6 +249,12 @@ pub struct AppConfig {
     /// Hide `AGENTS.md`/`.agent*` files from every agent tool when set.
     #[serde(default)]
     pub agent_files_hidden: bool,
+    /// Extra sensitive-file globs for agent tools (on top of the built-ins).
+    #[serde(default)]
+    pub sensitive_patterns: Vec<String>,
+    /// Exceptions to the sensitive-file policy (globs).
+    #[serde(default)]
+    pub sensitive_allow: Vec<String>,
     /// stdio language servers by name; None seeds the defaults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lsp_servers: Option<Vec<LspServerConfig>>,
@@ -354,6 +360,8 @@ impl Default for AppConfig {
             server_mode: ServerMode::Single,
             agent_tools_disabled: Vec::new(),
             agent_files_hidden: false,
+            sensitive_patterns: Vec::new(),
+            sensitive_allow: Vec::new(),
             harness_roles: Default::default(),
             providers: Vec::new(),
             external_target: None,

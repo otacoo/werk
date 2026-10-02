@@ -27,6 +27,7 @@ pub struct PathJail {
     root: PathBuf,
     extra_read: Vec<PathBuf>,
     hide_agent_files: bool,
+    sensitive: Option<std::sync::Arc<crate::sensitive::SensitivePolicy>>,
 }
 
 impl PathJail {
@@ -41,6 +42,7 @@ impl PathJail {
             root,
             extra_read: extra_read.iter().map(|p| strip_verbatim(p.clone())).collect(),
             hide_agent_files: false,
+            sensitive: None,
         })
     }
 
@@ -57,6 +59,17 @@ impl PathJail {
     /// True when this path is an agent file the jail currently hides.
     pub fn hides(&self, path: &Path) -> bool {
         self.hide_agent_files && is_agent_file(path)
+    }
+
+    /// Attach the sensitive-file policy (built-ins + `.gitignore` + user list).
+    pub fn shield(mut self, policy: std::sync::Arc<crate::sensitive::SensitivePolicy>) -> Self {
+        self.sensitive = Some(policy);
+        self
+    }
+
+    /// True when the sensitive-file policy shields this path.
+    pub fn shielded(&self, path: &Path) -> bool {
+        self.sensitive.as_ref().map(|p| p.shielded(path)).unwrap_or(false)
     }
 
     /// Lexical join: `..` above the root is an error, never an escape.
@@ -96,6 +109,9 @@ impl PathJail {
         if self.hides(&p) {
             bail!("Agent files are hidden (Tools → Agent): {rel}");
         }
+        if self.shielded(&p) {
+            bail!("Path is shielded by the sensitive-file policy: {rel}");
+        }
         Ok(p)
     }
 
@@ -108,6 +124,9 @@ impl PathJail {
         };
         if self.hides(&p) {
             bail!("Agent files are hidden (Tools → Agent): {rel}");
+        }
+        if self.shielded(&p) {
+            bail!("Path is shielded by the sensitive-file policy: {rel}");
         }
         if self.extra_read.iter().any(|r| under(r, &p)) {
             bail!("Path is read-only: {rel}");
@@ -258,6 +277,18 @@ mod tests {
         let (dir, canon, jail) = jail("case");
         let shouty = format!("{}\\SUB\\A.TXT", canon.to_string_lossy().to_uppercase());
         assert!(jail.check_write(&shouty).is_ok(), "{shouty}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sensitive_policy_blocks_reads_and_writes() {
+        let (dir, canon, jail) = jail("shield");
+        let policy = std::sync::Arc::new(crate::sensitive::SensitivePolicy::build(&canon, &[], &[]));
+        let jail = jail.shield(policy);
+        assert!(jail.check_read(".env").is_err());
+        assert!(jail.check_write("new.pem").is_err());
+        assert!(jail.check_read("sub/notes.txt").is_ok());
+        assert!(jail.shielded(&canon.join(".ssh").join("id_ed25519")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

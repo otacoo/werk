@@ -69,6 +69,8 @@ export const commands = {
 	setLspEnabled: (enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_lsp_enabled", { enabled })),
 	/**  Hide or show `AGENTS.md`/`.agent*` files for every agent tool. */
 	setAgentFilesHidden: (hidden: boolean) => typedError<null, string>(__TAURI_INVOKE("set_agent_files_hidden", { hidden })),
+	/**  Save the sensitive-file policy lists (extra patterns + allow exceptions). */
+	setSensitiveShielding: (patterns: string[], allow: string[]) => typedError<null, string>(__TAURI_INVOKE("set_sensitive_shielding", { patterns, allow })),
 	/**  Enable/disable one agent tool for future runs. */
 	setAgentToolEnabled: (name: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_agent_tool_enabled", { name, enabled })),
 	/**  Replace the configured stdio language servers. */
@@ -241,6 +243,10 @@ export type AppConfig_Deserialize = {
 	agent_tools_disabled?: string[],
 	/**  Hide `AGENTS.md`/`.agent*` files from every agent tool when set. */
 	agent_files_hidden?: boolean,
+	/**  Extra sensitive-file globs for agent tools (on top of the built-ins). */
+	sensitive_patterns?: string[],
+	/**  Exceptions to the sensitive-file policy (globs). */
+	sensitive_allow?: string[],
 	/**  stdio language servers by name; None seeds the defaults. */
 	lsp_servers?: LspServerConfig_Deserialize[] | null,
 	/**  Which model plans vs executes; a distinct worker needs router mode. */
@@ -316,6 +322,10 @@ export type AppConfig_Serialize = {
 	agent_tools_disabled: string[],
 	/**  Hide `AGENTS.md`/`.agent*` files from every agent tool when set. */
 	agent_files_hidden: boolean,
+	/**  Extra sensitive-file globs for agent tools (on top of the built-ins). */
+	sensitive_patterns: string[],
+	/**  Exceptions to the sensitive-file policy (globs). */
+	sensitive_allow: string[],
 	/**  stdio language servers by name; None seeds the defaults. */
 	lsp_servers?: LspServerConfig_Serialize[] | null,
 	/**  Which model plans vs executes; a distinct worker needs router mode. */

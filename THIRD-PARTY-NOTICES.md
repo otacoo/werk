@@ -35,6 +35,7 @@ dependencies and the workspace crates' direct Rust dependencies.
 | flate2 | 1.1.10 | MIT OR Apache-2.0 |
 | futures | 0.3.34 | MIT OR Apache-2.0 |
 | glob | 0.3.4 | MIT OR Apache-2.0 |
+| ignore | 0.4.33 | Unlicense OR MIT |
 | regex | 1.13.1 | MIT OR Apache-2.0 |
 | reqwest | 0.12.28 | MIT OR Apache-2.0 |
 | serde | 1.0.229 | MIT OR Apache-2.0 |
@@ -71,6 +72,7 @@ dependencies and the workspace crates' direct Rust dependencies.
 - flate2 1.1.10 — Copyright (c) 2014-2026 Alex Crichton
 - futures 0.3.34 — Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
 - glob 0.3.4 — Copyright (c) 2014 The Rust Project Developers
+- ignore 0.4.33 — Copyright (c) 2015 Andrew Gallant
 - regex 1.13.1 — Copyright (c) 2014 The Rust Project Developers
 - reqwest 0.12.28 — Copyright 2016 Sean McArthur
 - sysinfo 0.36.1 — Copyright (c) 2015 Guillaume Gomez

@@ -11,6 +11,7 @@ pub mod memory;
 pub mod permissions;
 pub mod plugins;
 pub mod sandbox;
+pub mod sensitive;
 pub mod skills;
 pub mod todos;
 pub mod tools;

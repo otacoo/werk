@@ -341,6 +341,7 @@ impl Tool for FindFilesTool {
             .into_iter()
             .filter_entry(|e| {
                 !self.jail.hides(e.path())
+                    && !self.jail.shielded(e.path())
                     && e.file_name().to_str().map(|n| !ignored_dir(n)).unwrap_or(true)
             })
             .flatten()
@@ -410,6 +411,7 @@ impl Tool for SearchContentTool {
             .into_iter()
             .filter_entry(|e| {
                 !self.jail.hides(e.path())
+                    && !self.jail.shielded(e.path())
                     && e.file_name().to_str().map(|n| !ignored_dir(n)).unwrap_or(true)
             })
             .flatten()
@@ -469,8 +471,16 @@ fn command_is_readonly(command: &str) -> bool {
     if MUTATORS.iter().any(|m| head.contains(m)) {
         return false;
     }
+    // Environment reads leak credentials (`echo $env:KEY`).
+    if head.contains("$env:") || head.contains("${env:") {
+        return false;
+    }
     let mut parts = head.split_whitespace();
     let first = parts.next().unwrap_or("");
+    // POSIX expansion on the print heads is an env read too.
+    if matches!(first, "echo" | "printf") && head.contains('$') {
+        return false;
+    }
     if first == "git" {
         let rest: Vec<&str> = parts.collect();
         let sub = rest.first().copied().unwrap_or("");
@@ -696,7 +706,8 @@ impl Tool for ExecTool {
                 text.push_str(&format!("\n[exit code {}]", s.code().unwrap_or(-1)));
             }
         }
-        Ok(text)
+        // Keys that slipped past the shields never reach the model or session.
+        Ok(crate::sensitive::redact_secrets(&text))
     }
 }
 
@@ -1170,6 +1181,11 @@ mod tests {
         // Listing forms stay free.
         assert!(exec.approval_key(&json!({"command": "git branch -a"})).is_none());
         assert!(exec.approval_key(&json!({"command": "git remote -v"})).is_none());
+        // Environment reads leak keys, so they need approval.
+        assert!(exec.approval_key(&json!({"command": "echo $env:OPENAI_API_KEY"})).is_some());
+        assert!(exec.approval_key(&json!({"command": "Get-Content $env:KEY"})).is_some());
+        assert!(exec.approval_key(&json!({"command": "echo $HOME"})).is_some());
+        assert!(exec.approval_key(&json!({"command": "echo ready"})).is_none());
         // Read-only commands run (failure text still returns Ok).
         let out = exec.execute(&json!({"command": "echo hello"})).unwrap();
         assert!(out.contains("hello"));

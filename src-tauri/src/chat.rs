@@ -1230,12 +1230,17 @@ pub async fn harness_agent_send(
     let root = project_root(&state).map_err(|e| e.to_string())?;
     let global_base = global_base_dir();
     let app_config = state.config.lock().unwrap().clone();
-    // The jail can hide the agent's own instruction files from every tool.
-    let jail = Arc::new(
-        PathJail::new(&root, &[])
-            .map_err(|e| e.to_string())?
-            .hide_agent_files(app_config.agent_files_hidden),
-    );
+    // The jail hides the agent's own instruction files and shields sensitive
+    // paths (built-ins + .gitignore + the user list).
+    let jail = PathJail::new(&root, &[])
+        .map_err(|e| e.to_string())?
+        .hide_agent_files(app_config.agent_files_hidden);
+    let sensitive = Arc::new(harness::sensitive::SensitivePolicy::build(
+        jail.root(),
+        &app_config.sensitive_patterns,
+        &app_config.sensitive_allow,
+    ));
+    let jail = Arc::new(jail.shield(sensitive));
     let disabled = app_config.plugin_disabled.clone();
     let lsp = app_config.lsp_enabled.then(|| state.lsp.clone());
     // MCP tools run in the harness (all modes): spawn servers once, reuse the
@@ -2828,6 +2833,26 @@ fn utility_target_client(
 pub async fn set_agent_files_hidden(hidden: bool, state: State<'_, AppState>) -> Result<(), String> {
     let mut config = state.config.lock().unwrap();
     config.agent_files_hidden = hidden;
+    config.save().map_err(|e| e.to_string())
+}
+
+/// Save the sensitive-file policy lists (extra patterns + allow exceptions).
+#[tauri::command]
+#[specta::specta]
+pub async fn set_sensitive_shielding(
+    patterns: Vec<String>,
+    allow: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let clean = |v: Vec<String>| -> Vec<String> {
+        v.into_iter()
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect()
+    };
+    let mut config = state.config.lock().unwrap();
+    config.sensitive_patterns = clean(patterns);
+    config.sensitive_allow = clean(allow);
     config.save().map_err(|e| e.to_string())
 }
 
