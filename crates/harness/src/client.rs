@@ -386,6 +386,7 @@ impl LlmClient {
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
         reasoning_effort: Option<&str>,
+        sampling: Option<&Value>,
         should_stop: impl Fn() -> bool,
         mut on_event: impl FnMut(StreamEvent),
     ) -> Result<String> {
@@ -399,6 +400,11 @@ impl LlmClient {
         }
         if let Some(effort) = reasoning_effort {
             body["reasoning_effort"] = Value::from(effort);
+        }
+        if let Some(s) = sampling.and_then(|s| s.as_object()) {
+            for (key, value) in s {
+                body[key] = value.clone();
+            }
         }
         if let Some(t) = tools {
             body["tools"] = Value::from(t.to_vec());
@@ -695,6 +701,7 @@ mod tests {
             .chat_stream(
                 None,
                 &[ChatMessage::user("hi")],
+                None,
                 None,
                 None,
                 || stop.load(Ordering::SeqCst),

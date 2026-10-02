@@ -16,6 +16,7 @@ pub mod models;
 pub mod presets;
 pub mod run_context;
 pub mod recommended;
+pub mod roleplay;
 pub mod runtime;
 pub mod server;
 pub mod terminal;
@@ -108,6 +109,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::harness_agent_abort,
         chat::harness_agent_steer,
         chat::harness_agent_reset,
+        chat::roleplay_start_chat,
         chat::harness_todos_clear,
         chat::harness_distill,
         chat::harness_agent_history,
@@ -136,6 +138,13 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::set_verify_mode,
         chat::set_system_prompt,
         chat::set_system_prompt_presets,
+        roleplay::roleplay_list_cards,
+        roleplay::roleplay_import_card,
+        roleplay::roleplay_get_card,
+        roleplay::roleplay_delete_card,
+        roleplay::roleplay_card_avatar,
+        roleplay::set_chat_profile,
+        roleplay::set_roleplay_config,
         chat::set_utility_target,
         chat::set_lsp_enabled,
         chat::set_agent_files_hidden,

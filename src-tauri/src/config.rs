@@ -62,6 +62,49 @@ pub struct SystemPromptPreset {
     pub prompt: String,
 }
 
+/// Chat profile: the coding agent or a roleplay character.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatProfile {
+    #[default]
+    Agent,
+    Roleplay,
+}
+
+/// Roleplay profile state: active card, user persona, greeting index, and
+/// per-request sampling overrides (None = server defaults).
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct RoleplayConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_id: Option<String>,
+    #[serde(default)]
+    pub greeting: u32,
+    #[serde(default)]
+    pub user_name: String,
+    #[serde(default)]
+    pub user_description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat_penalty: Option<f32>,
+}
+
+impl Default for RoleplayConfig {
+    fn default() -> Self {
+        Self {
+            card_id: None,
+            greeting: 0,
+            user_name: String::new(),
+            user_description: String::new(),
+            temperature: None,
+            top_p: None,
+            repeat_penalty: None,
+        }
+    }
+}
+
 /// An external OpenAI-compatible provider (cloud API or another local
 /// server). External API mode targets it as `provider-id:model-id`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
@@ -233,6 +276,12 @@ pub struct AppConfig {
     /// Named system prompt presets (quick swap in Settings).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_prompt_presets: Vec<SystemPromptPreset>,
+    /// Agent (coding harness) or Roleplay (character cards).
+    #[serde(default)]
+    pub chat_profile: ChatProfile,
+    /// Roleplay: active card, persona, greeting, sampling overrides.
+    #[serde(default)]
+    pub roleplay: RoleplayConfig,
     /// Housekeeping model for compaction and distillation: a `provider:model`
     /// target or a local role (`orchestrator`/`worker`). None = main model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -364,6 +413,8 @@ impl Default for AppConfig {
             verify_mode: Default::default(),
             harness_system_prompt: None,
             system_prompt_presets: Vec::new(),
+            chat_profile: ChatProfile::Agent,
+            roleplay: RoleplayConfig::default(),
             utility_target: None,
             lsp_enabled: true,
             lsp_servers: Some(default_lsp_servers()),

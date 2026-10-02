@@ -1,0 +1,468 @@
+import { useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { FolderOpen, Plus, Sparkles, Trash2 } from "lucide-react";
+import { commands } from "../bindings";
+import type { CardSummary, CharacterCard, MemoryFileDto } from "../bindings";
+import { call } from "../utils/ipc";
+import { notifyConfigChanged } from "../utils/appSettings";
+import { useAppConfig } from "../utils/useAppConfig";
+import type { Tab } from "../App";
+
+type RP = {
+  card_id: string | null;
+  greeting: number;
+  user_name: string;
+  user_description: string;
+  temperature: number | null;
+  top_p: number | null;
+  repeat_penalty: number | null;
+};
+
+const EMPTY: RP = {
+  card_id: null,
+  greeting: 0,
+  user_name: "",
+  user_description: "",
+  temperature: null,
+  top_p: null,
+  repeat_penalty: null,
+};
+
+export default function Roleplay({ go }: { go: (t: Tab) => void }) {
+  const [appConfig, setAppConfig] = useAppConfig(true);
+  const [cards, setCards] = useState<CardSummary[]>([]);
+  const [activeCard, setActiveCard] = useState<CharacterCard | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const rp: RP = { ...EMPTY, ...(appConfig?.roleplay ?? {}) };
+  const profile = appConfig?.chat_profile ?? "agent";
+  // Persona edits commit on blur so typing does not write the config per key.
+  const [personaName, setPersonaName] = useState("");
+  const [personaDesc, setPersonaDesc] = useState("");
+  useEffect(() => {
+    setPersonaName(rp.user_name);
+    setPersonaDesc(rp.user_description);
+  }, [rp.user_name, rp.user_description]);
+
+  const loadCards = () => {
+    call(commands.roleplayListCards()).then(setCards).catch((e) => setError(String(e)));
+  };
+  useEffect(loadCards, []);
+
+  useEffect(() => {
+    if (!rp.card_id) {
+      setActiveCard(null);
+      return;
+    }
+    let alive = true;
+    call(commands.roleplayGetCard(rp.card_id))
+      .then((c) => alive && setActiveCard(c))
+      .catch(() => alive && setActiveCard(null));
+    return () => {
+      alive = false;
+    };
+  }, [rp.card_id]);
+
+  const save = (next: Partial<RP>) => {
+    const merged = { ...rp, ...next };
+    setAppConfig((c) => (c ? { ...c, roleplay: merged } : c));
+    call(commands.setRoleplayConfig(merged))
+      .then(notifyConfigChanged)
+      .catch((e) => setError(String(e)));
+  };
+
+  const setProfile = (p: "agent" | "roleplay") => {
+    setAppConfig((c) => (c ? { ...c, chat_profile: p } : c));
+    call(commands.setChatProfile(p))
+      .then(notifyConfigChanged)
+      .catch((e) => setError(String(e)));
+  };
+
+  const importCard = async () => {
+    setError(null);
+    const picked = await open({
+      multiple: false,
+      filters: [{ name: "Character card", extensions: ["png", "json"] }],
+    });
+    if (!picked || typeof picked !== "string") return;
+    setBusy(true);
+    try {
+      const card = await call(commands.roleplayImportCard(picked));
+      loadCards();
+      save({ card_id: card.id, greeting: 0 });
+    } catch (e) {
+      setError(String(e));
+    }
+    setBusy(false);
+  };
+
+  const removeCard = async (card: CardSummary) => {
+    if (!window.confirm(`Delete the card "${card.name}"?`)) return;
+    setError(null);
+    try {
+      await call(commands.roleplayDeleteCard(card.id));
+      loadCards();
+      if (rp.card_id === card.id) save({ card_id: null, greeting: 0 });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const startChat = async () => {
+    setError(null);
+    try {
+      await call(commands.roleplayStartChat());
+      window.dispatchEvent(new Event("werk:roleplay-started"));
+      go("chat");
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const greetings = activeCard ? [activeCard.first_mes, ...activeCard.alternate_greetings] : [];
+  const greetingText = (() => {
+    const raw = greetings[rp.greeting] ?? "";
+    if (!activeCard) return "";
+    const user = rp.user_name.trim() || "User";
+    return raw.replace(/\{\{char\}\}/g, activeCard.name).replace(/\{\{user\}\}/g, user);
+  })();
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 space-y-4 max-w-6xl mx-auto">
+        <div>
+          <h1 className="section-title">Roleplay</h1>
+          <p className="section-desc">
+            Character cards and everything that shapes a roleplay chat.
+          </p>
+        </div>
+
+        <div className="card">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="section-title mb-1">Profile</h2>
+              <p className="section-desc">
+                {profile === "roleplay"
+                  ? "Chat uses the roleplay prompt, skips the coding context, and offers only the remember tool. A custom system prompt in Agent → Prompt overrides the card's instructions."
+                  : "Chat runs the coding agent: project context, tools, and agent memory."}
+              </p>
+            </div>
+            <div className="flex items-center gap-0.5 shrink-0">
+              {(["agent", "roleplay"] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setProfile(p)}
+                  className={`px-3 py-1.5 rounded text-xs font-medium capitalize transition-colors ${
+                    profile === p ? "bg-accent/20 text-ink" : "text-dim hover:text-ink hover:bg-accent/10"
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+          {profile === "roleplay" && (
+            <div className="flex items-center gap-2 mt-3">
+              <button
+                className="btn-primary text-xs"
+                disabled={!rp.card_id}
+                onClick={startChat}
+                title={rp.card_id ? "Start a new chat with the greeting" : "Pick a character card first"}
+              >
+                <Sparkles size={12} /> Start chat
+              </button>
+              {activeCard && (
+                <span className="text-[0.6875rem] text-dim truncate">
+                  Opens in Chat as {activeCard.name}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 items-start">
+          <div className="card">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <h2 className="section-title mb-0">Characters</h2>
+              <button
+                className="btn-ghost text-[0.625rem] py-0.5 px-1.5 shrink-0"
+                onClick={importCard}
+                disabled={busy}
+                title="Import a PNG character card or a JSON card"
+              >
+                <Plus size={11} /> Import
+              </button>
+            </div>
+            <p className="section-desc">
+              PNG cards (SillyTavern V1-V3, AICC) or plain JSON. Stored in the app data folder;
+              the image doubles as the avatar.
+            </p>
+            {cards.length === 0 && (
+              <p className="text-[0.6875rem] text-dim mt-3">
+                No cards yet — import one to get started.
+              </p>
+            )}
+            <div className="space-y-1.5 mt-3">
+              {cards.map((card) => (
+                <div
+                  key={card.id}
+                  className={`flex items-center gap-2.5 border rounded px-2.5 py-2 cursor-pointer transition-colors ${
+                    rp.card_id === card.id
+                      ? "border-accent bg-accent/10"
+                      : "border-border hover:bg-surface-2"
+                  }`}
+                  onClick={() => {
+                    if (profile !== "roleplay") setProfile("roleplay");
+                    save({ card_id: card.id, greeting: 0 });
+                  }}
+                >
+                  <CardAvatar id={card.id} name={card.name} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-ink font-medium truncate">{card.name}</p>
+                    <p className="text-[0.625rem] text-faint truncate">
+                      {card.spec} · {card.greetings} greeting{card.greetings === 1 ? "" : "s"}
+                      {card.tags.length > 0 ? ` · ${card.tags.slice(0, 3).join(", ")}` : ""}
+                    </p>
+                  </div>
+                  {rp.card_id === card.id && (
+                    <span className="badge-gray text-[0.5625rem] shrink-0">active</span>
+                  )}
+                  <button
+                    className="btn-ghost p-1 shrink-0 text-faint hover:text-accent-red"
+                    title="Delete this card"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void removeCard(card);
+                    }}
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="card">
+              <h2 className="section-title mb-1">You</h2>
+              <p className="section-desc">
+                Your name and description; cards reference them as {"{{user}}"}.
+              </p>
+              <label className="block mt-3">
+                <span className="text-[0.6875rem] text-dim">Name</span>
+                <input
+                  className="input w-full mt-1"
+                  placeholder="User"
+                  value={personaName}
+                  onChange={(e) => setPersonaName(e.target.value)}
+                  onBlur={() => {
+                    if (personaName !== rp.user_name) save({ user_name: personaName });
+                  }}
+                />
+              </label>
+              <label className="block mt-2">
+                <span className="text-[0.6875rem] text-dim">Description</span>
+                <textarea
+                  className="input w-full mt-1 text-xs"
+                  rows={3}
+                  placeholder="Optional: who you are in the story."
+                  value={personaDesc}
+                  onChange={(e) => setPersonaDesc(e.target.value)}
+                  onBlur={() => {
+                    if (personaDesc !== rp.user_description) save({ user_description: personaDesc });
+                  }}
+                />
+              </label>
+            </div>
+
+            {activeCard && (
+              <div className="card">
+                <h2 className="section-title mb-1">Greeting</h2>
+                <p className="section-desc">The opener shown when a roleplay chat starts.</p>
+                <select
+                  className="input w-full mt-3"
+                  value={rp.greeting}
+                  onChange={(e) => save({ greeting: Number(e.target.value) })}
+                >
+                  {greetings.map((_, i) => (
+                    <option key={i} value={i}>
+                      {i === 0 ? "First message" : `Alternate ${i}`}
+                    </option>
+                  ))}
+                </select>
+                {greetingText && (
+                  <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-[0.6875rem] leading-snug text-dim border border-border rounded p-2 bg-surface-2 select-text">
+                    {greetingText}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            <div className="card">
+              <h2 className="section-title mb-1">Sampling</h2>
+              <p className="section-desc">
+                Per-request overrides for roleplay runs; empty means the server default.
+              </p>
+              <div className="grid grid-cols-3 gap-3 mt-3">
+                <OptNumber
+                  label="Temperature"
+                  step={0.05}
+                  value={rp.temperature}
+                  onCommit={(v) => save({ temperature: v })}
+                />
+                <OptNumber
+                  label="Top-P"
+                  step={0.05}
+                  value={rp.top_p}
+                  onCommit={(v) => save({ top_p: v })}
+                />
+                <OptNumber
+                  label="Repeat penalty"
+                  step={0.05}
+                  value={rp.repeat_penalty}
+                  onCommit={(v) => save({ repeat_penalty: v })}
+                />
+              </div>
+            </div>
+
+            <RoleplayMemoryCard cardId={rp.card_id} />
+          </div>
+        </div>
+
+        {error && <p className="text-xs text-accent-red">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
+function CardAvatar({ id, name }: { id: string; name: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    call(commands.roleplayCardAvatar(id))
+      .then((u) => alive && setUrl(u))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+  return url ? (
+    <img
+      src={url}
+      alt={name}
+      className="w-11 h-11 rounded object-cover border border-border shrink-0"
+    />
+  ) : (
+    <div className="w-11 h-11 rounded border border-border bg-surface-2 flex items-center justify-center text-faint shrink-0">
+      <Sparkles size={13} />
+    </div>
+  );
+}
+
+function OptNumber({
+  label,
+  step,
+  value,
+  onCommit,
+}: {
+  label: string;
+  step: number;
+  value: number | null;
+  onCommit: (v: number | null) => void;
+}) {
+  const [draft, setDraft] = useState(value == null ? "" : String(value));
+  useEffect(() => {
+    setDraft(value == null ? "" : String(value));
+  }, [value]);
+  return (
+    <label className="block">
+      <span className="text-[0.6875rem] text-dim">{label}</span>
+      <input
+        type="number"
+        step={step}
+        min={0}
+        className="input w-full mt-1"
+        placeholder="default"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const text = draft.trim();
+          if (text === "") {
+            onCommit(null);
+            return;
+          }
+          const n = Number(text);
+          if (Number.isFinite(n)) onCommit(n);
+          else setDraft(value == null ? "" : String(value));
+        }}
+      />
+    </label>
+  );
+}
+
+function RoleplayMemoryCard({ cardId }: { cardId: string | null }) {
+  const [file, setFile] = useState<MemoryFileDto | null>(null);
+  const [draft, setDraft] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => {
+    call(commands.harnessMemoryGet("roleplay"))
+      .then((f) => {
+        setFile(f);
+        setDraft(f.text);
+        setDirty(false);
+      })
+      .catch(() => {});
+  };
+  useEffect(load, [cardId]);
+
+  const save = async () => {
+    setError(null);
+    try {
+      await call(commands.harnessMemorySet("roleplay", draft));
+      setDirty(false);
+      load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <h2 className="section-title mb-0">Memory</h2>
+        <div className="flex items-center gap-1 shrink-0">
+          {file?.path && (
+            <button
+              className="btn-ghost text-[0.625rem] py-0.5 px-1.5"
+              title="Reveal the memory file"
+              onClick={() => void revealItemInDir(file.path).catch((e) => setError(String(e)))}
+            >
+              <FolderOpen size={11} />
+            </button>
+          )}
+          <button className="btn-primary text-[0.625rem] py-0.5 px-2" disabled={!dirty} onClick={save}>
+            Save
+          </button>
+        </div>
+      </div>
+      <p className="section-desc">
+        What the character remembers across sessions; the remember tool writes here.
+      </p>
+      <textarea
+        className="input w-full mt-2 font-mono text-[0.6875rem] leading-snug"
+        rows={5}
+        placeholder="Empty — facts the character saves land here."
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setDirty(true);
+        }}
+      />
+      {error && <p className="text-xs text-accent-red mt-1">{error}</p>}
+    </div>
+  );
+}

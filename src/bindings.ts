@@ -17,6 +17,8 @@ export const commands = {
 	harnessAgentSteer: (message: string) => typedError<null, string>(__TAURI_INVOKE("harness_agent_steer", { message })),
 	/**  Clear the live transcript (keeps saved sessions). */
 	harnessAgentReset: () => typedError<null, string>(__TAURI_INVOKE("harness_agent_reset")),
+	/**  Start a fresh roleplay chat seeded with the selected greeting. */
+	roleplayStartChat: () => typedError<string | null, string>(__TAURI_INVOKE("roleplay_start_chat")),
 	/**  Clear the task list (user action from the checkpoint strip). */
 	harnessTodosClear: () => typedError<null, string>(__TAURI_INVOKE("harness_todos_clear")),
 	/**  Distill the session into memory, coalesce the memories, then start fresh. */
@@ -60,6 +62,13 @@ export const commands = {
 	setSystemPrompt: (prompt: string) => typedError<null, string>(__TAURI_INVOKE("set_system_prompt", { prompt })),
 	/**  Replace the named system prompt presets (max 5, names trimmed). */
 	setSystemPromptPresets: (presets: SystemPromptPreset[]) => typedError<null, string>(__TAURI_INVOKE("set_system_prompt_presets", { presets })),
+	roleplayListCards: () => typedError<CardSummary[], string>(__TAURI_INVOKE("roleplay_list_cards")),
+	roleplayImportCard: (path: string) => typedError<CardSummary, string>(__TAURI_INVOKE("roleplay_import_card", { path })),
+	roleplayGetCard: (id: string) => typedError<CharacterCard, string>(__TAURI_INVOKE("roleplay_get_card", { id })),
+	roleplayDeleteCard: (id: string) => typedError<null, string>(__TAURI_INVOKE("roleplay_delete_card", { id })),
+	roleplayCardAvatar: (id: string) => typedError<string | null, string>(__TAURI_INVOKE("roleplay_card_avatar", { id })),
+	setChatProfile: (profile: ChatProfile) => typedError<null, string>(__TAURI_INVOKE("set_chat_profile", { profile })),
+	setRoleplayConfig: (roleplay: RoleplayConfig_Deserialize) => typedError<null, string>(__TAURI_INVOKE("set_roleplay_config", { roleplay })),
 	/**
 	 *  Housekeeping model target (`provider:model`, `orchestrator`, `worker` or
 	 *  none); next run.
@@ -242,6 +251,10 @@ export type AppConfig_Deserialize = {
 	harness_system_prompt?: string | null,
 	/**  Named system prompt presets (quick swap in Settings). */
 	system_prompt_presets?: SystemPromptPreset[],
+	/**  Agent (coding harness) or Roleplay (character cards). */
+	chat_profile?: ChatProfile,
+	/**  Roleplay: active card, persona, greeting, sampling overrides. */
+	roleplay?: RoleplayConfig_Deserialize,
 	/**
 	 *  Housekeeping model for compaction and distillation: a `provider:model`
 	 *  target or a local role (`orchestrator`/`worker`). None = main model.
@@ -325,6 +338,10 @@ export type AppConfig_Serialize = {
 	harness_system_prompt?: string | null,
 	/**  Named system prompt presets (quick swap in Settings). */
 	system_prompt_presets?: SystemPromptPreset[],
+	/**  Agent (coding harness) or Roleplay (character cards). */
+	chat_profile: ChatProfile,
+	/**  Roleplay: active card, persona, greeting, sampling overrides. */
+	roleplay: RoleplayConfig_Serialize,
 	/**
 	 *  Housekeeping model for compaction and distillation: a `provider:model`
 	 *  target or a local role (`orchestrator`/`worker`). None = main model.
@@ -472,6 +489,35 @@ export type BuiltinToolDto = {
 	note: string,
 	enabled: boolean,
 };
+
+export type CardSummary = {
+	id: string,
+	name: string,
+	spec: string,
+	tags: string[],
+	greetings: number,
+	has_avatar: boolean,
+};
+
+export type CharacterCard = {
+	id: string,
+	name: string,
+	spec: string,
+	description: string,
+	personality: string,
+	scenario: string,
+	first_mes: string,
+	alternate_greetings: string[],
+	mes_example: string,
+	system_prompt: string,
+	post_history_instructions: string,
+	creator_notes: string,
+	tags: string[],
+	lorebook: LorebookEntry[],
+};
+
+/**  Chat profile: the coding agent or a roleplay character. */
+export type ChatProfile = "agent" | "roleplay";
 
 /**  Live context gauge: slot usage first, GGUF length as fallback. */
 export type ContextStats = ContextStats_Serialize | ContextStats_Deserialize;
@@ -659,6 +705,15 @@ export type LaunchPreview = {
 	 *  estimate, not the launch command.
 	 */
 	residency?: string | null,
+};
+
+export type LorebookEntry = {
+	comment: string,
+	keys: string[],
+	content: string,
+	constant: boolean,
+	enabled: boolean,
+	order: number,
 };
 
 /**  A user-defined language server, spawned over stdio. */
@@ -1040,6 +1095,40 @@ export type RoleServerParams_Serialize = {
 	no_chat_template?: boolean,
 	no_mmproj?: boolean,
 	no_draft?: boolean,
+};
+
+/**
+ *  Roleplay profile state: active card, user persona, greeting index, and
+ *  per-request sampling overrides (None = server defaults).
+ */
+export type RoleplayConfig = RoleplayConfig_Serialize | RoleplayConfig_Deserialize;
+
+/**
+ *  Roleplay profile state: active card, user persona, greeting index, and
+ *  per-request sampling overrides (None = server defaults).
+ */
+export type RoleplayConfig_Deserialize = {
+	card_id?: string | null,
+	greeting?: number,
+	user_name?: string,
+	user_description?: string,
+	temperature?: number | null,
+	top_p?: number | null,
+	repeat_penalty?: number | null,
+};
+
+/**
+ *  Roleplay profile state: active card, user persona, greeting index, and
+ *  per-request sampling overrides (None = server defaults).
+ */
+export type RoleplayConfig_Serialize = {
+	card_id?: string | null,
+	greeting: number,
+	user_name: string,
+	user_description: string,
+	temperature?: number | null,
+	top_p?: number | null,
+	repeat_penalty?: number | null,
 };
 
 export type RouterModelStatus = {

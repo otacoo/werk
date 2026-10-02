@@ -83,6 +83,8 @@ pub fn load_block(global: Option<&Path>, root: &Path) -> String {
 pub struct RememberTool {
     project_path: PathBuf,
     global_path: Option<PathBuf>,
+    /// Roleplay: a single per-character file; the scope argument is ignored.
+    single_scope: bool,
 }
 
 impl RememberTool {
@@ -90,10 +92,23 @@ impl RememberTool {
         Self {
             project_path: project_memory_path(project_root),
             global_path: global_memory_path(global_base),
+            single_scope: false,
+        }
+    }
+
+    /// Single-file variant for roleplay: one memory per character card.
+    pub fn for_file(path: PathBuf) -> Self {
+        Self {
+            project_path: path,
+            global_path: None,
+            single_scope: true,
         }
     }
 
     fn resolve(&self, scope: &str) -> Result<PathBuf> {
+        if self.single_scope {
+            return Ok(self.project_path.clone());
+        }
         match scope {
             "project" => Ok(self.project_path.clone()),
             "global" => self.global_path.clone().ok_or_else(|| {
@@ -109,7 +124,11 @@ impl Tool for RememberTool {
         "remember".to_string()
     }
     fn description(&self) -> String {
-        "Curate long-term memory: note durable facts as dated entries, forget stale ones, show the file. Project scope unless the fact is about the user themselves.".to_string()
+        if self.single_scope {
+            "Curate long-term memory for this story: note durable facts about the user, the character, and past events as dated entries, forget stale ones, show the file.".to_string()
+        } else {
+            "Curate long-term memory: note durable facts as dated entries, forget stale ones, show the file. Project scope unless the fact is about the user themselves.".to_string()
+        }
     }
     fn parameters(&self) -> Value {
         json!({
@@ -156,7 +175,11 @@ impl Tool for RememberTool {
                 }
                 out.push_str(&entry);
                 std::fs::write(&path, out)?;
-                Ok(format!("Noted in {scope} memory."))
+                Ok(if self.single_scope {
+                    "Noted in memory.".to_string()
+                } else {
+                    format!("Noted in {scope} memory.")
+                })
             }
             "forget" => {
                 let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("").trim();
@@ -176,7 +199,11 @@ impl Tool for RememberTool {
                     out.push('\n');
                 }
                 std::fs::write(&path, out)?;
-                Ok(format!("Forgot matching lines in {scope} memory."))
+                Ok(if self.single_scope {
+                    "Forgot matching lines.".to_string()
+                } else {
+                    format!("Forgot matching lines in {scope} memory.")
+                })
             }
             other => bail!("Unknown action '{other}' (expected note/forget/show)"),
         }

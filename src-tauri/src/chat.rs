@@ -295,6 +295,87 @@ fn system_prompt_for(
 
 // ── Approval gate ─────────────────────────────────────────────────────────
 
+/// Agent-mode system prompt: custom override or the built-in, plus the
+/// subagent block when delegation is available.
+fn agent_prompt_base(
+    state: &AppState,
+    app_config: &crate::config::AppConfig,
+    mode: crate::config::ServerMode,
+    subagent_targets: &[String],
+    prompt_tools: PromptTools,
+) -> String {
+    let c = state.config.lock().unwrap();
+    let verify = c.verify_mode;
+    let server_mode = c.server_mode;
+    let mut base = c
+        .harness_system_prompt
+        .clone()
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or_else(move || system_prompt_for(verify, server_mode, prompt_tools));
+    if prompt_tools.spawn_subagent
+        && (mode == crate::config::ServerMode::Router || !subagent_targets.is_empty())
+    {
+        // Router: the worker (or orchestrator) is the default; external
+        // mode's default is the run model. Single mode stays silent.
+        let (label, vision) = if mode == crate::config::ServerMode::Router {
+            let sub_model = app_config
+                .harness_roles
+                .worker
+                .clone()
+                .or_else(|| app_config.harness_roles.orchestrator.clone());
+            let label = sub_model
+                .as_deref()
+                .map(crate::server::file_stem_or_self)
+                .unwrap_or_else(|| "the main model".to_string());
+            // Mixed mode: an external default's vision is unknown.
+            let external = sub_model
+                .as_deref()
+                .map(|p| {
+                    crate::config::Provider::split_target(p, &app_config.providers).is_some()
+                })
+                .unwrap_or(false);
+            let vision = if external {
+                None
+            } else {
+                sub_model.as_deref().map(|p| {
+                    crate::server::find_mmproj_sibling(std::path::Path::new(p)).is_some()
+                })
+            };
+            (Some(label), vision)
+        } else {
+            (None, None)
+        };
+        base.push_str(&subagent_prompt_block(
+            subagent_targets,
+            label.as_deref(),
+            vision,
+        ));
+    }
+    base
+}
+
+/// Plain text of the last few messages, for keyword-matching lorebook entries.
+fn recent_transcript(history: &[ChatMessage]) -> String {
+    let mut out = String::new();
+    for msg in history.iter().rev().take(10) {
+        let text = match &msg.content {
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(serde_json::Value::Array(parts)) => parts
+                .iter()
+                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join(" "),
+            _ => continue,
+        };
+        out = format!("{text}\n{out}");
+        if out.len() > 8_000 {
+            break;
+        }
+    }
+    out
+}
+
+
 struct UiGate {
     app: AppHandle,
     runtime: Arc<HarnessRuntime>,
@@ -1284,27 +1365,40 @@ pub async fn harness_agent_send(
         &app_config.sensitive_allow,
     ));
     let jail = Arc::new(jail.shield(sensitive));
+    let roleplay = app_config.chat_profile == crate::config::ChatProfile::Roleplay;
     let disabled = app_config.plugin_disabled.clone();
     let lsp = app_config.lsp_enabled.then(|| state.lsp.clone());
-    // MCP tools run in the harness (all modes): spawn servers once, reuse the
-    // manager across runs; servers are gated by per-tool approval.
-    let (mcp_tools, mcp_errors) = discover_mcp_tools(&state, &app_config).await;
+    let (mcp_tools, mcp_errors) = if roleplay {
+        (Vec::new(), Vec::new())
+    } else {
+        // MCP tools run in the harness (all modes): spawn servers once, reuse
+        // the manager across runs; servers are gated by per-tool approval.
+        discover_mcp_tools(&state, &app_config).await
+    };
     for text in mcp_errors {
         let _ = app.emit(
             "harness_event",
             serde_json::json!({"type": "notice", "text": text}),
         );
     }
-    let registry = build_registry(
-        jail.clone(),
-        &root,
-        global_base.as_deref(),
-        &disabled,
-        &app_config.agent_tools_disabled,
-        &state.harness.todos,
-        lsp,
-        mcp_tools,
-    );
+    let registry = if roleplay {
+        let memory = crate::roleplay::character_memory_path(app_config.roleplay.card_id.as_deref())
+            .ok_or_else(|| "Cannot find data directory".to_string())?;
+        ToolRegistry::project_tools(jail.clone())
+            .only(&[])
+            .add(Arc::new(harness::memory::RememberTool::for_file(memory)))
+    } else {
+        build_registry(
+            jail.clone(),
+            &root,
+            global_base.as_deref(),
+            &disabled,
+            &app_config.agent_tools_disabled,
+            &state.harness.todos,
+            lsp,
+            mcp_tools,
+        )
+    };
 
     // Roles only apply in router mode; single mode chats with the loaded
     // model, external mode with the configured provider target.
@@ -1408,70 +1502,40 @@ pub async fn harness_agent_send(
         crate::config::ServerMode::Single => Vec::new(),
     };
     if !history.iter().any(|m| m.role == "system") {
-        let prompt_tools = PromptTools::from_disabled(&app_config.agent_tools_disabled);
-        let base = {
-            let c = state.config.lock().unwrap();
-            let verify = c.verify_mode;
-            let server_mode = c.server_mode;
-            let mut base = c
-                .harness_system_prompt
-                .clone()
-                .filter(|p| !p.trim().is_empty())
-                .unwrap_or_else(move || system_prompt_for(verify, server_mode, prompt_tools));
-            if prompt_tools.spawn_subagent
-                && (mode == crate::config::ServerMode::Router || !subagent_targets.is_empty())
-            {
-                // Router: the worker (or orchestrator) is the default; external
-                // mode's default is the run model. Single mode stays silent.
-                let (label, vision) = if mode == crate::config::ServerMode::Router {
-                    let sub_model = app_config
-                        .harness_roles
-                        .worker
-                        .clone()
-                        .or_else(|| app_config.harness_roles.orchestrator.clone());
-                    let label = sub_model
-                        .as_deref()
-                        .map(crate::server::file_stem_or_self)
-                        .unwrap_or_else(|| "the main model".to_string());
-                    // Mixed mode: an external default's vision is unknown.
-                    let external = sub_model
-                        .as_deref()
-                        .map(|p| {
-                            crate::config::Provider::split_target(p, &app_config.providers)
-                                .is_some()
-                        })
-                        .unwrap_or(false);
-                    let vision = if external {
-                        None
-                    } else {
-                        sub_model.as_deref().map(|p| {
-                            crate::server::find_mmproj_sibling(std::path::Path::new(p)).is_some()
-                        })
-                    };
-                    (Some(label), vision)
-                } else {
-                    (None, None)
-                };
-                base.push_str(&subagent_prompt_block(
-                    &subagent_targets,
-                    label.as_deref(),
-                    vision,
-                ));
+        if roleplay {
+            let card = app_config
+                .roleplay
+                .card_id
+                .as_deref()
+                .and_then(|id| crate::roleplay::load_card(id).ok());
+            let mut base = crate::roleplay::system_prompt(&app_config, card.as_ref());
+            if let Some(card) = &card {
+                let user_name = crate::roleplay::display_user_name(&app_config.roleplay);
+                let world =
+                    crate::roleplay::lorebook_block(card, &recent_transcript(&history), &user_name);
+                if !world.is_empty() {
+                    base.push_str("\n\n");
+                    base.push_str(&world);
+                }
             }
-            base
-        };
-        let memory = harness::memory::load_block(
-            global_base.as_deref().map(|b| b.join("MEMORY.md")).as_deref(),
-            &root,
-        );
-        let run_context = crate::run_context::run_context_block(&root);
-        history.insert(
-            0,
-            ChatMessage::system(format!(
-                "{base}\n\nProject directory: {}{run_context}{memory}",
-                root.display()
-            )),
-        );
+            let memory = crate::roleplay::memory_block(&app_config);
+            history.insert(0, ChatMessage::system(format!("{base}{memory}")));
+        } else {
+            let prompt_tools = PromptTools::from_disabled(&app_config.agent_tools_disabled);
+            let base = agent_prompt_base(&state, &app_config, mode, &subagent_targets, prompt_tools);
+            let memory = harness::memory::load_block(
+                global_base.as_deref().map(|b| b.join("MEMORY.md")).as_deref(),
+                &root,
+            );
+            let run_context = crate::run_context::run_context_block(&root);
+            history.insert(
+                0,
+                ChatMessage::system(format!(
+                    "{base}\n\nProject directory: {}{run_context}{memory}",
+                    root.display()
+                )),
+            );
+        }
     }
     let (user_msg, _attached_images) = with_attachments(&message, &attachments.unwrap_or_default());
     history.push(user_msg);
@@ -1739,6 +1803,28 @@ pub async fn harness_agent_send(
         let _ = app_events.emit("harness_event", serde_json::to_value(&ev).unwrap_or_default());
     };
 
+    // Roleplay sampling overrides ride the request; llama.cpp and most
+    // OpenAI-compatible providers accept them per call.
+    let sampling = if roleplay {
+        let rp = &app_config.roleplay;
+        let mut map = serde_json::Map::new();
+        if let Some(t) = rp.temperature {
+            map.insert("temperature".into(), serde_json::json!(t));
+        }
+        if let Some(p) = rp.top_p {
+            map.insert("top_p".into(), serde_json::json!(p));
+        }
+        // llama.cpp extension; strict providers may reject unknown fields.
+        if mode != crate::config::ServerMode::External {
+            if let Some(r) = rp.repeat_penalty {
+                map.insert("repeat_penalty".into(), serde_json::json!(r));
+            }
+        }
+        (!map.is_empty()).then_some(serde_json::Value::Object(map))
+    } else {
+        None
+    };
+
     let run = AgentRun {
         client,
         registry: Arc::new(registry),
@@ -1746,6 +1832,7 @@ pub async fn harness_agent_send(
         model: model.clone(),
         project: state.config.lock().unwrap().harness_active_project.clone(),
         reasoning_effort: reasoning_effort.filter(|e| !e.is_empty()),
+        sampling,
         max_turns,
         context_limit,
         verify_mode,
@@ -2088,6 +2175,52 @@ pub async fn harness_agent_reset(state: State<'_, AppState>) -> Result<(), Strin
     }
     state.harness.steering.lock().unwrap().clear();
     Ok(())
+}
+
+/// Start a fresh roleplay chat seeded with the selected greeting.
+#[tauri::command]
+#[specta::specta]
+pub async fn roleplay_start_chat(
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    if state.harness.running.load(Ordering::SeqCst) {
+        return Err("Stop the running agent first".to_string());
+    }
+    harness_agent_reset(state.clone()).await?;
+    let (card, greeting_index, user_name) = {
+        let config = state.config.lock().unwrap();
+        let card = config
+            .roleplay
+            .card_id
+            .as_deref()
+            .and_then(|id| crate::roleplay::load_card(id).ok());
+        let user_name = crate::roleplay::display_user_name(&config.roleplay);
+        (card, config.roleplay.greeting, user_name)
+    };
+    let Some(greeting) = card
+        .as_ref()
+        .and_then(|c| crate::roleplay::greeting(c, greeting_index as usize, &user_name))
+    else {
+        return Ok(None);
+    };
+    {
+        let mut history = state.harness.history.lock().unwrap();
+        history.push(ChatMessage::assistant(greeting.clone()));
+    }
+    // Persist right away so the opener shows in the sessions list.
+    let base = format!("s{}", now_secs());
+    let mut id = base.clone();
+    let mut n = 2;
+    while session_path(&id).map(|p| p.exists()).unwrap_or(false) {
+        id = format!("{base}-{n}");
+        n += 1;
+    }
+    *state.harness.session_id.lock().unwrap() = Some(id);
+    let history = state.harness.history.lock().unwrap().clone();
+    let title = card.map(|c| c.name);
+    save_session_messages(&state, &history, title)
+        .map_err(|e| format!("Session save failed: {e}"))?;
+    Ok(Some(greeting))
 }
 
 /// Drop the last assistant response and the user turn that produced it.
@@ -3308,6 +3441,10 @@ fn memory_file(scope: &str, state: &AppState) -> Result<MemoryFileDto, String> {
             let root = project_root(state).map_err(|e| e.to_string())?;
             harness::memory::project_memory_path(&root)
         }
+        "roleplay" => crate::roleplay::character_memory_path(
+            state.config.lock().unwrap().roleplay.card_id.as_deref(),
+        )
+        .ok_or_else(|| "Cannot find data directory".to_string())?,
         _ => return Err("Unknown memory scope".to_string()),
     };
     let text = std::fs::read_to_string(&path).unwrap_or_default();

@@ -357,6 +357,7 @@ pub async fn summarize(
             &[ChatMessage::system(system), ChatMessage::user(transcript)],
             None,
             None,
+            None,
             || should_stop(),
             &mut |ev| {
                 if let StreamEvent::Content { text } = ev {

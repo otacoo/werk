@@ -152,6 +152,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   /// External API mode: chat works server-less through the configured provider.
   const [externalMode, setExternalMode] = useState(false);
   const [autoStart, setAutoStart] = useState(false);
+  const [roleplayMode, setRoleplayMode] = useState(false);
   const [externalTarget, setExternalTarget] = useState("");
   const [favorites, setFavorites] = useState<string[]>([]);
   const [runStatus, setRunStatus] = useState<"thinking" | "loading" | "working" | null>(null);
@@ -250,6 +251,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     setExternalMode(external);
     setExternalTarget(external ? (c.external_target ?? "").trim() : "");
     setAutoStart(c.server_auto_start ?? false);
+    setRoleplayMode(c.chat_profile === "roleplay");
     if (external) setFavorites(c.provider_favorites ?? []);
   };
 
@@ -312,6 +314,9 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     // The transcript lives in the backend — restore it so chats are
     // consultable even when the server is stopped.
     restoreFromBackend();
+    // The Roleplay page seeds a greeting in the backend, then signals us.
+    const onRoleplayStarted = () => restoreFromBackend();
+    window.addEventListener("werk:roleplay-started", onRoleplayStarted);
     poll();
     const id = setInterval(poll, 2000);
     // Status and mode/target changes signal instead of polling.
@@ -319,6 +324,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     const unsubConfig = subscribeConfigChanged(refreshConfig);
     return () => {
       clearInterval(id);
+      window.removeEventListener("werk:roleplay-started", onRoleplayStarted);
       unsubStatus();
       unsubConfig();
     };
@@ -972,9 +978,15 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   const newChat = async () => {
     if (streaming) return;
     try {
-      await call(commands.harnessAgentReset());
+      if (roleplayMode) {
+        // Seed the selected greeting as the opener.
+        await call(commands.roleplayStartChat());
+        await restoreFromBackend();
+      } else {
+        await call(commands.harnessAgentReset());
+        setItems([]);
+      }
     } catch {}
-    setItems([]);
     setError(null);
     liveSubs.current = 0;
     setRunStatus(null);

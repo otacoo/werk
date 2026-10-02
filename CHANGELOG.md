@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Roleplay profile: import SillyTavern V1-V3 and AICC character cards (PNG or JSON), per-character memory, greeting-seeded chats, and sampling overrides.
+
 ## [0.5.0] - 2026-10-02
 
 ### Added

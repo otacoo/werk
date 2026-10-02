@@ -447,6 +447,8 @@ pub struct AgentRun<'a> {
     pub model: Option<String>,
     pub project: Option<String>,
     pub reasoning_effort: Option<String>,
+    /// Per-request sampling overrides (roleplay); None = server defaults.
+    pub sampling: Option<serde_json::Value>,
     pub max_turns: usize,
     pub subagents: Option<Subagents<'a>>,
     pub verify_mode: VerifyMode,
@@ -599,6 +601,7 @@ impl AgentRun<'_> {
                     request.as_deref().unwrap_or(history),
                     Some(&self.registry.tool_schemas()),
                     self.reasoning_effort.as_deref(),
+                    self.sampling.as_ref(),
                     &*should_stop,
                     &mut on_delta,
                 )
@@ -631,6 +634,7 @@ impl AgentRun<'_> {
                                     request.as_deref().unwrap_or(history),
                                     Some(&self.registry.tool_schemas()),
                                     self.reasoning_effort.as_deref(),
+                                    self.sampling.as_ref(),
                                     &*should_stop,
                                     &mut on_delta,
                                 )
@@ -1139,6 +1143,7 @@ impl AgentRun<'_> {
             model: run_model,
             project: self.project.clone(),
             reasoning_effort: self.reasoning_effort.clone(),
+            sampling: None,
             max_turns: sub.max_turns,
             subagents: None,
             verify_mode: self.verify_mode,
@@ -1232,6 +1237,7 @@ mod tests {
             model: None,
             project: Some("p".to_string()),
             reasoning_effort: None,
+            sampling: None,
             max_turns: 5,
             subagents: None,
             verify_mode: VerifyMode::Normal,
