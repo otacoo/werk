@@ -214,7 +214,7 @@ export default function App() {
         </div>
         {tab === "bench" && showBench && <Bench />}
         <div className="h-full min-h-0" style={{ display: tab === "tools" ? undefined : "none" }}>
-          <Tools active={tab === "tools"} go={(t) => setTab(t)} />
+          <Tools active={tab === "tools"} />
         </div>
         <div className="h-full min-h-0" style={{ display: tab === "agent" ? undefined : "none" }}>
           <Agent active={tab === "agent"} />

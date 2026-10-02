@@ -24,7 +24,6 @@ import { call } from "../utils/ipc";
 import { useAppConfig } from "../utils/useAppConfig";
 import Toggle from "../components/Toggle";
 import { AgentToolsCard, LspCard, PluginToolsCard, useToolsList } from "../components/ToolSettings";
-import type { Tab } from "../App";
 import { KNOWN_TOOLS, toolsArgValue } from "../utils/tools";
 
 const emptyEntry = (): McpServerEntry => ({
@@ -56,10 +55,7 @@ const parseEnv = (text: string): Record<string, string> => {
 const envToText = (env: Record<string, string> | undefined): string =>
   Object.entries(env ?? {}).map(([k, v]) => `${k}=${v}`).join("\n");
 
-export default function Tools({ active = true, go }: {
-  active?: boolean;
-  go?: (t: Tab) => void;
-}) {
+export default function Tools({ active = true }: { active?: boolean }) {
   const [serverStatus, setServerStatus] = useState<ServerStatus>({ type: "stopped" });
   const [appConfig, setAppConfig, , refreshConfig] = useAppConfig(true);
   const toolsList = useToolsList();
@@ -395,16 +391,6 @@ export default function Tools({ active = true, go }: {
 
         {pane === "agent" && (
           <>
-            <div className="card border-accent/30 bg-accent/5">
-              <p className="text-xs text-dim">
-                More agent options — system prompt, memory, utility model, and agent file
-                visibility — live in the{" "}
-                <button className="text-accent-soft hover:underline" onClick={() => go?.("agent")}>
-                  Agent tab
-                </button>
-                .
-              </p>
-            </div>
             <AgentToolsCard builtin={toolsList.builtin} reload={toolsList.reload} />
             <PluginToolsCard
               plugins={toolsList.plugins}
