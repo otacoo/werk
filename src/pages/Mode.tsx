@@ -17,7 +17,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { commands } from "../bindings";
 import type { AppConfig, CharacterCard, Provider, ServerStatus } from "../bindings";
 import { call } from "../utils/ipc";
-import { notifyConfigChanged } from "../utils/appSettings";
+import { notifyConfigChanged, setProfileMirror } from "../utils/appSettings";
 import { subscribeServerStatus } from "../utils/serverStatus";
 import ModelPicker, { type PickerItem } from "../components/ModelPicker";
 
@@ -111,6 +111,7 @@ export default function Mode({
   const chooseProfile = async (next: "agent" | "webui" | "roleplay") => {
     if (next === profile) return;
     setError(null);
+    setProfileMirror(next);
     setAppConfig((c) => (c ? { ...c, chat_profile: next } : c));
     try {
       await call(commands.setChatProfile(next));
@@ -119,6 +120,7 @@ export default function Mode({
     } catch (e) {
       setError(String(e));
       await refresh();
+      notifyConfigChanged();
     }
   };
 

@@ -1430,8 +1430,7 @@ async fn agent_send_impl(
     reasoning_effort: Option<String>,
     attachments: Option<Vec<SendAttachment>>,
 ) -> Result<RunResult, String> {
-    if state
-        .harness
+    if runtime
         .running
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -2003,8 +2002,7 @@ async fn agent_send_impl(
         .map(|c| c.model_path.clone())
         .filter(|p| !p.is_empty());
     let model = model.or(served).map(|p| model_label(&p));
-    let footer_index = state
-        .harness
+    let footer_index = runtime
         .history
         .lock()
         .unwrap()

@@ -33,7 +33,7 @@ import SettingsPanel, { type SettingsSection } from "./components/SettingsPanel"
 import { commands } from "./bindings";
 import { call } from "./utils/ipc";
 import { loadAppearance, setAutoCorners } from "./utils/appearance";
-import { getQuickBench, setQuickBench, subscribeQuickBench, subscribeConfigChanged } from "./utils/appSettings";
+import { getQuickBench, setQuickBench, subscribeQuickBench, subscribeConfigChanged, setProfileMirror, subscribeProfile } from "./utils/appSettings";
 import { startServerStatusPolling, subscribeServerStatus } from "./utils/serverStatus";
 
 export type Tab = "dashboard" | "run" | "chat" | "talk" | "webui" | "tools" | "agent" | "roleplay" | "bench" | "mode" | "api";
@@ -77,6 +77,9 @@ export default function App() {
     );
   }, []);
 
+  // The Mode page flips the profile through the in-memory mirror.
+  useEffect(() => subscribeProfile((p) => setProfile(p as Profile)), []);
+
   useEffect(() => {
     loadAppearance();
     call(commands.getConfig())
@@ -84,7 +87,7 @@ export default function App() {
         setWizard(!c.wizard_completed);
         setQuickBench(c.bench_visible ?? false);
         setExternalMode(c.server_mode === "external");
-        setProfile((c.chat_profile ?? "agent") as Profile);
+        setProfileMirror((c.chat_profile ?? "agent") as Profile);
       })
       .catch(() => setWizard(false));
     call(commands.getPlatformStyle())
@@ -115,7 +118,7 @@ export default function App() {
           .then((c) => {
             const external = c.server_mode === "external";
             setExternalMode(external);
-            setProfile((c.chat_profile ?? "agent") as Profile);
+            setProfileMirror((c.chat_profile ?? "agent") as Profile);
             if (external) setTab((t) => (t === "run" || t === "api" ? "chat" : t));
           })
           .catch(() => {});

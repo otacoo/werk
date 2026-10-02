@@ -10,6 +10,8 @@
 - Talk's context ring drops down from the header and tracks the talk transcript.
 - ask_user is available in roleplay, with its question box in Talk.
 - The WebUI profile card greys out in External API mode.
+- Talk's run lock is its own, so a second message no longer reports an agent run in progress.
+- The Tools page follows mode/profile changes, and profile switches move between Chat and Talk immediately.
 
 ## [0.5.0] - 2026-10-02
 

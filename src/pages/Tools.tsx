@@ -21,6 +21,7 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { commands } from "../bindings";
 import type { McpServerEntry, McpServerStatus, ServerStatus, ServerToolInfo } from "../bindings";
 import { call } from "../utils/ipc";
+import { subscribeConfigChanged } from "../utils/appSettings";
 import { useAppConfig } from "../utils/useAppConfig";
 import Toggle from "../components/Toggle";
 import { AgentToolsCard, LspCard, PluginToolsCard, useToolsList } from "../components/ToolSettings";
@@ -166,6 +167,12 @@ export default function Tools({ active = true }: { active?: boolean }) {
     return () => {
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
     };
+  }, []);
+
+  // Mode/profile changes elsewhere must refresh this page's config snapshot.
+  useEffect(() => {
+    return subscribeConfigChanged(refreshConfig);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Built-in tools ────────────────────────────────────────────────────

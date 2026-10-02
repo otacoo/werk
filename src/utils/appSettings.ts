@@ -4,6 +4,28 @@
 let quickBench = false;
 const quickBenchListeners = new Set<(v: boolean) => void>();
 
+// Chat profile mirror: the Mode page flips it and the header reacts at once,
+// without waiting for the config refetch.
+let profile = "agent";
+const profileListeners = new Set<(p: string) => void>();
+
+export function getProfile(): string {
+  return profile;
+}
+
+export function setProfileMirror(p: string): void {
+  if (p === profile) return;
+  profile = p;
+  profileListeners.forEach((l) => l(p));
+}
+
+export function subscribeProfile(cb: (p: string) => void): () => void {
+  profileListeners.add(cb);
+  return () => {
+    profileListeners.delete(cb);
+  };
+}
+
 // Cross-page "backend config changed" signal: pages that keep a local config
 // snapshot (Run) refetch instead of showing stale state.
 const configListeners = new Set<() => void>();
