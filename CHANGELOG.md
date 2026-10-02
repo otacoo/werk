@@ -6,6 +6,10 @@
 
 ### Added
 
+- Tools → Agent has a notice linking to Settings → Agent for the remaining
+  agent options.
+- Files panel: right-click a file or folder to open, rename, or delete it —
+  delete moves it to the OS trash.
 - LSP settings got their own tab in the Tools page, after MCP.
 - Settings → Agent → "Agent files": hides `AGENTS.md`/`.agent*` files from
   every agent tool (reads, writes, edits, globs, content search). Visible by

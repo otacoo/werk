@@ -50,6 +50,12 @@ function TreeRow({
   onOpen,
   selected,
   onSelect,
+  renaming,
+  renameDraft,
+  onRenameDraft,
+  onRenameCommit,
+  onRenameCancel,
+  onContext,
 }: {
   node: Node;
   depth: number;
@@ -58,6 +64,12 @@ function TreeRow({
   onOpen: (node: Node) => void;
   selected: string | null;
   onSelect: (path: string) => void;
+  renaming: string | null;
+  renameDraft: string;
+  onRenameDraft: (v: string) => void;
+  onRenameCommit: (path: string, name: string) => void;
+  onRenameCancel: () => void;
+  onContext: (e: React.MouseEvent, node: Node) => void;
 }) {
   const open = expanded.has(node.path);
   const changedDeep = anyDeep(node, (n) => n.changed);
@@ -75,6 +87,7 @@ function TreeRow({
         style={{ paddingLeft: `${depth * 12 + 6}px` }}
         onClick={() => (node.dir ? toggle(node.path) : onSelect(node.path))}
         onDoubleClick={() => (!node.dir ? onOpen(node) : undefined)}
+        onContextMenu={(e) => onContext(e, node)}
         title={node.dir ? node.path : `${node.path} (double-click to open)`}
       >
         {node.dir ? (
@@ -91,7 +104,23 @@ function TreeRow({
             <FileIcon size={12} className="shrink-0 text-faint" />
           </>
         )}
-        <span className="flex-1 truncate">{node.name}</span>
+        {renaming === node.path ? (
+          <input
+            autoFocus
+            className="input flex-1 min-w-0 py-0.5 px-1.5 text-xs"
+            value={renameDraft}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onRenameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") onRenameCommit(node.path, renameDraft);
+              else if (e.key === "Escape") onRenameCancel();
+            }}
+            onBlur={onRenameCancel}
+          />
+        ) : (
+          <span className="flex-1 truncate">{node.name}</span>
+        )}
         {node.touched && (
           <span
             className="w-1.5 h-1.5 rounded-full bg-accent-soft shrink-0"
@@ -122,6 +151,12 @@ function TreeRow({
             onOpen={onOpen}
             selected={selected}
             onSelect={onSelect}
+            renaming={renaming}
+            renameDraft={renameDraft}
+            onRenameDraft={onRenameDraft}
+            onRenameCommit={onRenameCommit}
+            onRenameCancel={onRenameCancel}
+            onContext={onContext}
           />
         ))}
     </>
@@ -144,6 +179,9 @@ export default function ProjectTree({
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; node: Node } | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
   const [width, setWidth] = useState(() => {
     const w = Number(localStorage.getItem("werk.chat.files.w"));
     return w >= FILES_MIN && w <= FILES_MAX ? w : FILES_DEFAULT;
@@ -213,6 +251,34 @@ export default function ProjectTree({
     openPath(`${files.root}/${node.path}`).catch((e) => setError(String(e)));
   };
 
+  const renameEntry = async (path: string, name: string) => {
+    setRenaming(null);
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    try {
+      await call(commands.projectRenameEntry(path, trimmed));
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const deleteEntry = async (node: Node) => {
+    if (!window.confirm(`Move "${node.name}" to the trash?`)) return;
+    try {
+      await call(commands.projectDeleteEntry(node.path));
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const openContextMenu = (e: React.MouseEvent, node: Node) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY, node });
+  };
+
   const changedCount = files?.entries.filter((e) => !e.dir && e.changed).length ?? 0;
   const touchedCount = files?.entries.filter((e) => !e.dir && e.touched).length ?? 0;
 
@@ -260,13 +326,19 @@ export default function ProjectTree({
               onOpen={openFile}
               selected={selected}
               onSelect={setSelected}
+              renaming={renaming}
+              renameDraft={renameDraft}
+              onRenameDraft={setRenameDraft}
+              onRenameCommit={renameEntry}
+              onRenameCancel={() => setRenaming(null)}
+              onContext={openContextMenu}
             />
           ))
         )}
       </div>
       <div className="px-3 py-1.5 border-t border-border text-[0.625rem] text-faint shrink-0 leading-snug">
         {files?.truncated && <p className="text-accent-yellow">Tree truncated (large project).</p>}
-        <p>Double-click a file to open it in your OS.</p>
+        <p>Double-click to open; right-click for open, rename, delete.</p>
         <p>
           <span className="badge-yellow text-[0.5rem] px-1 py-0 mr-1">M</span>
           {files?.git ? `${changedCount} changed on disk` : "not a git repository"}
@@ -276,6 +348,54 @@ export default function ProjectTree({
           {touchedCount} agent edit{touchedCount === 1 ? "" : "s"} this session
         </p>
       </div>
+      {menu && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu(null);
+            }}
+          />
+          <div
+            className="fixed z-50 min-w-[150px] bg-surface-2 border border-border shadow-lg py-1 rounded"
+            style={{
+              left: Math.min(menu.x, window.innerWidth - 170),
+              top: Math.min(menu.y, window.innerHeight - 120),
+            }}
+          >
+            <button
+              className="w-full flex items-center px-3 py-1.5 text-xs text-left text-ink hover:bg-surface-3 transition-colors"
+              onClick={() => {
+                openFile(menu.node);
+                setMenu(null);
+              }}
+            >
+              Open
+            </button>
+            <button
+              className="w-full flex items-center px-3 py-1.5 text-xs text-left text-ink hover:bg-surface-3 transition-colors"
+              onClick={() => {
+                setRenaming(menu.node.path);
+                setRenameDraft(menu.node.name);
+                setMenu(null);
+              }}
+            >
+              Rename
+            </button>
+            <button
+              className="w-full flex items-center px-3 py-1.5 text-xs text-left text-accent-red hover:bg-surface-3 transition-colors"
+              onClick={() => {
+                deleteEntry(menu.node);
+                setMenu(null);
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </>
+      )}
     </aside>
   );
 }

@@ -124,6 +124,10 @@ export const commands = {
 	getMcpAgentTools: (probe: boolean) => typedError<McpServerStatus_Serialize[], string>(__TAURI_INVOKE("get_mcp_agent_tools", { probe })),
 	/**  Project folder tree with modification markers for the Chat sidebar. */
 	projectFileTree: () => typedError<ProjectFiles_Serialize, string>(__TAURI_INVOKE("project_file_tree")),
+	/**  Rename one file or folder inside the project (user action from the tree). */
+	projectRenameEntry: (path: string, newName: string) => typedError<null, string>(__TAURI_INVOKE("project_rename_entry", { path, newName })),
+	/**  Move one file or folder to the OS trash (user action from the tree). */
+	projectDeleteEntry: (path: string) => typedError<null, string>(__TAURI_INVOKE("project_delete_entry", { path })),
 	stopServer: () => typedError<null, string>(__TAURI_INVOKE("stop_server")),
 	/**  Persisted single/router mode; takes effect on the next server start. */
 	setServerMode: (mode: ServerMode) => typedError<null, string>(__TAURI_INVOKE("set_server_mode", { mode })),

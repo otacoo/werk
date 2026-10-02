@@ -168,6 +168,8 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         commands::save_mcp_servers,
         commands::get_mcp_agent_tools,
         commands::project_file_tree,
+        commands::project_rename_entry,
+        commands::project_delete_entry,
         commands::stop_server,
         commands::set_server_mode,
         commands::set_providers,

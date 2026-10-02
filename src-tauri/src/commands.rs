@@ -785,6 +785,67 @@ pub async fn project_file_tree(state: State<'_, AppState>) -> Result<ProjectFile
     .map_err(|e| format!("project scan failed: {e}"))
 }
 
+/// Resolve a project-relative path for user file actions; refuses escapes
+/// and the project root itself.
+fn resolve_project_entry(root: &std::path::Path, rel: &str) -> Result<std::path::PathBuf, String> {
+    let raw = std::path::Path::new(rel);
+    let joined = if raw.is_absolute() { raw.to_path_buf() } else { root.join(raw) };
+    let mut clean = std::path::PathBuf::new();
+    for comp in joined.components() {
+        match comp {
+            std::path::Component::ParentDir => {
+                if !clean.pop() {
+                    return Err("Path escapes the project".to_string());
+                }
+            }
+            other => clean.push(other.as_os_str()),
+        }
+    }
+    let root = root.canonicalize().map_err(|e| e.to_string())?;
+    let clean = clean.canonicalize().map_err(|e| e.to_string())?;
+    if clean == root {
+        return Err("Refusing to modify the project root".to_string());
+    }
+    if !clean.starts_with(&root) {
+        return Err("Path is outside the project".to_string());
+    }
+    Ok(clean)
+}
+
+/// Rename one file or folder inside the project (user action from the tree).
+#[tauri::command]
+#[specta::specta]
+pub async fn project_rename_entry(
+    path: String,
+    new_name: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let root = crate::chat::project_root(&state).map_err(|e| e.to_string())?;
+    let src = resolve_project_entry(&root, &path)?;
+    let name = new_name.trim();
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+        return Err("Invalid file name".to_string());
+    }
+    let parent = src.parent().ok_or_else(|| "Cannot rename the project root".to_string())?;
+    let dst = parent.join(name);
+    if dst.exists() {
+        return Err(format!("\"{name}\" already exists"));
+    }
+    std::fs::rename(&src, &dst).map_err(|e| e.to_string())
+}
+
+/// Move one file or folder to the OS trash (user action from the tree).
+#[tauri::command]
+#[specta::specta]
+pub async fn project_delete_entry(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let root = crate::chat::project_root(&state).map_err(|e| e.to_string())?;
+    let target = resolve_project_entry(&root, &path)?;
+    trash::delete(&target).map_err(|e| format!("Cannot move to the trash: {e}"))
+}
+
 /// Paths the agent wrote or edited in the current session.
 fn agent_touched_paths(state: &State<'_, AppState>) -> std::collections::HashSet<String> {
     let mut out = std::collections::HashSet::new();
