@@ -414,6 +414,65 @@ function SensitiveShieldingCard({ appConfig, refresh }: {
   );
 }
 
+/// Local server lifecycle: auto-start on send and idle unload.
+function ServerLifecycleCard({ appConfig, refresh }: {
+  appConfig: AppConfig | null;
+  refresh: () => Promise<void>;
+}) {
+  const [flash, setFlash] = useState<string | null>(null);
+  const [idleDraft, setIdleDraft] = useState("5");
+  const autoStart = appConfig?.server_auto_start ?? false;
+  const idle = appConfig?.server_idle_unload_minutes ?? 5;
+
+  useEffect(() => setIdleDraft(String(idle)), [idle]);
+
+  const save = async (nextAuto: boolean, nextIdle: number) => {
+    try {
+      await call(commands.setServerLifecycle(nextAuto, nextIdle));
+      await refresh();
+      setFlash("Saved");
+    } catch (e) {
+      setFlash(String(e));
+    }
+  };
+
+  return (
+    <div className="card">
+      <h2 className="section-title mb-1">Local server</h2>
+      <p className="section-desc">
+        Lifecycle for the local llama.cpp server (single, router, and mixed modes). External API
+        mode is unaffected, and the idle unload is skipped while the Web UI is enabled.
+      </p>
+      <div className="mt-3 space-y-3">
+        <Toggle
+          label="Start automatically when chatting"
+          checked={autoStart}
+          onChange={(v) => save(v, idle)}
+        />
+        <label className="label flex items-center gap-2">
+          <span title="Stop the server after this many minutes without chat activity; 0 disables.">
+            Unload after idle (minutes)
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={1440}
+            className="input w-20 py-0.5 px-1.5 text-xs"
+            value={idleDraft}
+            onChange={(e) => setIdleDraft(e.target.value)}
+            onBlur={() => {
+              const n = Math.max(0, Math.min(1440, Number(idleDraft) || 0));
+              setIdleDraft(String(n));
+              if (n !== idle) save(autoStart, n);
+            }}
+          />
+        </label>
+      </div>
+      {flash && <p className="text-[0.6875rem] text-accent-green mt-2">{flash}</p>}
+    </div>
+  );
+}
+
 function MemoryCard() {
   const [files, setFiles] = useState<MemoryFileDto[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -1076,6 +1135,7 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange 
                   refresh={refreshConfig}
                 />
                 <SensitiveShieldingCard appConfig={appConfig} refresh={refreshConfig} />
+                <ServerLifecycleCard appConfig={appConfig} refresh={refreshConfig} />
                 <BehaviorCard appConfig={appConfig} setAppConfig={setAppConfig} />
                 <UtilityModelCard appConfig={appConfig} setAppConfig={setAppConfig} />
                 <SystemPromptCard appConfig={appConfig} setAppConfig={setAppConfig} />

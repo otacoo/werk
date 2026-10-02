@@ -6,6 +6,10 @@
 
 ### Added
 
+- Local server lifecycle (Settings → Agent → "Local server"): start the
+  server automatically when you send (off by default — uses the saved preset
+  and selected model, and waits until it is ready), and unload it after 5
+  idle minutes by default (0 disables; skipped while the Web UI is enabled).
 - Mixed mode in Router mode: either role can be an external favorite (pick
   it in the role dropdown on the Run page). The provider runs that half, the
   local server loads the other, and the launch options and estimate target
@@ -51,6 +55,8 @@
 
 ### Fixed
 
+- External roles no longer report local companion files (mmproj, template,
+  draft model) in the launch preview — they have none.
 - Compaction and `/distill` fold long sessions in bounded chunks (~20K chars
   per call, carrying a running summary) and keep the newest content when a
   transcript is capped — they now work with small utility-model windows

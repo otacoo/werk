@@ -21,7 +21,7 @@ pub mod server;
 pub mod worktree;
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[cfg(debug_assertions)]
@@ -179,6 +179,8 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         commands::set_provider_favorites,
         commands::test_provider,
         commands::start_server,
+        commands::ensure_server,
+        commands::set_server_lifecycle,
         commands::preview_server_args,
         commands::list_installed_models,
         commands::delete_model,
@@ -339,6 +341,49 @@ pub fn run() {
             if let Some(tray) = app.tray_by_id("main") {
                 let _ = tray.set_visible(tray_on_startup);
             }
+            // Idle unload: stop the local server after the configured idle
+            // window, unless the Web UI is enabled (it may be in use outside
+            // the chat).
+            let idle_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri::{Emitter, Manager};
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    let Some(state) = idle_handle.try_state::<AppState>() else {
+                        continue;
+                    };
+                    let minutes = state.config.lock().unwrap().server_idle_unload_minutes;
+                    if minutes == 0 || state.harness.running.load(Ordering::SeqCst) {
+                        continue;
+                    }
+                    {
+                        let s = state.server.lock().unwrap();
+                        if !matches!(
+                            s.status,
+                            server::ServerStatus::Running { ready: true, .. }
+                        ) {
+                            continue;
+                        }
+                        let webui = s
+                            .config
+                            .as_ref()
+                            .map(|c| !c.extra_params.contains_key("no-webui"))
+                            .unwrap_or(false);
+                        if webui {
+                            continue;
+                        }
+                    }
+                    let idle = state.harness.last_activity.lock().unwrap().elapsed();
+                    if idle < std::time::Duration::from_secs(minutes as u64 * 60) {
+                        continue;
+                    }
+                    let _ = idle_handle.emit(
+                        "server_log",
+                        format!("Stopping the server after {minutes} idle minutes."),
+                    );
+                    let _ = server::stop_server(&state.server).await;
+                }
+            });
             Ok(())
         })
         .on_window_event(|win, event| {

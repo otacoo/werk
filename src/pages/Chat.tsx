@@ -164,6 +164,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   const [activeProject, setActiveProject] = useState<string | null>(null);
   /// External API mode: chat works server-less through the configured provider.
   const [externalMode, setExternalMode] = useState(false);
+  const [autoStart, setAutoStart] = useState(false);
   const [externalTarget, setExternalTarget] = useState("");
   const [favorites, setFavorites] = useState<string[]>([]);
   const [runStatus, setRunStatus] = useState<"thinking" | "loading" | "working" | null>(null);
@@ -263,7 +264,23 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     const external = c.server_mode === "external";
     setExternalMode(external);
     setExternalTarget(external ? (c.external_target ?? "").trim() : "");
+    setAutoStart(c.server_auto_start ?? false);
     if (external) setFavorites(c.provider_favorites ?? []);
+  };
+
+  // Local server: start it on demand when auto-start is enabled.
+  const ensureServerReady = async () => {
+    if (externalMode) return true;
+    try {
+      await call(commands.ensureServer());
+      return true;
+    } catch (e) {
+      setItems((prev) => [
+        ...prev,
+        { kind: "sys", text: `Could not start the server: ${e}` },
+      ]);
+      return false;
+    }
   };
 
   const selectTarget = async (t: string) => {
@@ -754,6 +771,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
       }
       if (cmd === "/compact") {
         setInput("");
+        if (!(await ensureServerReady())) return;
         try {
           await call(commands.harnessAgentCompact());
         } catch (e) {
@@ -764,6 +782,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
       }
       if (cmd === "/distill") {
         setInput("");
+        if (!(await ensureServerReady())) return;
         setRunStatus("thinking");
         try {
           const report = await call(commands.harnessDistill());
@@ -781,6 +800,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
       setError(`Unknown command "${cmd}". Type /help for the list.`);
       return;
     }
+    if (!(await ensureServerReady())) return;
     setItems((prev) => [
       ...prev,
       {
@@ -1042,7 +1062,9 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   // The view is always available: chats are consultable without the server,
   // and sending requires a running server + an active project directory.
   const serverRunning = status.type === "running";
-  const canSend = (serverRunning || (externalMode && externalTarget !== "")) && activeProject != null;
+  const canSend =
+    (serverRunning || (externalMode && externalTarget !== "") || (autoStart && !externalMode)) &&
+    activeProject != null;
   // Bubble alignment: user on the right by default; the model takes the other side.
   const userSide = bubbleAlign === "right";
   const userJustify = userSide ? "justify-end" : "justify-start";
@@ -1475,7 +1497,9 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
                     ? "Select a project to start chatting…"
                     : externalMode
                       ? "Pick a model on the Mode tab to start chatting…"
-                      : "Start the server to start chatting…"
+                      : autoStart
+                        ? "The server starts when you send…"
+                        : "Start the server to start chatting…"
                   : streaming
                     ? "Steer the running agent… (Enter to send)"
                     : "Send a message…"

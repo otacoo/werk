@@ -475,8 +475,17 @@ fn apply_router_residency(
 #[specta::specta]
 pub async fn start_server(
     app: AppHandle,
-    mut config: crate::server::ServerConfig,
+    config: crate::server::ServerConfig,
     state: State<'_, AppState>,
+) -> Result<(), String> {
+    start_server_inner(&app, config, &state).await
+}
+
+/// Shared launch path for the Run page and the auto-start command.
+async fn start_server_inner(
+    app: &AppHandle,
+    mut config: crate::server::ServerConfig,
+    state: &AppState,
 ) -> Result<(), String> {
     let app_config = state.config.lock().unwrap().clone();
     let mode = app_config.server_mode;
@@ -555,6 +564,80 @@ pub async fn start_server(
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// Auto-start the local server before a chat run when enabled; waits until it
+/// is ready. No-op when disabled, already running, or in External mode.
+#[tauri::command]
+#[specta::specta]
+pub async fn ensure_server(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let (auto, mode) = {
+        let c = state.config.lock().unwrap();
+        (c.server_auto_start, c.server_mode)
+    };
+    if !auto || mode == crate::config::ServerMode::External {
+        return Ok(());
+    }
+    let status = state.server.lock().unwrap().status.clone();
+    match status {
+        crate::server::ServerStatus::Running { ready: true, .. } => return Ok(()),
+        crate::server::ServerStatus::Running { .. } | crate::server::ServerStatus::Starting => {
+            return wait_server_ready(&state).await;
+        }
+        _ => {}
+    }
+    // Launch with the saved preset; the model comes from the selection (or
+    // the router roles).
+    let (preset_name, selected) = {
+        let c = state.config.lock().unwrap();
+        (c.last_preset.clone(), c.selected_model.clone())
+    };
+    let dir = crate::presets::presets_dir().map_err(|e| e.to_string())?;
+    crate::presets::ensure_default(&dir).map_err(|e| e.to_string())?;
+    let name = preset_name.as_deref().unwrap_or(crate::presets::DEFAULT_PRESET);
+    let mut config = crate::presets::load_preset(&dir, name)
+        .or_else(|_| crate::presets::load_preset(&dir, crate::presets::DEFAULT_PRESET))
+        .map_err(|e| e.to_string())?;
+    if mode == crate::config::ServerMode::Single {
+        config.model_path = selected
+            .filter(|p| !p.trim().is_empty())
+            .ok_or_else(|| {
+                "No model selected yet — pick one on the Run page (or turn auto-start off)"
+                    .to_string()
+            })?;
+    }
+    start_server_inner(&app, config, &state).await?;
+    wait_server_ready(&state).await
+}
+
+/// Poll until the server reports ready, errors, or the timeout passes.
+async fn wait_server_ready(state: &AppState) -> Result<(), String> {
+    for _ in 0..600 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        match state.server.lock().unwrap().status.clone() {
+            crate::server::ServerStatus::Running { ready: true, .. } => return Ok(()),
+            crate::server::ServerStatus::Error { message } => return Err(message),
+            crate::server::ServerStatus::Stopped => {
+                return Err("The server stopped while starting".to_string())
+            }
+            _ => {}
+        }
+    }
+    Err("The server did not become ready in time".to_string())
+}
+
+/// Save the local-server lifecycle settings.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_server_lifecycle(
+    auto_start: bool,
+    idle_unload_minutes: u32,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().unwrap();
+    config.server_auto_start = auto_start;
+    config.server_idle_unload_minutes = idle_unload_minutes.min(24 * 60);
+    config.save().map_err(|e| e.to_string())
 }
 
 /// Wire-ready launch command for the Run page (same prep as `start_server`).
@@ -690,6 +773,10 @@ pub async fn preview_server_args(
             ),
         ] {
             let Some(path) = path else { continue };
+            // External roles have no local companion files.
+            if crate::config::Provider::split_target(&path, &app_config.providers).is_some() {
+                continue;
+            }
             let model = std::path::Path::new(&path);
             if let Some(tpl) = crate::server::find_jinja_sibling(model) {
                 attachments.push(attachment_info(

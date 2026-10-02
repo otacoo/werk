@@ -144,6 +144,13 @@ export const commands = {
 	/**  Fetch the model ids a provider advertises (`GET /models`). */
 	testProvider: (baseUrl: string, apiKey: string | null) => typedError<string[], string>(__TAURI_INVOKE("test_provider", { baseUrl, apiKey })),
 	startServer: (config: ServerConfig) => typedError<null, string>(__TAURI_INVOKE("start_server", { config })),
+	/**
+	 *  Auto-start the local server before a chat run when enabled; waits until it
+	 *  is ready. No-op when disabled, already running, or in External mode.
+	 */
+	ensureServer: () => typedError<null, string>(__TAURI_INVOKE("ensure_server")),
+	/**  Save the local-server lifecycle settings. */
+	setServerLifecycle: (autoStart: boolean, idleUnloadMinutes: number) => typedError<null, string>(__TAURI_INVOKE("set_server_lifecycle", { autoStart, idleUnloadMinutes })),
 	previewServerArgs: (config: ServerConfig) => typedError<LaunchPreview, string>(__TAURI_INVOKE("preview_server_args", { config })),
 	listInstalledModels: () => typedError<ModelDto_Serialize[], string>(__TAURI_INVOKE("list_installed_models")),
 	deleteModel: (path: string) => typedError<null, string>(__TAURI_INVOKE("delete_model", { path })),
@@ -247,6 +254,10 @@ export type AppConfig_Deserialize = {
 	sensitive_patterns?: string[],
 	/**  Exceptions to the sensitive-file policy (globs). */
 	sensitive_allow?: string[],
+	/**  Start the local server automatically when a chat run begins. */
+	server_auto_start?: boolean,
+	/**  Stop the local server after this many idle minutes; 0 disables. */
+	server_idle_unload_minutes?: number,
 	/**  stdio language servers by name; None seeds the defaults. */
 	lsp_servers?: LspServerConfig_Deserialize[] | null,
 	/**  Which model plans vs executes; a distinct worker needs router mode. */
@@ -326,6 +337,10 @@ export type AppConfig_Serialize = {
 	sensitive_patterns: string[],
 	/**  Exceptions to the sensitive-file policy (globs). */
 	sensitive_allow: string[],
+	/**  Start the local server automatically when a chat run begins. */
+	server_auto_start: boolean,
+	/**  Stop the local server after this many idle minutes; 0 disables. */
+	server_idle_unload_minutes: number,
 	/**  stdio language servers by name; None seeds the defaults. */
 	lsp_servers?: LspServerConfig_Serialize[] | null,
 	/**  Which model plans vs executes; a distinct worker needs router mode. */

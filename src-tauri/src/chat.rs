@@ -43,6 +43,8 @@ pub struct HarnessRuntime {
     pub deleted_session: Mutex<Option<DeletedSession>>,
     /// Orchestrator task list for this session (prompt state, not history).
     pub todos: harness::todos::TodoList,
+    /// Last harness activity, for the idle server unload.
+    pub last_activity: Mutex<std::time::Instant>,
 }
 
 impl HarnessRuntime {
@@ -58,6 +60,7 @@ impl HarnessRuntime {
             meta: Mutex::new(HashMap::new()),
             deleted_session: Mutex::new(None),
             todos: std::sync::Arc::new(Mutex::new(Vec::new())),
+            last_activity: Mutex::new(std::time::Instant::now()),
         }
     }
 }
@@ -1263,6 +1266,7 @@ pub async fn harness_agent_send(
     let _running_guard = RunningGuard(state.harness.clone());
     // A stale Stop from the previous run must not kill this one.
     state.harness_abort.store(false, Ordering::SeqCst);
+    *state.harness.last_activity.lock().unwrap() = std::time::Instant::now();
     state.harness.steering.lock().unwrap().clear();
 
     load_permission_grants(&state);
@@ -1773,6 +1777,7 @@ pub async fn harness_agent_send(
             &mut event_sink,
         )
         .await;
+    *state.harness.last_activity.lock().unwrap() = std::time::Instant::now();
 
     *state.harness.history.lock().unwrap() = history;
     shift_meta_for_compaction(&state, &run.compactions_log.lock().unwrap().clone());
