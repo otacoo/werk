@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-10-02
+## [0.5.0] - 2026-10-02
 
 ### Added
 
@@ -33,17 +33,8 @@
   max 10). It is re-injected into every request, shown as checkpoints above
   the composer (`2/5 · current item`, expandable, clearable), saved with the
   session, and never visible to subagents.
-- Tools → Agent has a notice linking to Settings → Agent for the remaining
-  agent options.
 - Files panel: right-click a file or folder to open, rename, or delete it —
   delete moves it to the OS trash.
-- LSP settings got their own tab in the Tools page, after MCP.
-- Settings → Agent → "Agent files": hides `AGENTS.md`/`.agent*` files from
-  every agent tool (reads, writes, edits, globs, content search). Visible by
-  default.
-- `get_time`: current UTC date/time for date-sensitive work; the prompt
-  suggests it before search-style questions.
-- Settings → Memory: "Restore backup" for the pre-`/distill` `MEMORY.md.bak`.
 
 ### Changed
 
@@ -66,13 +57,6 @@
 - The built-in system prompt is ~35% shorter (1.3K chars) with the same
   rules — tighter wording, bare tool names, condensed subagent notes. A test
   caps its size so it can't creep back up.
-- The agent can no longer write its own tool or skill definitions:
-  `.werk/plugins` and `.werk/skills` are read-only to the file tools.
-- `exec`'s free read-only path rejects shell metacharacters (redirection,
-  pipes, chains, substitution) and mutating git forms (`git remote add`,
-  `git branch -D`, `--output`, `--ext-diff`).
-- "New plugin" scaffolds into the global plugins folder, so it works with no
-  project open.
 
 ### Fixed
 
@@ -86,6 +70,31 @@
   the default are stated in one paragraph ("the default is …"), and it notes
   that subagents never see the conversation.
 - The LSP tab describes itself instead of showing the Server tab's text.
+
+## [0.4.0] - 2026-10-02
+
+### Added
+
+- LSP settings got their own tab in the Tools page, after MCP.
+- Settings → Agent → "Agent files": hides `AGENTS.md`/`.agent*` files from
+  every agent tool (reads, writes, edits, globs, content search). Visible by
+  default.
+- `get_time`: current UTC date/time for date-sensitive work; the prompt
+  suggests it before search-style questions.
+- Settings → Memory: "Restore backup" for the pre-`/distill` `MEMORY.md.bak`.
+
+### Changed
+
+- The agent can no longer write its own tool or skill definitions:
+  `.werk/plugins` and `.werk/skills` are read-only to the file tools.
+- `exec`'s free read-only path rejects shell metacharacters (redirection,
+  pipes, chains, substitution) and mutating git forms (`git remote add`,
+  `git branch -D`, `--output`, `--ext-diff`).
+- "New plugin" scaffolds into the global plugins folder, so it works with no
+  project open.
+
+### Fixed
+
 - The Chat context ring shows the effective context window — role override,
   then the Run page's `--ctx-size`, then the GGUF length — instead of the
   model's training maximum; router mode no longer reads the router's own
