@@ -192,6 +192,7 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
     activeRef.current = active;
     if (active) {
       void restore();
+      loadUserAvatar();
       call(commands.talkContextStats()).then(setSlotCtx).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

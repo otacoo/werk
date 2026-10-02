@@ -62,6 +62,7 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
     try {
       await call(commands.roleplaySetUserAvatar(picked));
       loadAvatar();
+      notifyConfigChanged();
     } catch (e) {
       setError(String(e));
     }
@@ -71,6 +72,7 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
     try {
       await call(commands.roleplaySetUserAvatar(null));
       setAvatar(null);
+      notifyConfigChanged();
     } catch (e) {
       setError(String(e));
     }
