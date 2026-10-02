@@ -1,15 +1,9 @@
 import { useState } from "react";
 import { useAppConfig } from "../utils/useAppConfig";
-import {
-  AgentFilesCard,
-  BehaviorCard,
-  MemoryCard,
-  SensitiveShieldingCard,
-  ServerLifecycleCard,
-  SkillsCard,
-  SystemPromptCard,
-  UtilityModelCard,
-} from "../components/SettingsPanel";
+import { BehaviorCard, ServerLifecycleCard, UtilityModelCard } from "./agent/behavior";
+import { SystemPromptCard } from "./agent/prompt";
+import { AgentFilesCard, SensitiveShieldingCard } from "./agent/access";
+import { MemoryCard, SkillsCard } from "./agent/memory";
 
 type AgentTab = "behavior" | "prompt" | "access" | "memory";
 
