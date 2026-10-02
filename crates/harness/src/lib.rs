@@ -12,6 +12,7 @@ pub mod permissions;
 pub mod plugins;
 pub mod sandbox;
 pub mod skills;
+pub mod todos;
 pub mod tools;
 
 pub use agent::{AgentEvent, AgentRun, ApprovalGate, ApprovalRequest, Approved, VerifyMode};

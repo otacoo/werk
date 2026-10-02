@@ -41,6 +41,8 @@ pub struct HarnessRuntime {
     pub meta: Mutex<HashMap<usize, MessageMeta>>,
     /// Most recent session delete, held in memory so the UI can undo it.
     pub deleted_session: Mutex<Option<DeletedSession>>,
+    /// Orchestrator task list for this session (prompt state, not history).
+    pub todos: harness::todos::TodoList,
 }
 
 impl HarnessRuntime {
@@ -55,6 +57,7 @@ impl HarnessRuntime {
             session_id: Mutex::new(None),
             meta: Mutex::new(HashMap::new()),
             deleted_session: Mutex::new(None),
+            todos: std::sync::Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -144,6 +147,7 @@ struct PromptTools {
     ask_user: bool,
     spawn_subagent: bool,
     get_time: bool,
+    todo: bool,
 }
 
 impl PromptTools {
@@ -160,6 +164,7 @@ impl PromptTools {
             ask_user: true,
             spawn_subagent: true,
             get_time: true,
+            todo: true,
         }
     }
 
@@ -176,6 +181,7 @@ impl PromptTools {
             ask_user: on("ask_user"),
             spawn_subagent: on("spawn_subagent"),
             get_time: on("get_time"),
+            todo: on("todo"),
         }
     }
 }
@@ -264,6 +270,13 @@ fn system_prompt_for(
         parts.push(
             "Use ask_user (2-4 options) when genuinely blocked on a decision; never for facts you can \
              look up."
+                .to_string(),
+        );
+    }
+    if tools.todo {
+        parts.push(
+            "For multi-step work, keep a short task list with the todo tool and update it as you \
+             go."
                 .to_string(),
         );
     }
@@ -390,6 +403,7 @@ fn build_registry(
     global_base: Option<&Path>,
     plugin_disabled: &[String],
     agent_disabled: &[String],
+    todos: &harness::todos::TodoList,
     lsp: Option<Arc<harness::lsp::LspManager>>,
     mcp_tools: Vec<Arc<dyn harness::tools::Tool>>,
 ) -> ToolRegistry {
@@ -401,6 +415,7 @@ fn build_registry(
         project_root_dir,
         global_base,
     )));
+    registry = registry.add(Arc::new(harness::todos::TodoTool::new(todos.clone())));
     let skill_roots: Vec<PathBuf> = [
         global_base.map(|b| b.join("skills")),
         Some(project_root_dir.join(".werk").join("skills")),
@@ -619,6 +634,9 @@ struct SessionFile {
     messages: Vec<ChatMessage>,
     #[serde(default)]
     meta: HashMap<usize, MessageMeta>,
+    /// Orchestrator task list at last save; prompt state, not transcript.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    todos: Vec<harness::todos::TodoItem>,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -728,6 +746,22 @@ fn split_content(content: Option<&serde_json::Value>) -> (Option<String>, Option
 pub struct HistoryView {
     pub messages: Vec<HistoryMessage>,
     pub meta: Vec<MetaEntry>,
+    #[serde(default)]
+    pub todos: Vec<TodoDto>,
+}
+
+/// One checkpoint in the orchestrator's task list.
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct TodoDto {
+    pub text: String,
+    pub done: bool,
+}
+
+fn todo_dtos(items: &[harness::todos::TodoItem]) -> Vec<TodoDto> {
+    items
+        .iter()
+        .map(|t| TodoDto { text: t.text.clone(), done: t.done })
+        .collect()
 }
 
 fn now_secs() -> u32 {
@@ -795,6 +829,7 @@ fn save_session_messages(
         updated: now,
         messages: messages.to_vec(),
         meta,
+        todos: state.harness.todos.lock().unwrap().clone(),
     };
     std::fs::write(&path, serde_json::to_string_pretty(&file)?)?;
     Ok(())
@@ -1218,6 +1253,7 @@ pub async fn harness_agent_send(
         global_base.as_deref(),
         &disabled,
         &app_config.agent_tools_disabled,
+        &state.harness.todos,
         lsp,
         mcp_tools,
     );
@@ -1591,6 +1627,7 @@ pub async fn harness_agent_send(
         verify_mode,
         compactions_log: Arc::new(Mutex::new(Vec::new())),
         utility,
+        todos: Some(state.harness.todos.clone()),
         subagents: Some(harness::agent::Subagents {
             jail,
             max_turns: subagent_max_turns,
@@ -1889,6 +1926,7 @@ pub async fn harness_distill(app: AppHandle, state: State<'_, AppState>) -> Resu
 
     // Fresh session: the learnings are stored, the transcript can go.
     state.harness.history.lock().unwrap().clear();
+    state.harness.todos.lock().unwrap().clear();
     truncate_meta(&state, 0);
     *state.harness.session_id.lock().unwrap() = None;
     state.harness.steering.lock().unwrap().clear();
@@ -1901,10 +1939,19 @@ pub async fn harness_distill(app: AppHandle, state: State<'_, AppState>) -> Resu
     ))
 }
 
+/// Clear the task list (user action from the checkpoint strip).
+#[tauri::command]
+#[specta::specta]
+pub async fn harness_todos_clear(state: State<'_, AppState>) -> Result<(), String> {
+    state.harness.todos.lock().unwrap().clear();
+    Ok(())
+}
+
 /// Clear the live transcript (keeps saved sessions).
 #[tauri::command]
 #[specta::specta]
 pub async fn harness_agent_reset(state: State<'_, AppState>) -> Result<(), String> {    state.harness.history.lock().unwrap().clear();
+    state.harness.todos.lock().unwrap().clear();
     truncate_meta(&state, 0);
     *state.harness.session_id.lock().unwrap() = None;
     if let Some(tx) = state.harness.pending.lock().unwrap().take() {
@@ -2202,6 +2249,7 @@ pub async fn harness_agent_history(state: State<'_, AppState>) -> Result<History
     Ok(HistoryView {
         messages: messages.iter().map(to_history_message).collect(),
         meta,
+        todos: todo_dtos(&state.harness.todos.lock().unwrap()),
     })
 }
 
@@ -2290,6 +2338,7 @@ pub async fn harness_session_load(
     *state.harness.history.lock().unwrap() = file.messages.clone();
     *state.harness.meta.lock().unwrap() = file.meta.clone();
     *state.harness.session_id.lock().unwrap() = Some(file.id.clone());
+    *state.harness.todos.lock().unwrap() = file.todos.clone();
     Ok(HistoryView {
         messages: file.messages.iter().map(to_history_message).collect(),
         meta: file
@@ -2297,6 +2346,7 @@ pub async fn harness_session_load(
             .into_iter()
             .map(|(index, meta)| MetaEntry { index: index as u32, meta })
             .collect(),
+        todos: todo_dtos(&file.todos),
     })
 }
 
@@ -2308,6 +2358,7 @@ pub async fn harness_session_delete(
 ) -> Result<(), String> {
     if state.harness.session_id.lock().unwrap().as_deref() == Some(&id) {
         state.harness.history.lock().unwrap().clear();
+        state.harness.todos.lock().unwrap().clear();
         truncate_meta(&state, 0);
         *state.harness.session_id.lock().unwrap() = None;
     }
@@ -2457,6 +2508,7 @@ pub async fn harness_project_remove(
     if config.harness_active_project.as_deref() == Some(&id) {
         config.harness_active_project = None;
         state.harness.history.lock().unwrap().clear();
+        state.harness.todos.lock().unwrap().clear();
         truncate_meta(&state, 0);
         *state.harness.session_id.lock().unwrap() = None;
     }
@@ -2480,6 +2532,7 @@ pub async fn harness_project_set_active(
         config.save().map_err(|e| e.to_string())?;
     }
     state.harness.history.lock().unwrap().clear();
+    state.harness.todos.lock().unwrap().clear();
     truncate_meta(&state, 0);
     *state.harness.session_id.lock().unwrap() = None;
     Ok(())

@@ -17,6 +17,8 @@ export const commands = {
 	harnessAgentSteer: (message: string) => typedError<null, string>(__TAURI_INVOKE("harness_agent_steer", { message })),
 	/**  Clear the live transcript (keeps saved sessions). */
 	harnessAgentReset: () => typedError<null, string>(__TAURI_INVOKE("harness_agent_reset")),
+	/**  Clear the task list (user action from the checkpoint strip). */
+	harnessTodosClear: () => typedError<null, string>(__TAURI_INVOKE("harness_todos_clear")),
 	/**  Distill the session into memory, coalesce the memories, then start fresh. */
 	harnessDistill: () => typedError<string, string>(__TAURI_INVOKE("harness_distill")),
 	/**  Current transcript for rebuilding the view (sessions, restarts). */
@@ -602,11 +604,13 @@ export type HistoryView = HistoryView_Serialize | HistoryView_Deserialize;
 export type HistoryView_Deserialize = {
 	messages: HistoryMessage_Deserialize[],
 	meta: MetaEntry_Deserialize[],
+	todos?: TodoDto[],
 };
 
 export type HistoryView_Serialize = {
 	messages: HistoryMessage_Serialize[],
 	meta: MetaEntry_Serialize[],
+	todos: TodoDto[],
 };
 
 export type KnownOwnerDto = {
@@ -1260,6 +1264,12 @@ export type SystemInfoDto_Serialize = {
 export type SystemPromptPreset = {
 	name: string,
 	prompt: string,
+};
+
+/**  One checkpoint in the orchestrator's task list. */
+export type TodoDto = {
+	text: string,
+	done: boolean,
 };
 
 export type ToolsList = {

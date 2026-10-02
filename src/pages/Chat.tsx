@@ -26,6 +26,7 @@ import type {
   ContextStats,
   RunChange,
   ServerStatus,
+  TodoDto,
 } from "../bindings";
 import { call } from "../utils/ipc";
 import { getBubbleAlign, getShowFileTree, getShowRunChanges, subscribeBubbleAlign, subscribeShowFileTree, subscribeShowRunChanges } from "../utils/appearance";
@@ -44,6 +45,7 @@ import {
   ResponseFooter,
   SLASH_COMMANDS,
   SysNotice,
+  TodoStrip,
   ToolCard,
   fmtTok,
 } from "./chat/components";
@@ -127,6 +129,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   const [caps, setCaps] = useState<HarnessCapabilities | null>(null);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [contextUsed, setContextUsed] = useState<number | null>(null);
+  const [todos, setTodos] = useState<TodoDto[]>([]);
   // Live slot context (refreshed with the status poll); falls back to the
   // last run's usage + GGUF length when the server can't report it.
   const [slotCtx, setSlotCtx] = useState<ContextStats | null>(null);
@@ -348,6 +351,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   const restoreFromBackend = async () => {
     try {
       const res = await call(commands.harnessAgentHistory());
+      setTodos(res.todos ?? []);
       const metaByIndex = new Map((res.meta ?? []).map((m) => [m.index, m.meta]));
       const cap = (s: string, n: number) =>
         s.length > n ? `${s.slice(0, n)}\n[…truncated]` : s;
@@ -610,6 +614,9 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
           });
           break;
         }
+        case "todos_changed":
+          setTodos((ev.todos as TodoDto[]) ?? []);
+          break;
         case "subagent_finished":
           markSubFinished();
           setItems((prev) =>
@@ -897,6 +904,13 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     return () => unlisten?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const clearTodos = async () => {
+    setTodos([]);
+    try {
+      await call(commands.harnessTodosClear());
+    } catch {}
+  };
 
   const editDraftExternally = async () => {
     try {
@@ -1419,6 +1433,11 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
                   Send
                 </button>
               </div>
+            </div>
+          )}
+          {todos.length > 0 && (
+            <div className="mb-1.5">
+              <TodoStrip todos={todos} onClear={clearTodos} />
             </div>
           )}
           <div className="flex items-end gap-2">

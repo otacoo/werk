@@ -233,6 +233,8 @@ pub enum AgentEvent {
         model: Option<String>,
     },
     SubagentFinished { call_id: String, kind: String, summary: String },
+    /// The orchestrator's task list changed; the UI renders the checkpoints.
+    TodosChanged { todos: Vec<crate::todos::TodoItem> },
     /// Transcript was compacted mid-run; the UI shows how much folded away.
     Compacted { removed: usize },
     Notice { text: String },
@@ -452,6 +454,9 @@ pub struct AgentRun<'a> {
     pub compactions_log: Arc<Mutex<Vec<usize>>>,
     /// Housekeeping model for compaction: (client, model). None = the run's.
     pub utility: Option<(&'a LlmClient, Option<String>)>,
+    /// The orchestrator's task list, re-injected into every request. None for
+    /// subagents, which never see or edit it.
+    pub todos: Option<crate::todos::TodoList>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -575,12 +580,21 @@ impl AgentRun<'_> {
                 on_stream(ev);
             };
             let turn_started = std::time::Instant::now();
+            // Re-inject the task list each turn (prompt state, not history) so
+            // the model re-reads it instead of trusting earlier turns.
+            let request: Option<Vec<ChatMessage>> = self.todo_block().map(|block| {
+                let mut req = history.clone();
+                let at =
+                    usize::from(req.first().map(|m| m.role == "system").unwrap_or(false));
+                req.insert(at, ChatMessage::system(block));
+                req
+            });
             // Overflow recovery: condense and retry ONCE, then surface.
             let mut finish = self
                 .client
                 .chat_stream(
                     self.model.as_deref(),
-                    history,
+                    request.as_deref().unwrap_or(history),
                     Some(&self.registry.tool_schemas()),
                     self.reasoning_effort.as_deref(),
                     &*should_stop,
@@ -612,7 +626,7 @@ impl AgentRun<'_> {
                                 .client
                                 .chat_stream(
                                     self.model.as_deref(),
-                                    history,
+                                    request.as_deref().unwrap_or(history),
                                     Some(&self.registry.tool_schemas()),
                                     self.reasoning_effort.as_deref(),
                                     &*should_stop,
@@ -756,6 +770,13 @@ impl AgentRun<'_> {
                 } else {
                     let output = self.execute_tool_call(&tool_name, &args_value, args_pretty, &call_id, &gate, &mut on_event)
                         .await;
+                    if tool_name == "todo" {
+                        if let Some(list) = &self.todos {
+                            on_event(AgentEvent::TodosChanged {
+                                todos: list.lock().unwrap().clone(),
+                            });
+                        }
+                    }
                     history.push(ChatMessage {
                         role: "tool".into(),
                         content: Some(Value::String(output)),
@@ -818,6 +839,13 @@ impl AgentRun<'_> {
                 }
             }
         }
+    }
+
+    /// Rendered task list for the per-turn prompt injection.
+    fn todo_block(&self) -> Option<String> {
+        let list = self.todos.as_ref()?;
+        let items = list.lock().unwrap();
+        crate::todos::render_block(&items)
     }
 
     async fn execute_tool_call(
@@ -1115,6 +1143,8 @@ impl AgentRun<'_> {
             context_limit: sub.context_limit.or(self.context_limit),
             compactions_log: Arc::new(Mutex::new(Vec::new())),
             utility: self.utility.clone(),
+            // Subagents never see or edit the orchestrator's task list.
+            todos: None,
         };
         let no_steer: Arc<dyn Fn() -> Vec<String> + Send + Sync> =
             Arc::new(|| Vec::new());
@@ -1203,6 +1233,7 @@ mod tests {
             context_limit: None,
             compactions_log: Arc::new(Mutex::new(Vec::new())),
             utility: None,
+            todos: None,
         }
     }
 

@@ -6,6 +6,10 @@
 
 ### Added
 
+- The agent keeps a task list with the `todo` tool (add / complete / drop,
+  max 10). It is re-injected into every request, shown as checkpoints above
+  the composer (`2/5 · current item`, expandable, clearable), saved with the
+  session, and never visible to subagents.
 - Tools → Agent has a notice linking to Settings → Agent for the remaining
   agent options.
 - Files panel: right-click a file or folder to open, rename, or delete it —

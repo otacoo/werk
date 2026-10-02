@@ -1,7 +1,7 @@
 import { Fragment, memo, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Brain, Check, ChevronDown, Copy, Trash2, Wrench } from "lucide-react";
-import type { RunChange } from "../../bindings";
+import { Brain, Check, ChevronDown, Copy, ListChecks, Trash2, Wrench, X } from "lucide-react";
+import type { RunChange, TodoDto } from "../../bindings";
 import { formatElapsed } from "../../utils/format";
 import { getBubbleAlign, getShowToolSnippets, subscribeBubbleAlign, subscribeShowToolSnippets } from "../../utils/appearance";
 
@@ -270,6 +270,55 @@ export const ToolCard = memo(function ToolCard({ tool, args, output, subagentMod
     </div>
   );
 });
+
+// ── Task list strip: the agent's checkpoints above the composer ────────────
+
+export function TodoStrip({ todos, onClear }: { todos: TodoDto[]; onClear: () => void }) {
+  const [open, setOpen] = useState(false);
+  const done = todos.filter((t) => t.done).length;
+  const current = todos.find((t) => !t.done);
+  return (
+    <div className="rounded border border-border bg-surface-2 px-2 py-1 text-xs">
+      <div className="flex items-center gap-1.5">
+        <button
+          className="flex-1 min-w-0 flex items-center gap-1.5 text-left text-dim hover:text-ink transition-colors"
+          onClick={() => setOpen((v) => !v)}
+          title={open ? "Collapse task list" : "Expand task list"}
+        >
+          <ListChecks size={12} className="shrink-0 text-accent-soft" />
+          <span className="text-ink font-medium shrink-0">
+            {done}/{todos.length}
+          </span>
+          {current ? <span className="truncate">· {current.text}</span> : <span className="text-faint">all done</span>}
+          <ChevronDown
+            size={11}
+            className={`ml-auto shrink-0 text-faint transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+        <button
+          className="text-faint hover:text-ink shrink-0"
+          onClick={onClear}
+          title="Clear the task list"
+        >
+          <X size={11} />
+        </button>
+      </div>
+      {open && (
+        <ul className="mt-1 space-y-0.5 pl-4">
+          {todos.map((t, i) => (
+            <li
+              key={i}
+              className={`flex items-start gap-1.5 ${t.done ? "text-faint line-through" : "text-dim"}`}
+            >
+              <span className="shrink-0">{t.done ? "✓" : "○"}</span>
+              <span className="break-words">{t.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 // ── Slash commands (handled locally, never sent to the model) ──────────────
 
