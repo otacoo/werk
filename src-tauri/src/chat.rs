@@ -3253,27 +3253,6 @@ pub async fn scaffold_plugin() -> Result<String, String> {
     Ok(manifest_path.to_string_lossy().to_string())
 }
 
-/// Chat-draft scratch file for external editing.
-fn draft_path() -> PathBuf {
-    std::env::temp_dir().join("werk-draft.md")
-}
-
-/// Write the chat draft to the scratch file; returns its path.
-#[tauri::command]
-#[specta::specta]
-pub async fn write_draft_file(text: String) -> Result<String, String> {
-    let path = draft_path();
-    std::fs::write(&path, text).map_err(|e| e.to_string())?;
-    Ok(path.to_string_lossy().to_string())
-}
-
-/// Read back the scratch file after external editing.
-#[tauri::command]
-#[specta::specta]
-pub async fn read_draft_file() -> Result<String, String> {
-    std::fs::read_to_string(draft_path()).map_err(|e| e.to_string())
-}
-
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct SkillDto {
     pub name: String,

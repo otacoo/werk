@@ -152,8 +152,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::tools_list,
         chat::plugin_set_enabled,
         chat::scaffold_plugin,
-        chat::write_draft_file,
-        chat::read_draft_file,
+
         chat::skills_list,
         chat::harness_memory_get,
         chat::harness_memory_set,

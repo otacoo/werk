@@ -100,10 +100,6 @@ export const commands = {
 	 *  the Tools page lists); returns the manifest path so the UI can open it.
 	 */
 	scaffoldPlugin: () => typedError<string, string>(__TAURI_INVOKE("scaffold_plugin")),
-	/**  Write the chat draft to the scratch file; returns its path. */
-	writeDraftFile: (text: string) => typedError<string, string>(__TAURI_INVOKE("write_draft_file", { text })),
-	/**  Read back the scratch file after external editing. */
-	readDraftFile: () => typedError<string, string>(__TAURI_INVOKE("read_draft_file")),
 	skillsList: () => typedError<SkillDto[], string>(__TAURI_INVOKE("skills_list")),
 	harnessMemoryGet: (scope: string) => typedError<MemoryFileDto_Serialize, string>(__TAURI_INVOKE("harness_memory_get", { scope })),
 	harnessMemorySet: (scope: string, text: string) => typedError<null, string>(__TAURI_INVOKE("harness_memory_set", { scope, text })),

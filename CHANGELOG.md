@@ -40,6 +40,8 @@
 
 ### Changed
 
+- Removed the Chat composer's "edit the draft in your system editor" button —
+  the scratch-file round-trip earned less than the space it took.
 - Agent settings moved out of the Settings menu into their own header tab,
   split into Behavior / Prompt / Access / Memory sub-tabs (verification and
   turns, utility model and server lifecycle, system prompt, agent files and
