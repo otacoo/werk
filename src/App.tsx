@@ -5,6 +5,7 @@ import {
   Brain,
   Drama,
   FlaskConical,
+  Globe,
   LayoutDashboard,
   MessageCircleHeart,
   MessageSquare,
@@ -23,6 +24,7 @@ import Tools from "./pages/Tools";
 import Agent from "./pages/Agent";
 import Roleplay from "./pages/Roleplay";
 import Talk from "./pages/Talk";
+import WebUI from "./pages/WebUI";
 import Mode from "./pages/Mode";
 import Api from "./pages/Api";
 import Wizard from "./pages/Wizard";
@@ -34,7 +36,7 @@ import { loadAppearance, setAutoCorners } from "./utils/appearance";
 import { getQuickBench, setQuickBench, subscribeQuickBench, subscribeConfigChanged } from "./utils/appSettings";
 import { startServerStatusPolling, subscribeServerStatus } from "./utils/serverStatus";
 
-export type Tab = "dashboard" | "run" | "chat" | "talk" | "tools" | "agent" | "roleplay" | "bench" | "mode" | "api";
+export type Tab = "dashboard" | "run" | "chat" | "talk" | "webui" | "tools" | "agent" | "roleplay" | "bench" | "mode" | "api";
 
 type Profile = "agent" | "webui" | "roleplay";
 
@@ -49,6 +51,7 @@ const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "run", label: "Run", icon: Play },
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "talk", label: "Talk", icon: MessageCircleHeart },
+  { id: "webui", label: "WebUI", icon: Globe },
 ];
 
 export default function App() {
@@ -125,11 +128,15 @@ export default function App() {
     setTab((t) => {
       if (profile === "agent") return t === "talk" || t === "roleplay" ? "chat" : t;
       if (profile === "webui") {
-        return t === "chat" || t === "agent" || t === "talk" || t === "roleplay" ? "dashboard" : t;
+        if (t === "webui") return externalMode ? "dashboard" : t;
+        if (t === "chat" || t === "agent" || t === "talk" || t === "roleplay") {
+          return externalMode ? "dashboard" : "webui";
+        }
+        return t;
       }
       return t === "chat" || t === "agent" || t === "tools" ? "talk" : t;
     });
-  }, [profile]);
+  }, [profile, externalMode]);
 
   // The window starts hidden; reveal it as soon as the first screen is ready
   // (or after a fallback delay) so startup never shows a blank frame.
@@ -182,6 +189,7 @@ export default function App() {
                 if ((t.id === "chat" || t.id === "agent") && profile !== "agent") return false;
                 if (t.id === "tools" && profile === "roleplay") return false;
                 if ((t.id === "roleplay" || t.id === "talk") && profile !== "roleplay") return false;
+                if (t.id === "webui" && (profile !== "webui" || externalMode)) return false;
                 return true;
               }).map(({ id, label, icon: Icon }) => {
                 // Server state colors Run (green) and the active chat tab.
@@ -234,6 +242,9 @@ export default function App() {
         </div>
         <div className="h-full min-h-0" style={{ display: tab === "talk" ? undefined : "none" }}>
           <Talk go={setTab} active={tab === "talk"} />
+        </div>
+        <div className="h-full min-h-0" style={{ display: tab === "webui" ? undefined : "none" }}>
+          <WebUI go={setTab} active={tab === "webui"} />
         </div>
         <div className="h-full min-h-0" style={{ display: tab === "run" ? undefined : "none" }}>
           <Run go={setTab} />

@@ -5,6 +5,7 @@
 ### Added
 
 - Chat profiles: the Mode page flows from the server mode to a profile row (general/code, WebUI, roleplay), where roleplay swaps Chat for a Talk tab with character avatars, one continuous discussion per character, and distill into character memory.
+- The WebUI profile embeds llama-server's own UI in a mounted WebUI tab.
 
 ## [0.5.0] - 2026-10-02
 

@@ -27,7 +27,7 @@ const splitList = (raw: string) =>
 export default function Mode({
   go,
 }: {
-  go: (t: "run" | "chat" | "talk" | "roleplay") => void;
+  go: (t: "run" | "chat" | "talk" | "roleplay" | "webui") => void;
 }) {
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [status, setStatus] = useState<ServerStatus>({ type: "stopped" });
@@ -294,7 +294,7 @@ export default function Mode({
       icon: ExternalLink,
       title: "WebUI",
       desc: "Use llama-server's own chat UI.",
-      points: ["Werk's chat tabs step aside", "A lightly supported extra"],
+      points: ["Embeds the server's own chat UI", "A lightly supported extra"],
       soon: false,
     },
     {
@@ -314,6 +314,9 @@ export default function Mode({
       soon: true,
     },
   ];
+
+  // Center of the active server card, for the flow line's drop.
+  const serverIndex = Math.max(0, options.findIndex((o) => o.id === mode));
 
   return (
     <div className="h-full overflow-y-auto">
@@ -337,50 +340,59 @@ export default function Mode({
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-4 items-start">
+        {/* Columns carry padding instead of a grid gap so the flow line's
+            centers land on exact fractions. */}
+        <div className="grid grid-cols-3">
           {options.map(({ id, icon: Icon, title, desc, points }) => {
             const active = mode === id;
             return (
-              <button
-                key={id}
-                onClick={() => choose(id)}
-                className={`card text-left transition-colors ${
-                  active ? "border-accent bg-accent/5" : "hover:bg-surface-2"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <Icon size={15} className={active ? "text-accent" : "text-dim"} />
-                  <span className="text-sm font-semibold text-ink">{title}</span>
-                  {active && (
-                    <span className="ml-auto badge-green text-[0.625rem] shrink-0">active</span>
-                  )}
-                </div>
-                <p className="text-xs text-dim leading-snug">{desc}</p>
-                <ul className="mt-2 space-y-1">
-                  {points.map((p) => (
-                    <li key={p} className="text-[0.6875rem] text-faint flex gap-1.5">
-                      <span className="text-faint/60">·</span>
-                      {p}
-                    </li>
-                  ))}
-                </ul>
-              </button>
+              <div key={id} className="px-2">
+                <button
+                  onClick={() => choose(id)}
+                  className={`card w-full h-full text-left transition-colors ${
+                    active ? "border-accent bg-accent/5" : "hover:bg-surface-2"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <Icon size={15} className={active ? "text-accent" : "text-dim"} />
+                    <span className="text-sm font-semibold text-ink">{title}</span>
+                    {active && (
+                      <span className="ml-auto badge-green text-[0.625rem] shrink-0">active</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-dim leading-snug">{desc}</p>
+                  <ul className="mt-2 space-y-1">
+                    {points.map((p) => (
+                      <li key={p} className="text-[0.6875rem] text-faint flex gap-1.5">
+                        <span className="text-faint/60">·</span>
+                        {p}
+                      </li>
+                    ))}
+                  </ul>
+                </button>
+              </div>
             );
           })}
         </div>
 
-        {/* Flow: the server mode feeds the chat profile below. */}
+        {/* Flow: the active server mode feeds the chat profile row below. */}
         <div className="relative h-5">
-          <div className="absolute left-1/2 top-0 h-full w-px bg-border" />
+          <div
+            className="absolute top-0 h-[21px] w-px bg-border -translate-x-1/2 transition-all duration-300"
+            style={{ left: `${((serverIndex + 0.5) / 3) * 100}%` }}
+          />
         </div>
         <div className="relative">
-          <div className="absolute left-[12.5%] right-[12.5%] top-0 h-px bg-border" />
-          <div className="grid grid-cols-4 gap-4 pt-5">
+          <div
+            className="absolute top-0 h-px bg-border"
+            style={{ left: "calc(12.5% - 1px)", right: "calc(12.5% - 1px)" }}
+          />
+          <div className="grid grid-cols-4 pt-5">
             {profiles.map(({ id, icon: Icon, title, desc, points, soon }) => {
               const active = !soon && profile === id;
               return (
-                <div key={id} className="relative">
-                  <div className="absolute left-1/2 -top-5 h-5 w-px bg-border" />
+                <div key={id} className="relative px-2">
+                  <div className="absolute -top-5 left-1/2 -translate-x-1/2 h-[21px] w-px bg-border" />
                   <button
                     onClick={() => !soon && chooseProfile(id as "agent" | "webui" | "roleplay")}
                     disabled={soon}
@@ -552,17 +564,28 @@ export default function Mode({
           </div>
         )}
 
-        {mode !== "external" && profile !== "roleplay" && (
+        {profile === "webui" && mode !== "external" && (
           <div className="card">
             <div className="flex items-center justify-between mb-1">
               <h2 className="section-title mb-0">Web UI</h2>
-              <button
-                className="btn-secondary text-xs py-1 px-2"
-                disabled={port == null}
-                onClick={openWebUi}
-              >
-                <ExternalLink size={12} /> Open in browser
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  className="btn-primary text-xs py-1 px-2"
+                  disabled={port == null}
+                  onClick={() => go("webui")}
+                  title="Open the embedded WebUI tab"
+                >
+                  <ExternalLink size={12} /> Open WebUI
+                </button>
+                <button
+                  className="btn-ghost text-xs py-1 px-2"
+                  disabled={port == null}
+                  onClick={openWebUi}
+                  title="Open in your browser instead"
+                >
+                  Browser
+                </button>
+              </div>
             </div>
             <div className="section-desc space-y-1">
               <p>Use this if you want to use llama-server's own chat UI.</p>
