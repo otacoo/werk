@@ -34,7 +34,7 @@
 
 - *Easily* run local models
 - Add *guardrails* to make small (≤12B) and tiny (≤4B) models actually useful
-- Use multiple agents in conjunction with the *orchestrator - worker* pattern
+- Use multiple agents in an *orchestrator - worker* pattern
 - *Sandbox* everything to the project folder
 
 ## Installation
@@ -103,3 +103,10 @@ npm run typecheck  # tsc --noEmit
 
 Apache License 2.0 — see [LICENSE](LICENSE).\
 The third-party components that **werk.** bundles, with their license texts, are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+<p align="right">
+<sub><i>
+Enjoy this app? Buy me a <a href="https://ko-fi.com/otacoo">cawfee</a> ☕~
+</i></sub>
+<br>
+</p>
