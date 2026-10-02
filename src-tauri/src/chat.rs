@@ -507,6 +507,32 @@ fn server_client(port: u16, state: &AppState) -> LlmClient {
     LlmClient::with_key(format!("http://127.0.0.1:{port}"), server_api_key(state))
 }
 
+/// Subagent paragraph for router/external prompts: model choices, the
+/// default (so the list and the default can't read as a contradiction), the
+/// specialist kinds, and the image argument.
+fn subagent_prompt_block(targets: &[String], default_label: Option<&str>, vision: bool) -> String {
+    let mut text =
+        String::from("\n\nSubagents share the sandbox and never see this conversation. ");
+    if !targets.is_empty() {
+        text.push_str(&format!(
+            "Models: {} — pass one as spawn_subagent's `model`; ",
+            targets.join(", ")
+        ));
+    }
+    match default_label {
+        Some(label) => text.push_str(&format!(
+            "the default is {label} (vision: {}). ",
+            if vision { "yes" } else { "no" }
+        )),
+        None => text.push_str("the default is the main model. "),
+    }
+    text.push_str(
+        "'coder' reads/writes/edits and runs commands; 'researcher' is read-only. For an image, \
+         pass `image: <path>` (needs vision) — subagents cannot open image files themselves.",
+    );
+    text
+}
+
 /// Router preset entries for the configured roles. Role ctx overrides win
 /// over the launch `base_ctx`; sibling templates auto-attach unless the
 /// launch pins an explicit template.
@@ -1365,33 +1391,35 @@ pub async fn harness_agent_send(
                 .clone()
                 .filter(|p| !p.trim().is_empty())
                 .unwrap_or_else(move || system_prompt_for(verify, server_mode, prompt_tools));
-            if !subagent_targets.is_empty() && prompt_tools.spawn_subagent {
-                base.push_str(&format!(
-                    "\n\nSubagent models: {} — pass as spawn_subagent's `model`; `agent_type` is \
-                     'coder' or 'researcher'.",
-                    subagent_targets.join(", ")
-                ));
-            }
-            if mode == crate::config::ServerMode::Router && prompt_tools.spawn_subagent {
-                let sub_model = app_config
-                    .harness_roles
-                    .worker
-                    .clone()
-                    .or_else(|| app_config.harness_roles.orchestrator.clone());
-                let label = sub_model
-                    .as_deref()
-                    .map(crate::server::file_stem_or_self)
-                    .unwrap_or_else(|| "the main model".to_string());
-                let vision = sub_model
-                    .as_deref()
-                    .map(|p| crate::server::find_mmproj_sibling(std::path::Path::new(p)).is_some())
-                    .unwrap_or(false);
-                base.push_str(&format!(
-                    "\n\nSubagents share the sandbox and run on {label} (vision: {}). 'coder' \
-                     reads/writes/edits and runs commands; 'researcher' is read-only. For an image, \
-                     pass `image: <path>` to spawn_subagent (inside the project/allowlist, needs \
-                     vision) — subagents cannot open image files themselves.",
-                    if vision { "yes" } else { "no" }
+            if prompt_tools.spawn_subagent
+                && (mode == crate::config::ServerMode::Router || !subagent_targets.is_empty())
+            {
+                // Router: the worker (or orchestrator) is the default; external
+                // mode's default is the run model. Single mode stays silent.
+                let (label, vision) = if mode == crate::config::ServerMode::Router {
+                    let sub_model = app_config
+                        .harness_roles
+                        .worker
+                        .clone()
+                        .or_else(|| app_config.harness_roles.orchestrator.clone());
+                    let label = sub_model
+                        .as_deref()
+                        .map(crate::server::file_stem_or_self)
+                        .unwrap_or_else(|| "the main model".to_string());
+                    let vision = sub_model
+                        .as_deref()
+                        .map(|p| {
+                            crate::server::find_mmproj_sibling(std::path::Path::new(p)).is_some()
+                        })
+                        .unwrap_or(false);
+                    (Some(label), vision)
+                } else {
+                    (None, false)
+                };
+                base.push_str(&subagent_prompt_block(
+                    &subagent_targets,
+                    label.as_deref(),
+                    vision,
                 ));
             }
             base
@@ -3316,6 +3344,31 @@ mod tests {
         assert_eq!(role_context_limit(None, 92_160, None), Some(92_160));
         // Nothing configured and no readable model: unknown.
         assert_eq!(role_context_limit(None, 0, None), None);
+    }
+
+    #[test]
+    fn subagent_block_names_choices_and_default() {
+        let targets = vec![
+            "NeoHorse-1-9B-Q8_0".to_string(),
+            "LFM2.5-VL-3B-Uncensored-Q8_0".to_string(),
+        ];
+        let block = subagent_prompt_block(&targets, Some("LFM2.5-VL-3B-Uncensored-Q8_0"), true);
+        assert!(
+            block.contains("Models: NeoHorse-1-9B-Q8_0, LFM2.5-VL-3B-Uncensored-Q8_0"),
+            "{block}"
+        );
+        assert!(
+            block.contains("the default is LFM2.5-VL-3B-Uncensored-Q8_0 (vision: yes)"),
+            "{block}"
+        );
+        assert!(!block.contains("Subagents run on"), "{block}");
+        // External: choices only; the run model is the default.
+        let external = subagent_prompt_block(&targets, None, false);
+        assert!(external.contains("the default is the main model"), "{external}");
+        // No choices at all still states the default.
+        let none = subagent_prompt_block(&[], Some("worker"), false);
+        assert!(none.contains("the default is worker (vision: no)"), "{none}");
+        assert!(!none.contains("Models:"), "{none}");
     }
 
     #[test]

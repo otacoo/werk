@@ -46,6 +46,9 @@
 
 ### Fixed
 
+- The subagent prompt no longer reads as a contradiction: model choices and
+  the default are stated in one paragraph ("the default is …"), and it notes
+  that subagents never see the conversation.
 - The LSP tab describes itself instead of showing the Server tab's text.
 - The Chat context ring shows the effective context window — role override,
   then the Run page's `--ctx-size`, then the GGUF length — instead of the
