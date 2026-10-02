@@ -6,6 +6,11 @@
 
 ### Added
 
+- Mixed mode in Router mode: either role can be an external favorite (pick
+  it in the role dropdown on the Run page). The provider runs that half, the
+  local server loads the other, and the launch options and estimate target
+  the local role. Router mode now only requires one local role; External API
+  mode stays provider-only.
 - Sensitive shielding: credential paths are blocked from every agent tool —
   built-in patterns (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `.ssh/`, `.aws/`,
   `*.sqlite`, …), everything matched by the project's `.gitignore`, and a user

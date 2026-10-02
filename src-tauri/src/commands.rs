@@ -396,23 +396,28 @@ fn to_status(s: harness::mcp::McpServerStatus) -> McpServerStatus {
     }
 }
 
-/// Router mode loads local GGUFs only; external endpoints live in External API mode.
-fn reject_external_router_roles(app_config: &crate::config::AppConfig) -> Result<(), String> {
-    for path in [
+/// Router mode needs at least one local GGUF role to load; the other may be
+/// an external favorite (mixed mode).
+fn router_needs_local_role(app_config: &crate::config::AppConfig) -> Result<(), String> {
+    let is_external = |p: &str| {
+        crate::config::Provider::split_target(p, &app_config.providers).is_some()
+    };
+    let local = [
         app_config.harness_roles.orchestrator.as_deref(),
         app_config.harness_roles.worker.as_deref(),
     ]
     .into_iter()
     .flatten()
-    {
-        if crate::config::Provider::split_target(path, &app_config.providers).is_some() {
-            return Err(format!(
-                "Router roles are local GGUF files — \"{path}\" is an external provider \
-                 target. Use External API mode (Mode page) for external endpoints."
-            ));
-        }
+    .any(|p| !p.trim().is_empty() && !is_external(p));
+    if local {
+        Ok(())
+    } else {
+        Err(
+            "Router mode needs at least one local GGUF role — both roles are external \
+             targets. Use External API mode for provider-only chats."
+                .to_string(),
+        )
     }
-    Ok(())
 }
 
 /// Auto `--models-max` for router launches: keep both role models resident
@@ -492,7 +497,7 @@ pub async fn start_server(
         return Err("Router mode: pick an orchestrator model on the Run page first".to_string());
     }
     if mode == crate::config::ServerMode::Router {
-        reject_external_router_roles(&app_config)?;
+        router_needs_local_role(&app_config)?;
     }
     // The mode owns the launch shape; single-model fields never leak into a
     // router launch.
@@ -524,6 +529,7 @@ pub async fn start_server(
         let entries = crate::chat::router_role_entries(
             &app_config.harness_roles,
             &app_config.harness_role_params,
+            &app_config.providers,
             base_ctx,
             explicit,
         );
@@ -593,15 +599,8 @@ pub async fn preview_server_args(
     state: State<'_, AppState>,
 ) -> Result<LaunchPreview, String> {
     let app_config = state.config.lock().unwrap().clone();
-    if app_config.server_mode == crate::config::ServerMode::External {
-        return Err(
-            "External API mode does not run the local server — pick a provider and model on \
-             the Mode page, then just open Chat"
-                .to_string(),
-        );
-    }
     if app_config.server_mode == crate::config::ServerMode::Router {
-        reject_external_router_roles(&app_config)?;
+        router_needs_local_role(&app_config)?;
         config.model_path.clear();
         config.mmproj_path = None;
     }
@@ -625,6 +624,7 @@ pub async fn preview_server_args(
         Some(crate::chat::router_role_entries(
             &app_config.harness_roles,
             &app_config.harness_role_params,
+            &app_config.providers,
             base_ctx,
             explicit,
         ))

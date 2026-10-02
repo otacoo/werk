@@ -109,6 +109,13 @@ const LAUNCH_TABS: { id: LaunchTab; label: string }[] = [
 
 
 export default function Run({ go }: { go: (t: Tab) => void }) {
+  // A role path that names a provider favorite is an external (mixed) role.
+  const providerOf = (path: string | null | undefined) =>
+    path
+      ? appConfig?.providers?.find(
+          (p) => path.split(":")[0].trim().toLowerCase() === p.id.toLowerCase(),
+        ) ?? null
+      : null;
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [models, setModels] = useState<ModelDto[]>([]);
@@ -196,16 +203,30 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
 
   // Live estimate, debounced as the launch inputs change.
   useEffect(() => {
+    // Router mode estimates the role that loads locally; with a mixed
+    // (external) role that's the other one.
+    const orch = appConfig?.harness_roles?.orchestrator ?? "";
+    const worker = appConfig?.harness_roles?.worker ?? "";
+    const orchLocal = !!orch && !providerOf(orch);
+    const workerLocal = !!worker && !providerOf(worker);
     const target = routerMode
-      ? appConfig?.harness_roles?.orchestrator ?? ""
+      ? orchLocal
+        ? orch
+        : workerLocal
+          ? worker
+          : ""
       : config.model_path || selected;
-    if (!target || externalMode) {
+    if (!target) {
       setEstimate(null);
       return;
     }
-    // Router mode estimates the orchestrator: its role overrides (written
-    // into the preset) win over the launch ctx/GPU-layer values.
-    const role = routerMode ? appConfig?.harness_role_params?.orchestrator : undefined;
+    // The local role's overrides (written into the preset) win over the
+    // launch ctx/GPU-layer values.
+    const role = routerMode
+      ? orchLocal
+        ? appConfig?.harness_role_params?.orchestrator
+        : appConfig?.harness_role_params?.worker
+      : undefined;
     const estCtx = role?.ctx_size ?? config.n_ctx;
     const estNgl = role?.n_gpu_layers ?? config.n_gpu_layers;
     const timer = setTimeout(() => {
@@ -224,18 +245,20 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
     }, 300);
     return () => clearTimeout(timer);
   }, [
-    config.model_path,
+    config.model_path || selected,
     config.n_ctx,
     config.n_gpu_layers,
     config.cache_type_k,
     config.cache_type_v,
-    selected,
     models,
     routerMode,
     appConfig?.harness_roles?.orchestrator,
+    appConfig?.harness_roles?.worker,
+    appConfig?.providers,
     appConfig?.harness_role_params?.orchestrator?.ctx_size,
     appConfig?.harness_role_params?.orchestrator?.n_gpu_layers,
-    externalMode,
+    appConfig?.harness_role_params?.worker?.ctx_size,
+    appConfig?.harness_role_params?.worker?.n_gpu_layers,
     fitOn,
   ]);
 
@@ -409,6 +432,7 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
         ? appConfig?.harness_role_params?.worker
         : appConfig?.harness_role_params?.orchestrator;
     const model = models.find((m) => m.path === path);
+    const external = providerOf(path);
     const update = (ctx: number | null, ngl: number | null) =>
       setRoleParams(role, ctx, ngl);
     const turns =
@@ -432,6 +456,15 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
             <option value="">
               {role === "worker" ? "Same as orchestrator" : "Server default"}
             </option>
+            {(appConfig?.provider_favorites ?? []).length > 0 && (
+              <optgroup label="External favorites (mixed mode)">
+                {(appConfig?.provider_favorites ?? []).map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           {models.map((m) => (
             <option key={m.id} value={m.path}>
               {m.name}
@@ -472,40 +505,49 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 )}
               </div>
             )}
-            <label
-              className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
-              title="Context size for this role's model in tokens. Empty uses the launch context size, then the model default."
-            >
-              <span>
-                Ctx <span className="font-mono text-[0.625rem] opacity-60">(--ctx-size)</span>
+            {external ? (
+              <span className="text-[0.625rem] text-faint">
+                Runs on {external.id} — nothing loads locally; the launch options apply to the
+                other role.
               </span>
-              <input
-                type="number"
-                min={0}
-                step={1024}
-                placeholder="auto"
-                className="input w-20 py-0.5 px-1.5 text-[0.6875rem]"
-                value={params?.ctx_size ?? ""}
-                onChange={(e) => update(numCtx(e.target.value), params?.n_gpu_layers ?? null)}
-              />
-            </label>
-            <label
-              className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
-              title="How many layers of this role's model run on the GPU; the rest stay on the CPU. Empty = auto, -1 = all layers, 0 = CPU only."
-            >
-              <span>
-                GPU <span className="font-mono text-[0.625rem] opacity-60">(--ngl)</span>
-              </span>
-              <input
-                type="number"
-                min={-1}
-                placeholder="auto"
-                title="Empty = auto, -1 = all on GPU, 0 = CPU only"
-                className="input w-16 py-0.5 px-1.5 text-[0.6875rem]"
-                value={params?.n_gpu_layers ?? ""}
-                onChange={(e) => update(params?.ctx_size ?? null, numNgl(e.target.value))}
-              />
-            </label>
+            ) : (
+              <>
+                <label
+                  className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
+                  title="Context size for this role's model in tokens. Empty uses the launch context size, then the model default."
+                >
+                  <span>
+                    Ctx <span className="font-mono text-[0.625rem] opacity-60">(--ctx-size)</span>
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1024}
+                    placeholder="auto"
+                    className="input w-20 py-0.5 px-1.5 text-[0.6875rem]"
+                    value={params?.ctx_size ?? ""}
+                    onChange={(e) => update(numCtx(e.target.value), params?.n_gpu_layers ?? null)}
+                  />
+                </label>
+                <label
+                  className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
+                  title="How many layers of this role's model run on the GPU; the rest stay on the CPU. Empty = auto, -1 = all layers, 0 = CPU only."
+                >
+                  <span>
+                    GPU <span className="font-mono text-[0.625rem] opacity-60">(--ngl)</span>
+                  </span>
+                  <input
+                    type="number"
+                    min={-1}
+                    placeholder="auto"
+                    title="Empty = auto, -1 = all on GPU, 0 = CPU only"
+                    className="input w-16 py-0.5 px-1.5 text-[0.6875rem]"
+                    value={params?.n_gpu_layers ?? ""}
+                    onChange={(e) => update(params?.ctx_size ?? null, numNgl(e.target.value))}
+                  />
+                </label>
+              </>
+            )}
             <label
               className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
               title="Max agent turns for this role: the orchestrator's main loop, or a subagent run."
@@ -794,7 +836,8 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
     } catch {}
   };
 
-  // External API mode ignores everything on this page — no local server.
+  // External API mode ignores this page — no local server. Mixed mode lives
+  // in Router mode instead (an external favorite as one of the roles).
   if (externalMode) {
     return (
       <div className="h-full overflow-y-auto">
@@ -810,7 +853,9 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
             </div>
             <p className="text-xs text-dim leading-snug">
               The harness chats through the provider selected on the Mode tab, so nothing is
-              loaded locally and these launch settings are ignored.
+              loaded locally and these launch settings are ignored. To mix a provider model with
+              a local GGUF, use <span className="font-semibold">Router mode</span> and pick an
+              external favorite as one of the roles.
             </p>
             {appConfig?.external_target ? (
               <p className="text-xs text-faint mt-2">
@@ -851,6 +896,8 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
           </button>
         </div>
       )}
+
+
 
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-4">
         <PresetCard
@@ -976,16 +1023,33 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
         ) : (
           <div className="space-y-3">
             <p className="section-desc">
-              One server; models load on demand. The orchestrator loads at start, the worker
-              on first delegation.
+              {providerOf(appConfig?.harness_roles?.orchestrator)
+                ? `Mixed mode: the orchestrator runs on ${
+                    providerOf(appConfig?.harness_roles?.orchestrator)?.id
+                  }; this server loads the worker.`
+                : providerOf(appConfig?.harness_roles?.worker)
+                  ? `Mixed mode: the worker runs on ${
+                      providerOf(appConfig?.harness_roles?.worker)?.id
+                    }; this server loads the orchestrator.`
+                  : "One server; models load on demand. The orchestrator loads at start, the worker on first delegation."}
             </p>
             <div className="grid grid-cols-2 divide-x divide-border items-start">
               <div className="pr-4">
-                <p className="text-xs font-bold text-ink mb-2">Orchestrator</p>
+                <p className="text-xs font-bold text-ink mb-2 flex items-center gap-1.5">
+                  Orchestrator
+                  {providerOf(appConfig?.harness_roles?.orchestrator) && (
+                    <span className="badge-blue text-[0.5625rem] shrink-0">External API</span>
+                  )}
+                </p>
                 {roleRow("orchestrator")}
               </div>
               <div className="pl-4">
-                <p className="text-xs font-bold text-ink mb-2">Worker</p>
+                <p className="text-xs font-bold text-ink mb-2 flex items-center gap-1.5">
+                  Worker
+                  {providerOf(appConfig?.harness_roles?.worker) && (
+                    <span className="badge-blue text-[0.5625rem] shrink-0">External API</span>
+                  )}
+                </p>
                 {roleRow("worker")}
               </div>
             </div>
@@ -2065,7 +2129,18 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
           notes={suggestionNotes ?? []}
           residency={preview?.residency ?? null}
           estimating={estimating}
-          canEstimate={!externalMode && !!(config.model_path || selected)}
+          canEstimate={
+            routerMode
+              ? !!(
+                  appConfig?.harness_roles?.orchestrator &&
+                  !providerOf(appConfig.harness_roles.orchestrator)
+                ) ||
+                !!(
+                  appConfig?.harness_roles?.worker &&
+                  !providerOf(appConfig.harness_roles.worker)
+                )
+              : !!(config.model_path || selected)
+          }
           onEstimate={autoEstimate}
         />
 

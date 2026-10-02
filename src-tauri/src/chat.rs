@@ -510,7 +510,11 @@ fn server_client(port: u16, state: &AppState) -> LlmClient {
 /// Subagent paragraph for router/external prompts: model choices, the
 /// default (so the list and the default can't read as a contradiction), the
 /// specialist kinds, and the image argument.
-fn subagent_prompt_block(targets: &[String], default_label: Option<&str>, vision: bool) -> String {
+fn subagent_prompt_block(
+    targets: &[String],
+    default_label: Option<&str>,
+    vision: Option<bool>,
+) -> String {
     let mut text =
         String::from("\n\nSubagents share the sandbox and never see this conversation. ");
     if !targets.is_empty() {
@@ -522,7 +526,11 @@ fn subagent_prompt_block(targets: &[String], default_label: Option<&str>, vision
     match default_label {
         Some(label) => text.push_str(&format!(
             "the default is {label} (vision: {}). ",
-            if vision { "yes" } else { "no" }
+            match vision {
+                Some(true) => "yes",
+                Some(false) => "no",
+                None => "unknown",
+            }
         )),
         None => text.push_str("the default is the main model. "),
     }
@@ -539,6 +547,7 @@ fn subagent_prompt_block(targets: &[String], default_label: Option<&str>, vision
 pub fn router_role_entries(
     roles: &crate::config::HarnessRoles,
     params: &crate::config::HarnessRoleParams,
+    providers: &[crate::config::Provider],
     base_ctx: Option<u32>,
     explicit_template: bool,
 ) -> Vec<crate::server::PresetEntry> {
@@ -549,6 +558,10 @@ pub fn router_role_entries(
         ("worker", roles.worker.clone()),
     ] {
         let Some(path) = path else { continue };
+        // Mixed mode: external roles never enter the preset.
+        if crate::config::Provider::split_target(&path, providers).is_some() {
+            continue;
+        }
         let params = if role == "worker" {
             &params.worker
         } else {
@@ -1326,6 +1339,7 @@ pub async fn harness_agent_send(
         crate::server::router_model_names(&router_role_entries(
             &app_config.harness_roles,
             &app_config.harness_role_params,
+            &app_config.providers,
             None,
             false,
         ))
@@ -1362,7 +1376,8 @@ pub async fn harness_agent_send(
             .cloned()
             .collect(),
         // Model ids, not role names: the choices are what `model` takes, and
-        // role names read like `agent_type` values.
+        // role names read like `agent_type` values. Mixed roles advertise
+        // their `provider:model` target instead.
         crate::config::ServerMode::Router => {
             let mut ids: Vec<String> = ["orchestrator", "worker"]
                 .iter()
@@ -1372,7 +1387,15 @@ pub async fn harness_agent_send(
                     } else {
                         app_config.harness_roles.worker.clone()
                     };
-                    path.filter(|p| !p.trim().is_empty()).map(|p| model_id(&p))
+                    path.filter(|p| !p.trim().is_empty()).map(|p| {
+                        if crate::config::Provider::split_target(&p, &app_config.providers)
+                            .is_some()
+                        {
+                            p
+                        } else {
+                            model_id(&p)
+                        }
+                    })
                 })
                 .collect();
             ids.dedup();
@@ -1406,15 +1429,24 @@ pub async fn harness_agent_send(
                         .as_deref()
                         .map(crate::server::file_stem_or_self)
                         .unwrap_or_else(|| "the main model".to_string());
-                    let vision = sub_model
+                    // Mixed mode: an external default's vision is unknown.
+                    let external = sub_model
                         .as_deref()
                         .map(|p| {
-                            crate::server::find_mmproj_sibling(std::path::Path::new(p)).is_some()
+                            crate::config::Provider::split_target(p, &app_config.providers)
+                                .is_some()
                         })
                         .unwrap_or(false);
+                    let vision = if external {
+                        None
+                    } else {
+                        sub_model.as_deref().map(|p| {
+                            crate::server::find_mmproj_sibling(std::path::Path::new(p)).is_some()
+                        })
+                    };
                     (Some(label), vision)
                 } else {
-                    (None, false)
+                    (None, None)
                 };
                 base.push_str(&subagent_prompt_block(
                     &subagent_targets,
@@ -1461,7 +1493,7 @@ pub async fn harness_agent_send(
     // never mix in external endpoints.
     let orch_target = if mode == crate::config::ServerMode::External {
         let target = orchestrator_id.as_deref().ok_or_else(|| {
-            "External API mode: no model selected — pick a provider and model on the Mode page"
+            "External API mode: no model selected - pick a provider and model on the Mode page"
                 .to_string()
         })?;
         let (p, m) = crate::config::Provider::split_target(target, &app_config.providers)
@@ -1471,6 +1503,12 @@ pub async fn harness_agent_send(
                 )
             })?;
         Some((p.clone(), m.to_string()))
+    } else if router {
+        // Mixed mode: an external orchestrator chats through its provider.
+        orchestrator_id
+            .as_deref()
+            .and_then(|t| crate::config::Provider::split_target(t, &app_config.providers))
+            .map(|(p, m)| (p.clone(), m.to_string()))
     } else {
         None
     };
@@ -1513,8 +1551,9 @@ pub async fn harness_agent_send(
         crate::server::ServerStatus::Running { port, .. } => Some(port),
         _ => None,
     };
-    // A local worker still needs the local server.
-    if worker_path.is_some() && running_port.is_none() {
+    // A router worker is required once configured; in external mode the local
+    // worker is optional, so a stopped server just drops the choice.
+    if router && worker_path.is_some() && running_port.is_none() {
         return Err(
             "The worker role is a local model but the server is not running — start it on the \
              Run page first."
@@ -1556,19 +1595,32 @@ pub async fn harness_agent_send(
             )
         };
 
-    let (worker_client, worker_model, worker_limit) = (
-        None,
-        worker_path.clone().map(|p| model_id(&p)),
-        worker_path.as_deref().and_then(|w| {
-            role_context_limit(
-                app_config.harness_role_params.worker.ctx_size,
-                launch_n_ctx,
-                Some(w),
-            )
-        }),
-    );
+    // Mixed mode: an external worker becomes the default subagent model.
+    let worker_external = worker_path
+        .as_deref()
+        .and_then(|p| crate::config::Provider::split_target(p, &app_config.providers))
+        .map(|(p, m)| (p.clone(), m.to_string()));
+    let (worker_client, worker_model, worker_limit) = match &worker_external {
+        Some((provider, model)) => (
+            Some(external_client(provider)),
+            Some(model.clone()),
+            provider.context_length.map(u64::from),
+        ),
+        None => (
+            None,
+            worker_path.clone().map(|p| model_id(&p)),
+            worker_path.as_deref().and_then(|w| {
+                role_context_limit(
+                    app_config.harness_role_params.worker.ctx_size,
+                    launch_n_ctx,
+                    Some(w),
+                )
+            }),
+        ),
+    };
 
-    // Subagent model overrides: external favorites or the local router roles.
+    // Subagent model overrides: external favorites, or the router roles —
+    // either of which may itself be an external favorite (mixed mode).
     let mut subagent_choices: Vec<harness::agent::SubagentChoice> = Vec::new();
     match mode {
         crate::config::ServerMode::External => {
@@ -1582,6 +1634,7 @@ pub async fn harness_agent_send(
                         client: Some(external_client(p)),
                         // Remote vision is unknown; let the provider decide.
                         vision: None,
+                        context_limit: None,
                     });
                 }
             }
@@ -1594,6 +1647,31 @@ pub async fn harness_agent_send(
                     app_config.harness_roles.worker.clone()
                 };
                 let Some(path) = path.filter(|p| !p.trim().is_empty()) else { continue };
+                let params = if role == "orchestrator" {
+                    &app_config.harness_role_params.orchestrator
+                } else {
+                    &app_config.harness_role_params.worker
+                };
+                // Mixed mode: an external role runs on its provider.
+                if let Some((provider, model)) =
+                    crate::config::Provider::split_target(&path, &app_config.providers)
+                {
+                    let target = path.clone();
+                    if subagent_choices
+                        .iter()
+                        .any(|c| c.target.eq_ignore_ascii_case(&target))
+                    {
+                        continue;
+                    }
+                    subagent_choices.push(harness::agent::SubagentChoice {
+                        target,
+                        model: Some(model.to_string()),
+                        client: Some(external_client(provider)),
+                        vision: None,
+                        context_limit: provider.context_length.map(u64::from),
+                    });
+                    continue;
+                }
                 let id = model_id(&path);
                 if subagent_choices.iter().any(|c| c.target.eq_ignore_ascii_case(&id)) {
                     continue;
@@ -1604,6 +1682,11 @@ pub async fn harness_agent_send(
                     client: None,
                     vision: Some(
                         crate::server::find_mmproj_sibling(std::path::Path::new(&path)).is_some(),
+                    ),
+                    context_limit: role_context_limit(
+                        params.ctx_size,
+                        launch_n_ctx,
+                        Some(&path),
                     ),
                 });
             }
@@ -1619,7 +1702,11 @@ pub async fn harness_agent_send(
             .clone()
             .or_else(|| app_config.harness_roles.orchestrator.clone())
             .or_else(|| app_config.selected_model.clone());
+        // An external default model's vision is unknown.
         path.as_deref()
+            .filter(|p| {
+                crate::config::Provider::split_target(p, &app_config.providers).is_none()
+            })
             .map(|p| crate::server::find_mmproj_sibling(std::path::Path::new(p)).is_some())
     };
 
@@ -1866,6 +1953,7 @@ pub async fn harness_distill(app: AppHandle, state: State<'_, AppState>) -> Resu
                     let ids = crate::server::router_model_names(&router_role_entries(
                         &app_config.harness_roles,
                         &app_config.harness_role_params,
+                        &app_config.providers,
                         None,
                         false,
                     ));
@@ -2206,6 +2294,14 @@ fn orchestrator_context(state: &AppState) -> Option<u32> {
                 .map(u64::from)
         }
         crate::config::ServerMode::Router => {
+            // Mixed mode: an external role's window comes from its provider.
+            let providers = state.config.lock().unwrap().providers.clone();
+            if let Some((p, _)) = role_path
+                .as_deref()
+                .and_then(|path| crate::config::Provider::split_target(path, &providers))
+            {
+                return p.context_length;
+            }
             let path = role_path.or_else(|| active_model_path(state));
             role_context_limit(role_ctx, launch_n_ctx, path.as_deref())
         }
@@ -2832,6 +2928,16 @@ fn utility_target_client(
         "worker" => app_config.harness_roles.worker.clone(),
         _ => return None,
     };
+    // Mixed mode: an external role target runs on its provider.
+    if let Some((p, m)) = role_path
+        .as_deref()
+        .and_then(|path| crate::config::Provider::split_target(path, &app_config.providers))
+    {
+        return Some((
+            LlmClient::with_key(p.base_url.trim_end_matches('/').to_string(), p.api_key.clone()),
+            Some(m.to_string()),
+        ));
+    }
     let port = match state.server.lock().unwrap().status.clone() {
         crate::server::ServerStatus::Running { port, .. } => port,
         _ => return None,
@@ -2842,6 +2948,7 @@ fn utility_target_client(
             let ids = crate::server::router_model_names(&router_role_entries(
                 &app_config.harness_roles,
                 &app_config.harness_role_params,
+                &app_config.providers,
                 None,
                 false,
             ));
@@ -3352,7 +3459,8 @@ mod tests {
             "NeoHorse-1-9B-Q8_0".to_string(),
             "LFM2.5-VL-3B-Uncensored-Q8_0".to_string(),
         ];
-        let block = subagent_prompt_block(&targets, Some("LFM2.5-VL-3B-Uncensored-Q8_0"), true);
+        let block =
+            subagent_prompt_block(&targets, Some("LFM2.5-VL-3B-Uncensored-Q8_0"), Some(true));
         assert!(
             block.contains("Models: NeoHorse-1-9B-Q8_0, LFM2.5-VL-3B-Uncensored-Q8_0"),
             "{block}"
@@ -3363,12 +3471,15 @@ mod tests {
         );
         assert!(!block.contains("Subagents run on"), "{block}");
         // External: choices only; the run model is the default.
-        let external = subagent_prompt_block(&targets, None, false);
+        let external = subagent_prompt_block(&targets, None, None);
         assert!(external.contains("the default is the main model"), "{external}");
-        // No choices at all still states the default.
-        let none = subagent_prompt_block(&[], Some("worker"), false);
-        assert!(none.contains("the default is worker (vision: no)"), "{none}");
+        // No choices at all still states the default; unknown vision reads
+        // as such rather than claiming "no".
+        let none = subagent_prompt_block(&[], Some("provider:model"), None);
+        assert!(none.contains("the default is provider:model (vision: unknown)"), "{none}");
         assert!(!none.contains("Models:"), "{none}");
+        let local = subagent_prompt_block(&[], Some("worker"), Some(false));
+        assert!(local.contains("the default is worker (vision: no)"), "{local}");
     }
 
     #[test]

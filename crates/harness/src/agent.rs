@@ -185,6 +185,8 @@ pub struct SubagentChoice<'a> {
     pub client: Option<&'a LlmClient>,
     /// Vision capability of this choice; None = unknown (provider models).
     pub vision: Option<bool>,
+    /// Context window of this choice; None inherits the subagent default.
+    pub context_limit: Option<u64>,
 }
 
 impl std::fmt::Debug for SubagentChoice<'_> {
@@ -1140,7 +1142,10 @@ impl AgentRun<'_> {
             max_turns: sub.max_turns,
             subagents: None,
             verify_mode: self.verify_mode,
-            context_limit: sub.context_limit.or(self.context_limit),
+            context_limit: choice
+                .and_then(|c| c.context_limit)
+                .or(sub.context_limit)
+                .or(self.context_limit),
             compactions_log: Arc::new(Mutex::new(Vec::new())),
             utility: self.utility.clone(),
             // Subagents never see or edit the orchestrator's task list.
@@ -1396,12 +1401,14 @@ mod tests {
                 model: Some("big".into()),
                 client: None,
                 vision: None,
+                context_limit: None,
             },
             SubagentChoice {
                 target: "worker".into(),
                 model: Some("w-1".into()),
                 client: None,
                 vision: Some(false),
+                context_limit: Some(8_192),
             },
         ];
         assert!(resolve_subagent_choice(&choices, None).unwrap().is_none());

@@ -225,7 +225,7 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
       points: [
         "Orchestrator loads at start, worker on first delegation",
         "Assign per-role Ctx / GPU layers / turn budget",
-        "Per-role companion files (mmproj, chat template, draft model)",
+        "Mixed mode: pick an external API model for a role",
       ],
     },
     {
@@ -459,7 +459,9 @@ export default function Mode({ go }: { go: (t: "run" | "chat") => void }) {
         <div className="card">
           {mode === "external" ? (
             <p className="text-xs text-dim">
-              External API mode chats through the selected provider — no local server is needed.{" "}
+              Tip:{" "}
+              To mix a provider model with a local GGUF, switch to{" "}
+              <b>Router mode</b> and pick an external favorite as a role.{" "}
               {running && (
                 <>
                   The local server is still running, wasting VRAM —{" "}
