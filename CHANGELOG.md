@@ -46,6 +46,10 @@
 
 ### Fixed
 
+- Compaction and `/distill` fold long sessions in bounded chunks (~20K chars
+  per call, carrying a running summary) and keep the newest content when a
+  transcript is capped — they now work with small utility-model windows
+  instead of one large call that kept the oldest text and could overflow.
 - The subagent prompt no longer reads as a contradiction: model choices and
   the default are stated in one paragraph ("the default is …"), and it notes
   that subagents never see the conversation.

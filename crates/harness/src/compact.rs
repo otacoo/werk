@@ -23,8 +23,13 @@ pub fn reserve_tokens(context_limit: u64) -> u64 {
 pub const TOOL_RESULT_TRIM_THRESHOLD: usize = 8_192;
 /// How far back to scan for a user boundary before giving up.
 const MAX_SCAN: usize = 48;
-/// Transcript text fed to the summarizer (oldest first; ~4 chars/token).
-const SUMMARIZE_CAP_CHARS: usize = 60_000;
+/// Total transcript text fed to the summarizer; very long sessions keep the
+/// newest content (older text is dropped with a marker) since chunked folding
+/// bounds each call, and this only bounds total cost.
+const SUMMARIZE_TOTAL_CAP_CHARS: usize = 200_000;
+/// Per-call transcript chunk (~5k tokens). Chunked folding keeps every call
+/// inside a small utility-model window.
+const SUMMARY_CHUNK_CHARS: usize = 20_000;
 /// Per-message cap inside the summarized transcript.
 const MESSAGE_CAP_CHARS: usize = 2_000;
 /// Verbatim user-message budget inside the summary block (~2k tokens).
@@ -276,19 +281,64 @@ const COMPACT_SUMMARY_SYSTEM: &str =
     Preserve: the user's goals, key decisions and why, files created or changed, \
     pending tasks, and any durable facts or preferences. Be concise; use bullets.";
 
-/// Render messages for summarization (file ops appended, capped).
+/// Render messages for summarization (file ops appended, total capped).
 pub fn render_transcript(history: &[ChatMessage]) -> String {
     let rendered: Vec<String> = history.iter().filter_map(render_for_summary).collect();
     let files = file_ops_section(history);
     let mut transcript = rendered.join("\n\n");
-    if transcript.chars().count() > SUMMARIZE_CAP_CHARS {
-        transcript = transcript.chars().take(SUMMARIZE_CAP_CHARS).collect();
+    let chars = transcript.chars().count();
+    if chars > SUMMARIZE_TOTAL_CAP_CHARS {
+        // Keep the newest turns: continuity matters more than deep history.
+        let tail: String = transcript.chars().skip(chars - SUMMARIZE_TOTAL_CAP_CHARS).collect();
+        transcript = format!("[…earlier messages omitted to bound the summary cost…]\n\n{tail}");
     }
     if let Some(files) = files {
         transcript.push_str("\n\n");
         transcript.push_str(&files);
     }
     transcript
+}
+
+/// Split a transcript into chunks of at most `chunk_chars`, preferring line
+/// boundaries; a single oversized line is split by characters.
+pub fn split_transcript(text: &str, chunk_chars: usize) -> Vec<String> {
+    let cap = chunk_chars.max(1);
+    let mut chunks: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0usize;
+    for line in text.split_inclusive('\n') {
+        let line_len = line.chars().count();
+        if line_len > cap {
+            if !current.is_empty() {
+                chunks.push(std::mem::take(&mut current));
+                current_len = 0;
+            }
+            let mut piece = String::new();
+            let mut n = 0usize;
+            for ch in line.chars() {
+                piece.push(ch);
+                n += 1;
+                if n == cap {
+                    chunks.push(std::mem::take(&mut piece));
+                    n = 0;
+                }
+            }
+            if !piece.is_empty() {
+                chunks.push(piece);
+            }
+            continue;
+        }
+        if current_len + line_len > cap {
+            chunks.push(std::mem::take(&mut current));
+            current_len = 0;
+        }
+        current.push_str(line);
+        current_len += line_len;
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
 }
 
 /// One-shot summary turn: no tools, streams content into `on_text`.
@@ -320,6 +370,39 @@ pub async fn summarize(
         bail!("aborted");
     }
     Ok(summary.trim().to_string())
+}
+
+/// Fold a long transcript in bounded chunks: each call sees the running
+/// summary plus one chunk, so the summarizer only needs a small window.
+pub async fn summarize_chunked(
+    client: &LlmClient,
+    model: Option<&str>,
+    system: &str,
+    transcript: &str,
+    should_stop: &(dyn Fn() -> bool + Send + Sync),
+    mut on_text: impl FnMut(&str),
+) -> Result<String> {
+    let chunks = split_transcript(transcript, SUMMARY_CHUNK_CHARS);
+    if chunks.is_empty() {
+        bail!("Nothing to summarize");
+    }
+    let mut running = String::new();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let input = if running.is_empty() {
+            chunk.clone()
+        } else {
+            format!(
+                "Summary so far:\n{running}\n\nNext transcript segment ({} of {}):\n{chunk}",
+                i + 1,
+                chunks.len()
+            )
+        };
+        running = summarize(client, model, system, &input, should_stop, &mut on_text).await?;
+        if running.is_empty() {
+            bail!("Summarizer returned an empty summary");
+        }
+    }
+    Ok(running)
 }
 
 /// Summarize `history[1..cut]` and splice in one summary message. None when
@@ -371,7 +454,7 @@ pub async fn compact_history(
             estimate_tokens(history)
         );
     }
-    let summary = summarize(
+    let summary = summarize_chunked(
         client,
         model,
         COMPACT_SUMMARY_SYSTEM,
@@ -399,6 +482,31 @@ pub async fn compact_history(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transcript_splits_into_bounded_chunks() {
+        let text = format!("{}\n{}\n{}", "a".repeat(50), "b".repeat(30_000), "c".repeat(10));
+        let chunks = split_transcript(&text, 1_000);
+        assert!(chunks.len() >= 31, "{}", chunks.len());
+        for c in &chunks {
+            assert!(c.chars().count() <= 1_000, "chunk of {}", c.chars().count());
+        }
+        assert_eq!(chunks.join(""), text);
+        assert!(split_transcript("", 100).is_empty());
+    }
+
+    #[test]
+    fn long_transcripts_keep_the_newest_content() {
+        let mut h = Vec::new();
+        for i in 0..120 {
+            h.push(user(&format!("msg {i} {}", "x".repeat(1_900))));
+        }
+        h.push(user("the newest instruction"));
+        let text = render_transcript(&h);
+        assert!(text.contains("earlier messages omitted"), "{}", &text[..120]);
+        assert!(text.contains("the newest instruction"));
+        assert!(!text.contains("msg 0 "), "oldest content should be dropped");
+    }
 
     #[test]
     fn schema_overhead_counts_outside_history() {

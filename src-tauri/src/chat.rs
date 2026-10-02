@@ -1890,7 +1890,7 @@ pub async fn harness_distill(app: AppHandle, state: State<'_, AppState>) -> Resu
     };
 
     emit("Distilling: summarizing the session…");
-    let summary = harness::compact::summarize(
+    let summary = harness::compact::summarize_chunked(
         &client,
         model.as_deref(),
         DISTILL_SUMMARY_SYSTEM,
