@@ -18,6 +18,7 @@ pub mod run_context;
 pub mod recommended;
 pub mod runtime;
 pub mod server;
+pub mod terminal;
 pub mod worktree;
 
 use std::collections::HashMap;
@@ -60,6 +61,8 @@ pub struct AppState {
     pub lsp: Arc<harness::lsp::LspManager>,
     /// Harness-side MCP servers (spawned lazily, reused across runs).
     pub mcp_agent: mcp::McpAgent,
+    /// Embedded project terminal (user-driven).
+    pub terminal: terminal::TerminalRuntime,
     /// In-flight downloads by id (`runtime:<asset>`, filenames); set to stop.
     pub downloads: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
@@ -180,6 +183,9 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         commands::start_server,
         commands::ensure_server,
         commands::set_server_lifecycle,
+        terminal::terminal_cwd,
+        terminal::terminal_exec,
+        terminal::terminal_kill,
         commands::preview_server_args,
         commands::list_installed_models,
         commands::delete_model,
@@ -408,6 +414,7 @@ pub fn run() {
             harness_abort: Arc::new(AtomicBool::new(false)),
             lsp,
             mcp_agent: mcp::McpAgent::default(),
+            terminal: terminal::TerminalRuntime::new(),
             downloads: Mutex::new(HashMap::new()),
         })
         .invoke_handler(builder.invoke_handler())
@@ -446,6 +453,7 @@ mod tests {
             harness_abort: Arc::new(AtomicBool::new(false)),
             lsp: Arc::new(harness::lsp::LspManager::new()),
             mcp_agent: mcp::McpAgent::default(),
+            terminal: terminal::TerminalRuntime::new(),
             downloads: Mutex::new(HashMap::new()),
         };
         assert!(state.harness.history.lock().unwrap().is_empty());

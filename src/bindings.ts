@@ -147,6 +147,15 @@ export const commands = {
 	ensureServer: () => typedError<null, string>(__TAURI_INVOKE("ensure_server")),
 	/**  Save the local-server lifecycle settings. */
 	setServerLifecycle: (autoStart: boolean, idleUnloadMinutes: number) => typedError<null, string>(__TAURI_INVOKE("set_server_lifecycle", { autoStart, idleUnloadMinutes })),
+	/**  Current terminal working directory; `reset` re-derives it from the project. */
+	terminalCwd: (reset: boolean) => typedError<string, string>(__TAURI_INVOKE("terminal_cwd", { reset })),
+	/**
+	 *  Run one command in the project folder; output streams over
+	 *  `terminal_output` / `terminal_done`.
+	 */
+	terminalExec: (command: string) => typedError<null, string>(__TAURI_INVOKE("terminal_exec", { command })),
+	/**  Stop the running command (and its children). */
+	terminalKill: () => typedError<null, string>(__TAURI_INVOKE("terminal_kill")),
 	previewServerArgs: (config: ServerConfig) => typedError<LaunchPreview, string>(__TAURI_INVOKE("preview_server_args", { config })),
 	listInstalledModels: () => typedError<ModelDto_Serialize[], string>(__TAURI_INVOKE("list_installed_models")),
 	deleteModel: (path: string) => typedError<null, string>(__TAURI_INVOKE("delete_model", { path })),

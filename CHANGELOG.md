@@ -6,6 +6,11 @@
 
 ### Added
 
+- Embedded project terminal in the Chat (icon button at the top of the
+  sidebar, next to the file-tree one): commands run in the project folder
+  with streamed output, a tracked `cd`, Up/Down history, a stop button, and a
+  resizable panel. It is your own shell — the agent's sandbox and approvals
+  do not apply.
 - Local server lifecycle (Settings → Agent → "Local server"): start the
   server automatically when you send (off by default — uses the saved preset
   and selected model, and waits until it is ready), and unload it after 5
@@ -40,6 +45,9 @@
 
 ### Changed
 
+- The Files toggle moved from the chat header to the top of the sidebar
+  (icon-only, with tooltips), and the "Show file tree" Settings option is
+  gone — the panel is always available and remembers whether it was open.
 - Removed the Chat composer's "edit the draft in your system editor" button —
   the scratch-file round-trip earned less than the space it took.
 - Agent settings moved out of the Settings menu into their own header tab,

@@ -7,10 +7,12 @@ import {
   Download,
   ExternalLink,
   FolderOpen,
+  FolderTree,
   MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
+  SquareTerminal,
   Trash2,
 } from "lucide-react";
 import { commands } from "../../bindings";
@@ -81,10 +83,12 @@ function RenameInput({ value, onCommit, onCancel }: {
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 480;
 
-export function ChatSidebar({ onProjectChanged, onSessionPicked, visible = true }: {
+export function ChatSidebar({ onProjectChanged, onSessionPicked, visible = true, panel, onPanel }: {
   onProjectChanged: () => void;
   onSessionPicked: () => void;
   visible?: boolean;
+  panel: "files" | "terminal" | null;
+  onPanel: (v: "files" | "terminal" | null) => void;
 }) {
   const [projects, setProjects] = useState<HarnessProject[]>([]);
   const [active, setActive] = useState<string | null>(null);
@@ -342,6 +346,22 @@ export function ChatSidebar({ onProjectChanged, onSessionPicked, visible = true 
         onMouseDown={startDrag}
         title="Drag to resize"
       />
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border">
+        <button
+          className={`transition-colors ${panel === "files" ? "text-ink" : "text-dim hover:text-ink"}`}
+          onClick={() => onPanel(panel === "files" ? null : "files")}
+          title={panel === "files" ? "Hide project files" : "Show project files"}
+        >
+          <FolderTree size={13} />
+        </button>
+        <button
+          className={`transition-colors ${panel === "terminal" ? "text-ink" : "text-dim hover:text-ink"}`}
+          onClick={() => onPanel(panel === "terminal" ? null : "terminal")}
+          title={panel === "terminal" ? "Hide terminal" : "Open a terminal in the project folder"}
+        >
+          <SquareTerminal size={13} />
+        </button>
+      </div>
       <div className="p-3 border-b border-border">
         <div className="flex items-center justify-between px-1 mb-1.5">
           <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-dim">Projects</span>

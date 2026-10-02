@@ -57,7 +57,6 @@ const CORNERS_KEY = "werk.corners";
 const FONT_KEY = "werk.font";
 const SNIPPETS_KEY = "werk.tool_snippets";
 const ALIGN_KEY = "werk.chat.align";
-const FILES_KEY = "werk.chat.files";
 const RUN_CHANGES_KEY = "werk.chat.runChanges";
 
 let theme: ThemeName = "system";
@@ -69,9 +68,6 @@ const snippetListeners = new Set<(v: boolean) => void>();
 /// Where the user's bubbles sit; the model takes the other side.
 let bubbleAlign: BubbleAlign = "right";
 const alignListeners = new Set<(v: BubbleAlign) => void>();
-/// Project file tree beside chat.
-let showFileTree = false;
-const fileTreeListeners = new Set<(v: boolean) => void>();
 /// Changed-files summary card after a run.
 let showRunChanges = true;
 const runChangesListeners = new Set<(v: boolean) => void>();
@@ -193,27 +189,6 @@ export function subscribeBubbleAlign(cb: (v: BubbleAlign) => void): () => void {
   };
 }
 
-export function getShowFileTree(): boolean {
-  return showFileTree;
-}
-
-export function setShowFileTree(v: boolean): void {
-  if (v === showFileTree) return;
-  showFileTree = v;
-  try {
-    localStorage.setItem(FILES_KEY, v ? "1" : "0");
-  } catch {}
-  emit();
-  fileTreeListeners.forEach((l) => l(v));
-}
-
-export function subscribeShowFileTree(cb: (v: boolean) => void): () => void {
-  fileTreeListeners.add(cb);
-  return () => {
-    fileTreeListeners.delete(cb);
-  };
-}
-
 export function getShowRunChanges(): boolean {
   return showRunChanges;
 }
@@ -286,9 +261,6 @@ export function loadAppearance(autoDetectedCorners?: "sharp" | "round"): void {
   bubbleAlign = read(ALIGN_KEY, "right", ["left", "right"]);
   try {
     showToolSnippets = localStorage.getItem(SNIPPETS_KEY) !== "0";
-  } catch {}
-  try {
-    showFileTree = localStorage.getItem(FILES_KEY) === "1";
   } catch {}
   try {
     showRunChanges = localStorage.getItem(RUN_CHANGES_KEY) !== "0";

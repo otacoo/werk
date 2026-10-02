@@ -28,7 +28,6 @@ import {
   getCorners,
   getFont,
   getShowToolSnippets,
-  getShowFileTree,
   getShowRunChanges,
   getTheme,
   getBubbleAlign,
@@ -36,13 +35,11 @@ import {
   setCorners,
   setFont,
   setShowToolSnippets,
-  setShowFileTree,
   setShowRunChanges,
   setTheme,
   setBubbleAlign,
   subscribeAppearance,
   subscribeShowToolSnippets,
-  subscribeShowFileTree,
   subscribeShowRunChanges,
   subscribeBubbleAlign,
   type AccentName,
@@ -65,8 +62,6 @@ function GeneralCard({ appConfig, setAppConfig, refresh }: {
   useEffect(() => subscribeShowToolSnippets(setShowSnippets), []);
   const [bubbleAlign, setBubbleAlignState] = useState(getBubbleAlign());
   useEffect(() => subscribeBubbleAlign(setBubbleAlignState), []);
-  const [showFiles, setShowFilesState] = useState(getShowFileTree());
-  useEffect(() => subscribeShowFileTree(setShowFilesState), []);
   const [showChanges, setShowChangesState] = useState(getShowRunChanges());
   useEffect(() => subscribeShowRunChanges(setShowChangesState), []);
   const confirm = async (apply: (c: AppConfig) => AppConfig, save: () => Promise<unknown>) => {
@@ -145,12 +140,6 @@ function GeneralCard({ appConfig, setAppConfig, refresh }: {
             hint="Off keeps collapsed tool cards to name and status; arguments show on expand."
             checked={showSnippets}
             onChange={setShowToolSnippets}
-          />
-          <Toggle
-            label="Show file tree"
-            hint="Project file tree beside chat, with change markers. Also toggled with Files in the chat header."
-            checked={showFiles}
-            onChange={setShowFileTree}
           />
           <Toggle
             label="Show changed files summary"

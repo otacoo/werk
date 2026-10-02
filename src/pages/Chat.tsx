@@ -12,7 +12,6 @@ import {
   RefreshCw,
   Square,
   Cloud,
-  FolderTree,
   X,
 } from "lucide-react";
 import { commands } from "../bindings";
@@ -26,13 +25,14 @@ import type {
   TodoDto,
 } from "../bindings";
 import { call } from "../utils/ipc";
-import { getBubbleAlign, getShowFileTree, getShowRunChanges, subscribeBubbleAlign, subscribeShowFileTree, subscribeShowRunChanges } from "../utils/appearance";
+import { getBubbleAlign, getShowRunChanges, subscribeBubbleAlign, subscribeShowRunChanges } from "../utils/appearance";
 import { subscribeConfigChanged } from "../utils/appSettings";
 import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
 import { playNotificationSound } from "../utils/sounds";
 import ProjectTree from "../components/ProjectTree";
 import { Markdown } from "./chat/markdown";
 import { ChatSidebar } from "./chat/sidebar";
+import { TerminalPanel } from "./chat/terminal";
 import { ExternalChatControls, EFFORT_LABELS } from "./chat/external-controls";
 import {
   ChangesCard,
@@ -132,31 +132,21 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   const [slotCtx, setSlotCtx] = useState<ContextStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  /// File tree: the Settings option enables the feature; the header button
-  /// toggles the panel while it is enabled.
-  const [filesEnabled, setFilesEnabled] = useState(getShowFileTree());
-  const [filesOpen, setFilesOpen] = useState(() => {
+  /// Right-hand panel: the project file tree or the embedded terminal.
+  const [panel, setPanelState] = useState<"files" | "terminal" | null>(() => {
     try {
-      return localStorage.getItem("werk.chat.files.open") !== "0";
+      return localStorage.getItem("werk.chat.files.open") === "0" ? null : "files";
     } catch {
-      return true;
+      return "files";
     }
   });
-  useEffect(
-    () =>
-      subscribeShowFileTree((v) => {
-        setFilesEnabled(v);
-        setFilesOpen(v);
-      }),
-    [],
-  );
   const [runChangesShown, setRunChangesShown] = useState(getShowRunChanges());
   useEffect(() => subscribeShowRunChanges(setRunChangesShown), []);
-  const setPanel = (v: boolean) => {
+  const setPanel = (v: "files" | "terminal" | null) => {
     try {
-      localStorage.setItem("werk.chat.files.open", v ? "1" : "0");
+      localStorage.setItem("werk.chat.files.open", v === "files" ? "1" : "0");
     } catch {}
-    setFilesOpen(v);
+    setPanelState(v);
   };
   const [activeProject, setActiveProject] = useState<string | null>(null);
   /// External API mode: chat works server-less through the configured provider.
@@ -1035,6 +1025,8 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
       {sidebarOpen && (
         <ChatSidebar
           visible={active}
+          panel={panel}
+          onPanel={setPanel}
           onProjectChanged={() => {
             refreshActiveProject();
             restoreFromBackend();
@@ -1064,16 +1056,6 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
               )}
               <span>Sidebar</span>
             </button>
-            {filesEnabled && (
-            <button
-              className={`inline-flex items-center gap-1.5 text-xs ${filesOpen ? "text-ink" : "text-dim hover:text-ink"}`}
-              onClick={() => setPanel(!filesOpen)}
-              title={filesOpen ? "Hide project files" : "Show project files"}
-            >
-              <FolderTree size={13} className="shrink-0" />
-              <span>Files</span>
-            </button>
-            )}
           </div>
           <div className="flex items-center gap-5">
             <div className="flex items-center gap-1.5 select-none" title="Chat text size">
@@ -1538,11 +1520,12 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
           />}
         </div>
       </div>
-      {filesEnabled && filesOpen && (
+      {panel === "terminal" && <TerminalPanel onClose={() => setPanel(null)} />}
+      {panel === "files" && (
         <ProjectTree
           activeProject={activeProject}
           streaming={streaming}
-          onClose={() => setPanel(false)}
+          onClose={() => setPanel(null)}
         />
       )}
     </div>
