@@ -37,18 +37,25 @@ const EMPTY: RP = {
 
 /// Standard llama.cpp effort levels, used when the template declares none.
 const EFFORT_CHOICES = ["minimal", "low", "medium", "high", "xhigh", "max"];
+/// OpenAI-style levels for provider models in External API mode.
+const PROVIDER_EFFORT_CHOICES = ["minimal", "low", "medium", "high"];
 
 /// Levels for the effort select: the template's own when it declares any,
-/// otherwise the standard set, plus a stored value the template no longer
-/// lists so it stays visible until changed.
-function levelsOf(opts: ReasoningOptions | null, stored: string | null): string[] {
-  const template = opts?.levels ?? [];
+/// otherwise the standard set, plus a stored value the current set no longer
+/// lists so it stays visible until changed. Providers use their own set.
+function levelsOf(
+  opts: ReasoningOptions | null,
+  stored: string | null,
+  external: boolean,
+): string[] {
+  const template = external ? [] : (opts?.levels ?? []);
+  const choices = external ? PROVIDER_EFFORT_CHOICES : EFFORT_CHOICES;
   const out =
     template.length === 0
-      ? [...EFFORT_CHOICES]
+      ? [...choices]
       : [
-          ...EFFORT_CHOICES.filter((l) => template.includes(l)),
-          ...template.filter((l) => !EFFORT_CHOICES.includes(l)),
+          ...choices.filter((l) => template.includes(l)),
+          ...template.filter((l) => !choices.includes(l)),
         ];
   if (stored && !out.includes(stored)) out.push(stored);
   return out;
@@ -404,7 +411,11 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
                   title="Levels the model's chat template accepts, plus the standard llama.cpp levels"
                 >
                   <option value="">Default</option>
-                  {levelsOf(reasoningOpts, rp.reasoning_effort).map((level) => (
+                  {levelsOf(
+                    reasoningOpts,
+                    rp.reasoning_effort,
+                    appConfig?.server_mode === "external",
+                  ).map((level) => (
                     <option key={level} value={level}>
                       {EFFORT_LABELS[level] ?? level}
                     </option>
