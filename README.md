@@ -99,11 +99,6 @@ npm run typecheck  # tsc --noEmit
 - `src/` — the React + TypeScript UI.
 - `tools/export-bindings/` — generates the TypeScript bindings from the Rust types, so an IPC mismatch fails at build time.
 
-## Considerations
-
-**werk.** was originally a fork with added elements on top of [pwilkin's](https://github.com/pwilkin/) [Catapult](https://github.com/pwilkin/catapult) after it stopped development.
-Since then I've decided to rewrite the backend and frontend elements from scratch, certain elements may still share some visual similarity with Catapult but **werk.** is now much further along from where Catapult was.
-
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).\
