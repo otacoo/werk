@@ -14,6 +14,8 @@
 - The Tools page follows mode/profile changes, and profile switches move between Chat and Talk immediately.
 - Chat shortcuts on the Dashboard and Run open Talk in the roleplay profile instead of leaving the Chat page visible.
 - Talk reloads the user avatar after an import or clear, without needing a restart.
+- Roleplay's Generation settings card gains a reasoning-effort picker sourced from the model's chat template.
+- Roleplay gets an editable System prompt card that falls back to the card's prompt or the built-in default, and the You card moves beside Characters.
 
 ## [0.5.0] - 2026-10-02
 

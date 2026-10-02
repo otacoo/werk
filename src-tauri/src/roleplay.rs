@@ -632,7 +632,8 @@ pub fn system_prompt(config: &AppConfig, card: Option<&CharacterCard>) -> String
         .map(|c| c.name.clone())
         .unwrap_or_else(|| "the character".to_string());
     let core = config
-        .harness_system_prompt
+        .roleplay
+        .system_prompt
         .as_deref()
         .filter(|p| !p.trim().is_empty())
         .map(str::to_string)
@@ -754,6 +755,14 @@ pub async fn set_roleplay_config(
     let card_changed = config.roleplay.card_id != card_id;
     // The avatar is managed by its own command; never cleared by the form.
     let avatar = config.roleplay.user_avatar.clone();
+    let reasoning_effort = roleplay
+        .reasoning_effort
+        .map(|e| e.trim().chars().take(32).collect::<String>())
+        .filter(|e| !e.is_empty());
+    let system_prompt = roleplay
+        .system_prompt
+        .map(|p| p.trim().chars().take(20_000).collect::<String>())
+        .filter(|p| !p.is_empty());
     config.roleplay = RoleplayConfig {
         card_id,
         greeting: roleplay.greeting,
@@ -762,6 +771,8 @@ pub async fn set_roleplay_config(
         temperature: roleplay.temperature,
         top_p: roleplay.top_p,
         repeat_penalty: roleplay.repeat_penalty,
+        reasoning_effort,
+        system_prompt,
         user_avatar: avatar,
     };
     config.save().map_err(|e| e.to_string())?;
@@ -771,6 +782,14 @@ pub async fn set_roleplay_config(
         crate::chat::flush_talk(&state);
     }
     Ok(())
+}
+
+/// The built-in roleplay prompt, shown when neither the card nor a custom
+/// override supplies one.
+#[tauri::command]
+#[specta::specta]
+pub async fn roleplay_system_prompt_default() -> Result<String, String> {
+    Ok(BUILT_IN_ROLEPLAY_PROMPT.to_string())
 }
 
 /// Import (or clear) the user's avatar for Talk bubbles.
@@ -942,6 +961,36 @@ mod tests {
         let text = "You are {{char}}.\nSecret: {{unknown}}.\nFor {{user}}.";
         let out = substitute(text, "Aria", "Sam");
         assert_eq!(out, "You are Aria.\nFor Sam.");
+    }
+
+    #[test]
+    fn system_prompt_prefers_override_then_card_then_builtin() {
+        let mut config = AppConfig::default();
+        config.roleplay.user_name = "Sam".into();
+        let blank = CharacterCard {
+            id: "x".into(),
+            name: "Aria".into(),
+            spec: "v2".into(),
+            description: String::new(),
+            personality: String::new(),
+            scenario: String::new(),
+            first_mes: String::new(),
+            alternate_greetings: Vec::new(),
+            mes_example: String::new(),
+            system_prompt: String::new(),
+            post_history_instructions: String::new(),
+            creator_notes: String::new(),
+            tags: Vec::new(),
+            lorebook: Vec::new(),
+        };
+        assert!(system_prompt(&config, Some(&blank)).contains("character-driven roleplay"));
+
+        let mut with_card = blank.clone();
+        with_card.system_prompt = "Card voice for {{user}}.".into();
+        assert!(system_prompt(&config, Some(&with_card)).starts_with("Card voice for Sam."));
+
+        config.roleplay.system_prompt = Some("Custom voice for {{user}}.".into());
+        assert!(system_prompt(&config, Some(&with_card)).starts_with("Custom voice for Sam."));
     }
 
     #[test]

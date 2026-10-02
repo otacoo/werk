@@ -3,10 +3,12 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { FolderOpen, ImagePlus, Plus, Sparkles, Trash2, UserRound, X } from "lucide-react";
 import { commands } from "../bindings";
-import type { CardSummary, CharacterCard, MemoryFileDto } from "../bindings";
+import type { CardSummary, CharacterCard, MemoryFileDto, ReasoningOptions } from "../bindings";
 import { call } from "../utils/ipc";
 import { notifyConfigChanged } from "../utils/appSettings";
+import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
 import { useAppConfig } from "../utils/useAppConfig";
+import { EFFORT_LABELS } from "./chat/external-controls";
 import type { Tab } from "../App";
 
 type RP = {
@@ -17,6 +19,8 @@ type RP = {
   temperature: number | null;
   top_p: number | null;
   repeat_penalty: number | null;
+  reasoning_effort: string | null;
+  system_prompt: string | null;
 };
 
 const EMPTY: RP = {
@@ -27,7 +31,16 @@ const EMPTY: RP = {
   temperature: null,
   top_p: null,
   repeat_penalty: null,
+  reasoning_effort: null,
+  system_prompt: null,
 };
+
+/// Template levels for the effort select, keeping a stored value the current
+/// template no longer lists so it stays visible until changed.
+function levelsOf(opts: ReasoningOptions, stored: string | null): string[] {
+  if (stored && !opts.levels.includes(stored)) return [...opts.levels, stored];
+  return opts.levels;
+}
 
 export default function Roleplay({ go }: { go: (t: Tab) => void }) {
   const [appConfig, setAppConfig] = useAppConfig(true);
@@ -35,6 +48,21 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
   const [activeCard, setActiveCard] = useState<CharacterCard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reasoningOpts, setReasoningOpts] = useState<ReasoningOptions | null>(null);
+
+  // Effort levels come from the loaded model's chat template; refresh when the
+  // server (re)starts with a different model.
+  useEffect(() => {
+    const refresh = () =>
+      call(commands.harnessReasoningOptions()).then(setReasoningOpts).catch(() => {});
+    refresh();
+    let wasRunning = getServerStatus().type === "running";
+    return subscribeServerStatus((s) => {
+      const running = s.type === "running";
+      if (running && !wasRunning) refresh();
+      wasRunning = running;
+    });
+  }, []);
 
   const rp: RP = { ...EMPTY, ...(appConfig?.roleplay ?? {}) };
   // Persona edits commit on blur so typing does not write the config per key.
@@ -184,65 +212,65 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
         </div>
 
         <div className="grid grid-cols-2 gap-4 items-start">
-          <div className="card">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <h2 className="section-title mb-0">Characters</h2>
-              <button
-                className="btn-ghost text-[0.625rem] py-0.5 px-1.5 shrink-0"
-                onClick={importCard}
-                disabled={busy}
-                title="Import a PNG character card or a JSON card"
-              >
-                <Plus size={11} /> Import
-              </button>
-            </div>
-            <p className="section-desc">
-              PNG cards (SillyTavern V1-V3, AICC) or plain JSON. Stored in the app data folder;
-              the image doubles as the avatar.
-            </p>
-            {cards.length === 0 && (
-              <p className="text-[0.6875rem] text-dim mt-3">
-                No cards yet — import one to get started.
-              </p>
-            )}
-            <div className="space-y-1.5 mt-3">
-              {cards.map((card) => (
-                <div
-                  key={card.id}
-                  className={`flex items-center gap-2.5 border rounded px-2.5 py-2 cursor-pointer transition-colors ${
-                    rp.card_id === card.id
-                      ? "border-accent bg-accent/10"
-                      : "border-border hover:bg-surface-2"
-                  }`}
-                  onClick={() => save({ card_id: card.id, greeting: 0 })}
-                >
-                  <CardAvatar id={card.id} name={card.name} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-ink font-medium truncate">{card.name}</p>
-                    <p className="text-[0.625rem] text-faint truncate">
-                      {card.spec} · {card.greetings} greeting{card.greetings === 1 ? "" : "s"}
-                      {card.tags.length > 0 ? ` · ${card.tags.slice(0, 3).join(", ")}` : ""}
-                    </p>
-                  </div>
-                  {rp.card_id === card.id && (
-                    <span className="badge-gray text-[0.5625rem] shrink-0">active</span>
-                  )}
-                  <button
-                    className="btn-ghost p-1 shrink-0 text-faint hover:text-accent-red"
-                    title="Delete this card"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void removeCard(card);
-                    }}
-                  >
-                    <Trash2 size={11} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
           <div className="space-y-4">
+            <div className="card">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <h2 className="section-title mb-0">Characters</h2>
+                <button
+                  className="btn-ghost text-[0.625rem] py-0.5 px-1.5 shrink-0"
+                  onClick={importCard}
+                  disabled={busy}
+                  title="Import a PNG character card or a JSON card"
+                >
+                  <Plus size={11} /> Import
+                </button>
+              </div>
+              <p className="section-desc">
+                PNG cards (SillyTavern V1-V3, AICC) or plain JSON. Stored in the app data folder;
+                the image doubles as the avatar.
+              </p>
+              {cards.length === 0 && (
+                <p className="text-[0.6875rem] text-dim mt-3">
+                  No cards yet — import one to get started.
+                </p>
+              )}
+              <div className="space-y-1.5 mt-3">
+                {cards.map((card) => (
+                  <div
+                    key={card.id}
+                    className={`flex items-center gap-2.5 border rounded px-2.5 py-2 cursor-pointer transition-colors ${
+                      rp.card_id === card.id
+                        ? "border-accent bg-accent/10"
+                        : "border-border hover:bg-surface-2"
+                    }`}
+                    onClick={() => save({ card_id: card.id, greeting: 0 })}
+                  >
+                    <CardAvatar id={card.id} name={card.name} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-ink font-medium truncate">{card.name}</p>
+                      <p className="text-[0.625rem] text-faint truncate">
+                        {card.spec} · {card.greetings} greeting{card.greetings === 1 ? "" : "s"}
+                        {card.tags.length > 0 ? ` · ${card.tags.slice(0, 3).join(", ")}` : ""}
+                      </p>
+                    </div>
+                    {rp.card_id === card.id && (
+                      <span className="badge-gray text-[0.5625rem] shrink-0">active</span>
+                    )}
+                    <button
+                      className="btn-ghost p-1 shrink-0 text-faint hover:text-accent-red"
+                      title="Delete this card"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void removeCard(card);
+                      }}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="card">
               <h2 className="section-title mb-1">You</h2>
               <p className="section-desc">
@@ -304,7 +332,9 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
                 />
               </label>
             </div>
+          </div>
 
+          <div className="space-y-4">
             {activeCard && (
               <div className="card">
                 <h2 className="section-title mb-1">Greeting</h2>
@@ -329,7 +359,7 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
             )}
 
             <div className="card">
-              <h2 className="section-title mb-1">Sampling</h2>
+              <h2 className="section-title mb-1">Generation settings</h2>
               <p className="section-desc">
                 Per-request overrides for roleplay runs; empty means the server default.
               </p>
@@ -353,7 +383,32 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
                   onCommit={(v) => save({ repeat_penalty: v })}
                 />
               </div>
+              {reasoningOpts?.supported &&
+                (reasoningOpts.levels.length > 0 || rp.reasoning_effort) && (
+                  <label className="block mt-3">
+                    <span className="text-[0.6875rem] text-dim">Reasoning effort</span>
+                    <select
+                      className="input w-full mt-1"
+                      value={rp.reasoning_effort ?? ""}
+                      onChange={(e) => save({ reasoning_effort: e.target.value || null })}
+                      title="Levels come from the loaded model's chat template"
+                    >
+                      <option value="">Default</option>
+                      {levelsOf(reasoningOpts, rp.reasoning_effort).map((level) => (
+                        <option key={level} value={level}>
+                          {EFFORT_LABELS[level] ?? level}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
             </div>
+
+            <SystemPromptCard
+              card={activeCard}
+              stored={rp.system_prompt ?? ""}
+              onSave={(p) => save({ system_prompt: p })}
+            />
 
             <RoleplayMemoryCard cardId={rp.card_id} />
           </div>
@@ -427,6 +482,83 @@ function OptNumber({
         }}
       />
     </label>
+  );
+}
+
+function SystemPromptCard({
+  card,
+  stored,
+  onSave,
+}: {
+  card: CharacterCard | null;
+  stored: string;
+  onSave: (prompt: string | null) => void;
+}) {
+  const [builtIn, setBuiltIn] = useState("");
+  const [draft, setDraft] = useState<string | null>(null);
+
+  useEffect(() => {
+    call(commands.roleplaySystemPromptDefault())
+      .then(setBuiltIn)
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    setDraft(null);
+  }, [card?.id]);
+
+  const cardPrompt = (card?.system_prompt ?? "").trim();
+  const fallback = cardPrompt || builtIn;
+  const shown = stored.trim() !== "" ? stored : fallback;
+  const dirty = draft !== null && draft.trim() !== shown.trim();
+  const source =
+    stored.trim() !== ""
+      ? "Custom prompt active"
+      : cardPrompt
+        ? "Using the card's prompt"
+        : "Using the built-in default";
+
+  return (
+    <div className="card">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <h2 className="section-title mb-0">System prompt</h2>
+        {stored.trim() !== "" && (
+          <button
+            className="btn-ghost text-[0.625rem] py-0.5 px-1.5 shrink-0"
+            onClick={() => {
+              setDraft(null);
+              onSave(null);
+            }}
+            title="Clear the custom prompt and follow the card or built-in default"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+      <p className="section-desc">
+        The core roleplay instructions. The character's details, your persona, world info, and
+        memory are appended automatically at run time.
+      </p>
+      <textarea
+        className="input w-full mt-3 font-mono text-[0.6875rem] leading-snug"
+        rows={8}
+        value={draft ?? shown}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <div className="flex items-center gap-2 mt-2">
+        <button
+          className="btn-primary text-[0.625rem] py-0.5 px-2"
+          disabled={!dirty}
+          onClick={() => {
+            const v = (draft ?? "").trim();
+            setDraft(null);
+            onSave(v === "" ? null : v);
+          }}
+        >
+          Save
+        </button>
+        <span className="text-[0.6875rem] text-faint ml-auto">{source}</span>
+      </div>
+    </div>
   );
 }
 

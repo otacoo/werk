@@ -1936,7 +1936,17 @@ async fn agent_send_impl(
         engine: runtime.engine.clone(),
         model: model.clone(),
         project: state.config.lock().unwrap().harness_active_project.clone(),
-        reasoning_effort: reasoning_effort.filter(|e| !e.is_empty()),
+        // Roleplay keeps its effort in the profile config; the agent picks it
+        // per send in the UI.
+        reasoning_effort: if roleplay {
+            app_config
+                .roleplay
+                .reasoning_effort
+                .clone()
+                .filter(|e| !e.trim().is_empty())
+        } else {
+            reasoning_effort.filter(|e| !e.is_empty())
+        },
         sampling,
         max_turns,
         context_limit,

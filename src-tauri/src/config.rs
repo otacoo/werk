@@ -90,6 +90,12 @@ pub struct RoleplayConfig {
     pub top_p: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repeat_penalty: Option<f32>,
+    /// Per-request reasoning effort override (model chat-template levels).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    /// Custom core roleplay prompt; None = card prompt or the built-in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
     /// Imported avatar image for the user's chat bubbles.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_avatar: Option<String>,
@@ -105,6 +111,8 @@ impl Default for RoleplayConfig {
             temperature: None,
             top_p: None,
             repeat_penalty: None,
+            reasoning_effort: None,
+            system_prompt: None,
             user_avatar: None,
         }
     }

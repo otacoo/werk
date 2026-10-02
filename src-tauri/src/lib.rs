@@ -157,6 +157,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         roleplay::set_roleplay_config,
         roleplay::roleplay_set_user_avatar,
         roleplay::roleplay_user_avatar,
+        roleplay::roleplay_system_prompt_default,
         chat::set_utility_target,
         chat::set_lsp_enabled,
         chat::set_agent_files_hidden,

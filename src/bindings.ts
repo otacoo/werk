@@ -90,6 +90,11 @@ export const commands = {
 	/**  The user's avatar as a data URL, when one is set. */
 	roleplayUserAvatar: () => typedError<string | null, string>(__TAURI_INVOKE("roleplay_user_avatar")),
 	/**
+	 *  The built-in roleplay prompt, shown when neither the card nor a custom
+	 *  override supplies one.
+	 */
+	roleplaySystemPromptDefault: () => typedError<string, string>(__TAURI_INVOKE("roleplay_system_prompt_default")),
+	/**
 	 *  Housekeeping model target (`provider:model`, `orchestrator`, `worker` or
 	 *  none); next run.
 	 */
@@ -1135,6 +1140,10 @@ export type RoleplayConfig_Deserialize = {
 	temperature?: number | null,
 	top_p?: number | null,
 	repeat_penalty?: number | null,
+	/**  Per-request reasoning effort override (model chat-template levels). */
+	reasoning_effort?: string | null,
+	/**  Custom core roleplay prompt; None = card prompt or the built-in. */
+	system_prompt?: string | null,
 	/**  Imported avatar image for the user's chat bubbles. */
 	user_avatar?: string | null,
 };
@@ -1151,6 +1160,10 @@ export type RoleplayConfig_Serialize = {
 	temperature?: number | null,
 	top_p?: number | null,
 	repeat_penalty?: number | null,
+	/**  Per-request reasoning effort override (model chat-template levels). */
+	reasoning_effort?: string | null,
+	/**  Custom core roleplay prompt; None = card prompt or the built-in. */
+	system_prompt?: string | null,
 	/**  Imported avatar image for the user's chat bubbles. */
 	user_avatar?: string | null,
 };
