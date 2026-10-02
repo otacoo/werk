@@ -1,0 +1,18 @@
+/* Night: the default dark theme (the :root tokens). */
+:root {
+  color-scheme: dark;
+  --accent: 0 120 215;
+  --accent-ink: 255 255 255;
+  --accent-soft: 76 163 232;
+  --border: 255 255 255 / 0.08;
+  --ink: 229 231 235;
+  --dim: 156 163 175;
+  --faint: 107 114 128;
+  --surface-0: 20 20 20;
+  --surface-1: 28 28 28;
+  --surface-2: 36 36 36;
+  --surface-3: 44 44 44;
+  --radius: 0px;
+  --scrollbar-thumb: 85 85 95;
+  --scrollbar-thumb-hover: 115 115 130;
+}

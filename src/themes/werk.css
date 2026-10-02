@@ -1,0 +1,79 @@
+/* Werk: warm sand and olive. */
+[data-theme="werk"] {
+  color-scheme: light;
+  --accent: 95 127 60;
+  --accent-soft: 74 107 45;
+  --accent-ink: 240 235 218;
+  --border: 102 107 94 / 0.35;
+  --ink: 45 42 33;
+  --dim: 102 96 79;
+  --faint: 135 128 108;
+  --surface-0: 217 208 180;
+  --surface-1: 229 221 198;
+  --surface-2: 211 202 174;
+  --surface-3: 200 190 161;
+  --scrollbar-thumb: 168 160 133;
+  --scrollbar-thumb-hover: 125 118 96;
+}
+
+/* Sand surfaces, olive highlights, soft brown shadow. */
+[data-theme="werk"] .card {
+  box-shadow: 0 2px 5px rgb(125 107 87 / 0.3);
+}
+
+/* Light code surface: GitHub-style palette. */
+[data-theme="werk"] .hljs-comment,
+[data-theme="werk"] .hljs-quote {
+  color: #6a737d;
+}
+[data-theme="werk"] .hljs-keyword,
+[data-theme="werk"] .hljs-selector-tag,
+[data-theme="werk"] .hljs-literal,
+[data-theme="werk"] .hljs-section,
+[data-theme="werk"] .hljs-link,
+[data-theme="werk"] .hljs-doctag {
+  color: #d73a49;
+}
+[data-theme="werk"] .hljs-string,
+[data-theme="werk"] .hljs-regexp,
+[data-theme="werk"] .hljs-template-tag,
+[data-theme="werk"] .hljs-template-variable {
+  color: #032f62;
+}
+[data-theme="werk"] .hljs-number,
+[data-theme="werk"] .hljs-symbol,
+[data-theme="werk"] .hljs-bullet,
+[data-theme="werk"] .hljs-meta {
+  color: #005cc5;
+}
+[data-theme="werk"] .hljs-title,
+[data-theme="werk"] .hljs-title.function_,
+[data-theme="werk"] .hljs-name,
+[data-theme="werk"] .hljs-built_in,
+[data-theme="werk"] .hljs-builtin-name {
+  color: #6f42c1;
+}
+[data-theme="werk"] .hljs-type,
+[data-theme="werk"] .hljs-class .hljs-title,
+[data-theme="werk"] .hljs-title.class_,
+[data-theme="werk"] .hljs-selector-class,
+[data-theme="werk"] .hljs-selector-id,
+[data-theme="werk"] .hljs-subst {
+  color: #005cc5;
+}
+[data-theme="werk"] .hljs-variable,
+[data-theme="werk"] .hljs-params,
+[data-theme="werk"] .hljs-property,
+[data-theme="werk"] .hljs-attr,
+[data-theme="werk"] .hljs-attribute {
+  color: #e36209;
+}
+[data-theme="werk"] .hljs-tag {
+  color: #22863a;
+}
+[data-theme="werk"] .hljs-addition {
+  color: #22863a;
+}
+[data-theme="werk"] .hljs-deletion {
+  color: #b31d28;
+}

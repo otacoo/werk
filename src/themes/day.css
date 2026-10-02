@@ -1,0 +1,71 @@
+/* Day: light surfaces. */
+[data-theme="day"] {
+  color-scheme: light;
+  --border: 0 0 0 / 0.12;
+  --ink: 17 24 39;
+  --dim: 75 85 99;
+  --faint: 156 163 175;
+  --surface-0: 249 250 251;
+  --surface-1: 255 255 255;
+  --surface-2: 243 244 246;
+  --surface-3: 229 231 235;
+  --scrollbar-thumb: 168 162 158;
+  --scrollbar-thumb-hover: 120 113 108;
+}
+
+/* Light code surface: GitHub-style palette. */
+[data-theme="day"] .hljs-comment,
+[data-theme="day"] .hljs-quote {
+  color: #6a737d;
+}
+[data-theme="day"] .hljs-keyword,
+[data-theme="day"] .hljs-selector-tag,
+[data-theme="day"] .hljs-literal,
+[data-theme="day"] .hljs-section,
+[data-theme="day"] .hljs-link,
+[data-theme="day"] .hljs-doctag {
+  color: #d73a49;
+}
+[data-theme="day"] .hljs-string,
+[data-theme="day"] .hljs-regexp,
+[data-theme="day"] .hljs-template-tag,
+[data-theme="day"] .hljs-template-variable {
+  color: #032f62;
+}
+[data-theme="day"] .hljs-number,
+[data-theme="day"] .hljs-symbol,
+[data-theme="day"] .hljs-bullet,
+[data-theme="day"] .hljs-meta {
+  color: #005cc5;
+}
+[data-theme="day"] .hljs-title,
+[data-theme="day"] .hljs-title.function_,
+[data-theme="day"] .hljs-name,
+[data-theme="day"] .hljs-built_in,
+[data-theme="day"] .hljs-builtin-name {
+  color: #6f42c1;
+}
+[data-theme="day"] .hljs-type,
+[data-theme="day"] .hljs-class .hljs-title,
+[data-theme="day"] .hljs-title.class_,
+[data-theme="day"] .hljs-selector-class,
+[data-theme="day"] .hljs-selector-id,
+[data-theme="day"] .hljs-subst {
+  color: #005cc5;
+}
+[data-theme="day"] .hljs-variable,
+[data-theme="day"] .hljs-params,
+[data-theme="day"] .hljs-property,
+[data-theme="day"] .hljs-attr,
+[data-theme="day"] .hljs-attribute {
+  color: #e36209;
+}
+[data-theme="day"] .hljs-tag {
+  color: #22863a;
+}
+[data-theme="day"] .hljs-addition {
+  color: #22863a;
+}
+[data-theme="day"] .hljs-deletion {
+  color: #b31d28;
+}

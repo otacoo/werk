@@ -1,0 +1,80 @@
+/* Gemma: sky blue, white surfaces, starlight gold highlights. */
+/* Gemma: sky blue, white surfaces, starlight gold highlights. */
+[data-theme="gemma"] {
+  color-scheme: light;
+  --accent: 47 143 216;
+  --accent-soft: 31 112 175;
+  --accent-ink: 255 255 255;
+  --border: 31 47 79 / 0.18;
+  --ink: 22 35 61;
+  --dim: 74 91 124;
+  --faint: 138 150 175;
+  --surface-0: 238 244 252;
+  --surface-1: 255 255 255;
+  --surface-2: 228 238 250;
+  --surface-3: 208 224 244;
+  --scrollbar-thumb: 150 170 200;
+  --scrollbar-thumb-hover: 110 135 175;
+}
+
+/* White cards over pale sky, soft azure shadow. */
+[data-theme="gemma"] .card {
+  box-shadow: 0 2px 6px rgb(47 84 130 / 0.16);
+}
+
+/* Light code surface: GitHub-style palette. */
+[data-theme="gemma"] .hljs-comment,
+[data-theme="gemma"] .hljs-quote {
+  color: #6a737d;
+}
+[data-theme="gemma"] .hljs-keyword,
+[data-theme="gemma"] .hljs-selector-tag,
+[data-theme="gemma"] .hljs-literal,
+[data-theme="gemma"] .hljs-section,
+[data-theme="gemma"] .hljs-link,
+[data-theme="gemma"] .hljs-doctag {
+  color: #d73a49;
+}
+[data-theme="gemma"] .hljs-string,
+[data-theme="gemma"] .hljs-regexp,
+[data-theme="gemma"] .hljs-template-tag,
+[data-theme="gemma"] .hljs-template-variable {
+  color: #032f62;
+}
+[data-theme="gemma"] .hljs-number,
+[data-theme="gemma"] .hljs-symbol,
+[data-theme="gemma"] .hljs-bullet,
+[data-theme="gemma"] .hljs-meta {
+  color: #005cc5;
+}
+[data-theme="gemma"] .hljs-title,
+[data-theme="gemma"] .hljs-title.function_,
+[data-theme="gemma"] .hljs-name,
+[data-theme="gemma"] .hljs-built_in,
+[data-theme="gemma"] .hljs-builtin-name {
+  color: #6f42c1;
+}
+[data-theme="gemma"] .hljs-type,
+[data-theme="gemma"] .hljs-class .hljs-title,
+[data-theme="gemma"] .hljs-title.class_,
+[data-theme="gemma"] .hljs-selector-class,
+[data-theme="gemma"] .hljs-selector-id,
+[data-theme="gemma"] .hljs-subst {
+  color: #005cc5;
+}
+[data-theme="gemma"] .hljs-variable,
+[data-theme="gemma"] .hljs-params,
+[data-theme="gemma"] .hljs-property,
+[data-theme="gemma"] .hljs-attr,
+[data-theme="gemma"] .hljs-attribute {
+  color: #e36209;
+}
+[data-theme="gemma"] .hljs-tag {
+  color: #22863a;
+}
+[data-theme="gemma"] .hljs-addition {
+  color: #22863a;
+}
+[data-theme="gemma"] .hljs-deletion {
+  color: #b31d28;
+}

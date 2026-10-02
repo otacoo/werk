@@ -346,20 +346,20 @@ export function ChatSidebar({ onProjectChanged, onSessionPicked, visible = true,
         onMouseDown={startDrag}
         title="Drag to resize"
       />
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border">
+      <div className="flex items-center justify-end gap-1.5 px-2 pt-2">
         <button
-          className={`transition-colors ${panel === "files" ? "text-ink" : "text-dim hover:text-ink"}`}
+          className={`p-1 rounded transition-colors ${panel === "files" ? "text-ink bg-accent/15" : "text-dim hover:text-ink hover:bg-accent/10"}`}
           onClick={() => onPanel(panel === "files" ? null : "files")}
           title={panel === "files" ? "Hide project files" : "Show project files"}
         >
-          <FolderTree size={13} />
+          <FolderTree size={15} />
         </button>
         <button
-          className={`transition-colors ${panel === "terminal" ? "text-ink" : "text-dim hover:text-ink"}`}
+          className={`p-1 rounded transition-colors ${panel === "terminal" ? "text-ink bg-accent/15" : "text-dim hover:text-ink hover:bg-accent/10"}`}
           onClick={() => onPanel(panel === "terminal" ? null : "terminal")}
           title={panel === "terminal" ? "Hide terminal" : "Open a terminal in the project folder"}
         >
-          <SquareTerminal size={13} />
+          <SquareTerminal size={15} />
         </button>
       </div>
       <div className="p-3 border-b border-border">

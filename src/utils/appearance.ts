@@ -1,7 +1,7 @@
 //! UI-only appearance prefs (localStorage): theme, accent, font, corners.
 //! Applied as data attributes; components use semantic tokens.
 
-export type ThemeName = "system" | "day" | "night" | "werk" | "gemma" | "migu";
+export type ThemeName = "system" | "day" | "night" | "werk" | "gemma" | "migu" | "nerv";
 export type AccentName = "blue" | "violet" | "red" | "green" | "amber";
 export type CornersMode = "auto" | "sharp" | "round";
 export type FontSizeName = "compact" | "default" | "large" | "xlarge";
@@ -254,7 +254,7 @@ function applyAppearance(): void {
 }
 
 export function loadAppearance(autoDetectedCorners?: "sharp" | "round"): void {
-  theme = read(THEME_KEY, "system", ["system", "day", "night", "werk", "gemma", "migu"]);
+  theme = read(THEME_KEY, "system", ["system", "day", "night", "werk", "gemma", "migu", "nerv"]);
   accent = read(ACCENT_KEY, "blue", Object.keys(ACCENTS));
   corners = read(CORNERS_KEY, "auto", ["auto", "sharp", "round"]);
   font = read(FONT_KEY, "default", Object.keys(FONT_SIZES));

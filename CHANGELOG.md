@@ -6,6 +6,8 @@
 
 ### Added
 
+- NERV theme: black surfaces, orange ink, red alerts, and a green gradient
+  sweeping along card borders — old computer graphics.
 - Embedded project terminal in the Chat (icon button at the top of the
   sidebar, next to the file-tree one): commands run in the project folder
   with streamed output, a tracked `cd`, Up/Down history, a stop button, and a
@@ -45,9 +47,13 @@
 
 ### Changed
 
+- Themes are one CSS file each under `src/themes/` (tokens, shadows and
+  syntax colors together), so a new theme is a single file plus its entry in
+  the theme list.
 - The Files toggle moved from the chat header to the top of the sidebar
-  (icon-only, with tooltips), and the "Show file tree" Settings option is
-  gone — the panel is always available and remembers whether it was open.
+  (icon-only, with tooltips, right-aligned and larger), and the "Show file
+  tree" Settings option is gone — the panel is always available and remembers
+  whether it was open.
 - Removed the Chat composer's "edit the draft in your system editor" button —
   the scratch-file round-trip earned less than the space it took.
 - Agent settings moved out of the Settings menu into their own header tab,
