@@ -412,21 +412,46 @@ impl Tool for SearchContentTool {
 // ── exec ──────────────────────────────────────────────────────────────────
 
 /// Read-only shell heads run free; everything else needs approval.
+/// Metacharacters that can redirect, chain, or substitute always need
+/// approval — `echo hi > .werk/plugins/.../plugin.json` is not a read.
 fn command_is_readonly(command: &str) -> bool {
     let head = command.trim_start().to_lowercase();
-    let first = head.split_whitespace().next().unwrap_or("");
-    // PowerShell verbs and POSIX tools that only inspect.
+    if head.is_empty() {
+        return false;
+    }
+    const MUTATORS: &[&str] = &[">", "|", ";", "&&", "&", "`", "$(", "\n", "\r"];
+    if MUTATORS.iter().any(|m| head.contains(m)) {
+        return false;
+    }
+    let mut parts = head.split_whitespace();
+    let first = parts.next().unwrap_or("");
+    if first == "git" {
+        let rest: Vec<&str> = parts.collect();
+        let sub = rest.first().copied().unwrap_or("");
+        // Write/exec flags hidden inside otherwise read-only subcommands.
+        if rest
+            .iter()
+            .any(|a| a.starts_with("--output") || a.starts_with("--ext-diff"))
+        {
+            return false;
+        }
+        return match sub {
+            "status" | "log" | "diff" | "show" | "ls-files" | "rev-parse" => true,
+            // Listing only: every later token must be a flag.
+            "branch" => rest[1..].iter().all(|a| a.starts_with('-')),
+            "remote" => rest
+                .get(1)
+                .map(|a| a.starts_with('-') || *a == "show" || *a == "get-url")
+                .unwrap_or(true),
+            _ => false,
+        };
+    }
+    // PowerShell verbs and POSIX tools that only inspect; with no
+    // metacharacters left there is no way for them to write.
     const READONLY: &[&str] = &[
         "get-childitem", "get-content", "select-string", "get-location", "get-date",
-        "ls", "dir", "cat", "pwd", "echo", "printf", "git",
+        "ls", "dir", "cat", "pwd", "echo", "printf",
     ];
-    if first == "git" {
-        // Only plumbing/status reads; pushes, commits, checkouts need approval.
-        return matches!(
-            head.split_whitespace().nth(1).unwrap_or(""),
-            "status" | "log" | "diff" | "show" | "branch" | "ls-files" | "rev-parse" | "remote"
-        );
-    }
     READONLY.contains(&first)
 }
 
@@ -1084,6 +1109,18 @@ mod tests {
         let exec = reg.get("exec").unwrap();
         assert!(exec.approval_key(&json!({"command": "git status"})).is_none());
         assert!(exec.approval_key(&json!({"command": "cargo test"})).is_some());
+        // Metacharacters can turn any read into a write or a chain.
+        assert!(exec.approval_key(&json!({"command": "echo hi > f.txt"})).is_some());
+        assert!(exec.approval_key(&json!({"command": "ls; rm -rf x"})).is_some());
+        assert!(exec.approval_key(&json!({"command": "Get-Content a | Out-File b"})).is_some());
+        // Mutating git forms hide inside "read" subcommands.
+        assert!(exec.approval_key(&json!({"command": "git remote add origin u"})).is_some());
+        assert!(exec.approval_key(&json!({"command": "git branch -D feature"})).is_some());
+        assert!(exec.approval_key(&json!({"command": "git log --output=log.txt"})).is_some());
+        assert!(exec.approval_key(&json!({"command": "git diff --ext-diff"})).is_some());
+        // Listing forms stay free.
+        assert!(exec.approval_key(&json!({"command": "git branch -a"})).is_none());
+        assert!(exec.approval_key(&json!({"command": "git remote -v"})).is_none());
         // Read-only commands run (failure text still returns Ok).
         let out = exec.execute(&json!({"command": "echo hello"})).unwrap();
         assert!(out.contains("hello"));

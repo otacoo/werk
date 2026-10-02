@@ -345,6 +345,18 @@ function MemoryCard() {
             <p className="text-[0.625rem] text-faint truncate font-mono">{f?.path ?? ""}</p>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            {f?.backup !== undefined && (
+              <button
+                className="btn-ghost text-[0.625rem] py-0.5 px-1.5"
+                title="Load the pre-distill backup into the editor (Save to apply)"
+                onClick={() => {
+                  setDrafts((d) => ({ ...d, [scope]: f?.backup ?? "" }));
+                  setDirty((d) => ({ ...d, [scope]: true }));
+                }}
+              >
+                Restore backup
+              </button>
+            )}
             {f?.path && (
               <button
                 className="btn-ghost text-[0.625rem] py-0.5 px-1.5"

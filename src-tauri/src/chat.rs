@@ -3096,6 +3096,9 @@ pub struct MemoryFileDto {
     pub path: String,
     pub exists: bool,
     pub text: String,
+    /// Pre-`/distill` copy, when one exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup: Option<String>,
 }
 
 fn memory_file(scope: &str, state: &AppState) -> Result<MemoryFileDto, String> {
@@ -3110,11 +3113,13 @@ fn memory_file(scope: &str, state: &AppState) -> Result<MemoryFileDto, String> {
         _ => return Err("Unknown memory scope".to_string()),
     };
     let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let backup = std::fs::read_to_string(path.with_extension("md.bak")).ok();
     Ok(MemoryFileDto {
         scope: scope.into(),
         path: path.to_string_lossy().to_string(),
         exists: path.exists(),
         text,
+        backup,
     })
 }
 

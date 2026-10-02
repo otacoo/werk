@@ -4,6 +4,13 @@
 
 ### Changed
 
+- The agent can no longer write its own tool or skill definitions: project
+  `.werk/plugins` and `.werk/skills` are read-only to the file tools, so a
+  model cannot add a tool — or a no-approval plugin — to its next run.
+- `exec`'s free read-only path is stricter: shell metacharacters
+  (redirection, pipes, chaining, substitution) and mutating git forms
+  (`git remote add`, `git branch -D`, `--output`, `--ext-diff`) now require
+  approval.
 - "New plugin" scaffolds into the global plugins folder (the one the Tools
   page lists) instead of the active project's `.werk/plugins/`, so it works
   without a project open.
@@ -26,6 +33,8 @@
 
 ### Added
 
+- Settings → Memory shows "Restore backup" when `/distill` left a
+  `MEMORY.md.bak`, so a bad coalesce is one click from recovery.
 - Tool authoring: "New plugin" in Tools → Agent → Plugin tools scaffolds a
   commented plugin (manifest + script) in the active project's
   `.werk/plugins/` and opens it in your editor; a plugin can also be a single

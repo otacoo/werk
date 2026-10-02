@@ -5,6 +5,10 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{bail, Result};
 
+/// Directories the agent may read but never write: its own tool and skill
+/// definitions, so a model can never add a tool to its own next run.
+const PROTECTED_WRITE: &[&str] = &[".werk/plugins", ".werk/skills"];
+
 /// Sandboxed root plus extra read-only roots (never writable).
 #[derive(Debug, Clone)]
 pub struct PathJail {
@@ -74,6 +78,13 @@ impl PathJail {
         };
         if self.extra_read.iter().any(|r| under(r, &p)) {
             bail!("Path is read-only: {rel}");
+        }
+        for protected in PROTECTED_WRITE {
+            if under(&self.root.join(protected), &p) {
+                bail!(
+                    "Path is protected: tool and skill definitions are user-authored ({rel})"
+                );
+            }
         }
         Ok(p)
     }
@@ -214,6 +225,19 @@ mod tests {
         let (dir, canon, jail) = jail("case");
         let shouty = format!("{}\\SUB\\A.TXT", canon.to_string_lossy().to_uppercase());
         assert!(jail.check_write(&shouty).is_ok(), "{shouty}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tool_and_skill_definitions_are_write_protected() {
+        let (dir, _, jail) = jail("protect");
+        assert!(jail.check_write(".werk/plugins/x/plugin.json").is_err());
+        assert!(jail.check_write(".werk/skills/s.md").is_err());
+        assert!(jail.check_write(".werk/plugins").is_err());
+        // Reading them is fine, and the rest of `.werk` stays writable.
+        assert!(jail.check_read(".werk/plugins/x/plugin.json").is_ok());
+        assert!(jail.check_write(".werk/MEMORY.md").is_ok());
+        assert!(jail.check_write(".werk/notes.txt").is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

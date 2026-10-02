@@ -99,7 +99,7 @@ export const commands = {
 	/**  Read back the scratch file after external editing. */
 	readDraftFile: () => typedError<string, string>(__TAURI_INVOKE("read_draft_file")),
 	skillsList: () => typedError<SkillDto[], string>(__TAURI_INVOKE("skills_list")),
-	harnessMemoryGet: (scope: string) => typedError<MemoryFileDto, string>(__TAURI_INVOKE("harness_memory_get", { scope })),
+	harnessMemoryGet: (scope: string) => typedError<MemoryFileDto_Serialize, string>(__TAURI_INVOKE("harness_memory_get", { scope })),
 	harnessMemorySet: (scope: string, text: string) => typedError<null, string>(__TAURI_INVOKE("harness_memory_set", { scope, text })),
 	/**  Platform idiom for corner/shape theming (no inputs needed). */
 	getPlatformStyle: () => typedError<PlatformStyle, string>(__TAURI_INVOKE("get_platform_style")),
@@ -716,11 +716,26 @@ export type MemoryEstimate = {
 };
 
 /**  One editable memory file: where it lives and what it says. */
-export type MemoryFileDto = {
+export type MemoryFileDto = MemoryFileDto_Serialize | MemoryFileDto_Deserialize;
+
+/**  One editable memory file: where it lives and what it says. */
+export type MemoryFileDto_Deserialize = {
 	scope: string,
 	path: string,
 	exists: boolean,
 	text: string,
+	/**  Pre-`/distill` copy, when one exists. */
+	backup?: string | null,
+};
+
+/**  One editable memory file: where it lives and what it says. */
+export type MemoryFileDto_Serialize = {
+	scope: string,
+	path: string,
+	exists: boolean,
+	text: string,
+	/**  Pre-`/distill` copy, when one exists. */
+	backup?: string | null,
 };
 
 /**
