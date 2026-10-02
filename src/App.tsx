@@ -54,6 +54,20 @@ const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "webui", label: "WebUI", icon: Globe },
 ];
 
+/// A tab is only valid for the active profile; anything else falls back to the
+/// profile's own chat surface (or Dashboard) so hidden pages never paint.
+function visibleTab(t: Tab, profile: Profile, externalMode: boolean): Tab {
+  if (profile === "agent") return t === "talk" || t === "roleplay" ? "chat" : t;
+  if (profile === "webui") {
+    if (t === "webui") return externalMode ? "dashboard" : t;
+    if (t === "chat" || t === "agent" || t === "talk" || t === "roleplay") {
+      return externalMode ? "dashboard" : "webui";
+    }
+    return t;
+  }
+  return t === "chat" || t === "agent" || t === "tools" ? "talk" : t;
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -126,20 +140,11 @@ export default function App() {
     [],
   );
 
-  // A profile change hides tabs; move off any tab that is no longer shown.
+  // Every visible tab must belong to the active profile: pages navigate with
+  // hard-coded tab ids, so re-check on tab changes too, not just profile flips.
   useEffect(() => {
-    setTab((t) => {
-      if (profile === "agent") return t === "talk" || t === "roleplay" ? "chat" : t;
-      if (profile === "webui") {
-        if (t === "webui") return externalMode ? "dashboard" : t;
-        if (t === "chat" || t === "agent" || t === "talk" || t === "roleplay") {
-          return externalMode ? "dashboard" : "webui";
-        }
-        return t;
-      }
-      return t === "chat" || t === "agent" || t === "tools" ? "talk" : t;
-    });
-  }, [profile, externalMode]);
+    setTab((t) => visibleTab(t, profile, externalMode));
+  }, [tab, profile, externalMode]);
 
   // The window starts hidden; reveal it as soon as the first screen is ready
   // (or after a fallback delay) so startup never shows a blank frame.
@@ -157,6 +162,8 @@ export default function App() {
 
   if (wizard === null) return null;
   if (wizard) return <Wizard onDone={() => setWizard(false)} />;
+
+  const shownTab = visibleTab(tab, profile, externalMode);
 
   return (
     <div className="h-screen overflow-hidden bg-surface-0 text-ink flex flex-col border border-border">
@@ -213,8 +220,8 @@ export default function App() {
                       closeSettings();
                     }}
                     className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${
-                      tab === id ? "bg-accent/20" : "hover:bg-accent/10"
-                    } ${highlight ?? (tab === id ? "text-ink" : "text-dim hover:text-ink")}`}
+                      shownTab === id ? "bg-accent/20" : "hover:bg-accent/10"
+                    } ${highlight ?? (shownTab === id ? "text-ink" : "text-dim hover:text-ink")}`}
                   >
                     <Icon size={13} fill={filled ? "currentColor" : "none"} />
                     {label}
@@ -240,35 +247,35 @@ export default function App() {
       <main className="flex-1 min-w-0 min-h-0 relative">
         {/* Chat, Run, Dashboard, Tools and Mode stay mounted off-tab: stream,
             launch, download and form state survive switches. */}
-        <div className="h-full min-h-0" style={{ display: tab === "chat" ? undefined : "none" }}>
-          <Chat go={setTab} active={tab === "chat"} />
+        <div className="h-full min-h-0" style={{ display: shownTab === "chat" ? undefined : "none" }}>
+          <Chat go={setTab} active={shownTab === "chat"} />
         </div>
-        <div className="h-full min-h-0" style={{ display: tab === "talk" ? undefined : "none" }}>
-          <Talk go={setTab} active={tab === "talk"} />
+        <div className="h-full min-h-0" style={{ display: shownTab === "talk" ? undefined : "none" }}>
+          <Talk go={setTab} active={shownTab === "talk"} />
         </div>
-        <div className="h-full min-h-0" style={{ display: tab === "webui" ? undefined : "none" }}>
-          <WebUI go={setTab} active={tab === "webui"} />
+        <div className="h-full min-h-0" style={{ display: shownTab === "webui" ? undefined : "none" }}>
+          <WebUI go={setTab} active={shownTab === "webui"} />
         </div>
-        <div className="h-full min-h-0" style={{ display: tab === "run" ? undefined : "none" }}>
+        <div className="h-full min-h-0" style={{ display: shownTab === "run" ? undefined : "none" }}>
           <Run go={setTab} />
         </div>
-        <div className="h-full min-h-0" style={{ display: tab === "dashboard" ? undefined : "none" }}>
+        <div className="h-full min-h-0" style={{ display: shownTab === "dashboard" ? undefined : "none" }}>
           <Dashboard go={setTab} />
         </div>
-        {tab === "bench" && showBench && <Bench />}
-        <div className="h-full min-h-0" style={{ display: tab === "tools" ? undefined : "none" }}>
-          <Tools active={tab === "tools"} />
+        {shownTab === "bench" && showBench && <Bench />}
+        <div className="h-full min-h-0" style={{ display: shownTab === "tools" ? undefined : "none" }}>
+          <Tools active={shownTab === "tools"} />
         </div>
-        <div className="h-full min-h-0" style={{ display: tab === "agent" ? undefined : "none" }}>
-          <Agent active={tab === "agent"} />
+        <div className="h-full min-h-0" style={{ display: shownTab === "agent" ? undefined : "none" }}>
+          <Agent active={shownTab === "agent"} />
         </div>
-        <div className="h-full min-h-0" style={{ display: tab === "roleplay" ? undefined : "none" }}>
+        <div className="h-full min-h-0" style={{ display: shownTab === "roleplay" ? undefined : "none" }}>
           <Roleplay go={(t) => setTab(t)} />
         </div>
-        <div className="h-full min-h-0" style={{ display: tab === "mode" ? undefined : "none" }}>
+        <div className="h-full min-h-0" style={{ display: shownTab === "mode" ? undefined : "none" }}>
           <Mode go={(t) => setTab(t)} />
         </div>
-        {tab === "api" && <Api />}
+        {shownTab === "api" && <Api />}
         <SettingsPanel
           open={settingsOpen}
           onClose={closeSettings}
