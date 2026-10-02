@@ -35,11 +35,23 @@ const EMPTY: RP = {
   system_prompt: null,
 };
 
-/// Template levels for the effort select, keeping a stored value the current
-/// template no longer lists so it stays visible until changed.
-function levelsOf(opts: ReasoningOptions, stored: string | null): string[] {
-  if (stored && !opts.levels.includes(stored)) return [...opts.levels, stored];
-  return opts.levels;
+/// Standard llama.cpp effort levels, used when the template declares none.
+const EFFORT_CHOICES = ["minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// Levels for the effort select: the template's own when it declares any,
+/// otherwise the standard set, plus a stored value the template no longer
+/// lists so it stays visible until changed.
+function levelsOf(opts: ReasoningOptions | null, stored: string | null): string[] {
+  const template = opts?.levels ?? [];
+  const out =
+    template.length === 0
+      ? [...EFFORT_CHOICES]
+      : [
+          ...EFFORT_CHOICES.filter((l) => template.includes(l)),
+          ...template.filter((l) => !EFFORT_CHOICES.includes(l)),
+        ];
+  if (stored && !out.includes(stored)) out.push(stored);
+  return out;
 }
 
 export default function Roleplay({ go }: { go: (t: Tab) => void }) {
@@ -383,25 +395,22 @@ export default function Roleplay({ go }: { go: (t: Tab) => void }) {
                   onCommit={(v) => save({ repeat_penalty: v })}
                 />
               </div>
-              {reasoningOpts?.supported &&
-                (reasoningOpts.levels.length > 0 || rp.reasoning_effort) && (
-                  <label className="block mt-3">
-                    <span className="text-[0.6875rem] text-dim">Reasoning effort</span>
-                    <select
-                      className="input w-full mt-1"
-                      value={rp.reasoning_effort ?? ""}
-                      onChange={(e) => save({ reasoning_effort: e.target.value || null })}
-                      title="Levels come from the loaded model's chat template"
-                    >
-                      <option value="">Default</option>
-                      {levelsOf(reasoningOpts, rp.reasoning_effort).map((level) => (
-                        <option key={level} value={level}>
-                          {EFFORT_LABELS[level] ?? level}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
+              <label className="block mt-3">
+                <span className="text-[0.6875rem] text-dim">Reasoning effort</span>
+                <select
+                  className="input w-full mt-1"
+                  value={rp.reasoning_effort ?? ""}
+                  onChange={(e) => save({ reasoning_effort: e.target.value || null })}
+                  title="Levels the model's chat template accepts, plus the standard llama.cpp levels"
+                >
+                  <option value="">Default</option>
+                  {levelsOf(reasoningOpts, rp.reasoning_effort).map((level) => (
+                    <option key={level} value={level}>
+                      {EFFORT_LABELS[level] ?? level}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             <SystemPromptCard

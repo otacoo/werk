@@ -14,7 +14,7 @@
 - The Tools page follows mode/profile changes, and profile switches move between Chat and Talk immediately.
 - Chat shortcuts on the Dashboard and Run open Talk in the roleplay profile instead of leaving the Chat page visible.
 - Talk reloads the user avatar after an import or clear, without needing a restart.
-- Roleplay's Generation settings card gains a reasoning-effort picker sourced from the model's chat template.
+- Roleplay's Generation settings card always offers a reasoning-effort picker: the model's template levels when it declares any, the standard llama.cpp levels otherwise.
 - Roleplay gets an editable System prompt card that falls back to the card's prompt or the built-in default, and the You card moves beside Characters.
 - ask_user answer options can carry an optional description shown under the title.
 - Sending now starts the local server on demand; the Local server card keeps only the idle unload.
