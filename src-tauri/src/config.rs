@@ -246,6 +246,9 @@ pub struct AppConfig {
     /// Agent tool names the harness must not offer; empty enables all.
     #[serde(default)]
     pub agent_tools_disabled: Vec<String>,
+    /// Hide `AGENTS.md`/`.agent*` files from every agent tool when set.
+    #[serde(default)]
+    pub agent_files_hidden: bool,
     /// stdio language servers by name; None seeds the defaults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lsp_servers: Option<Vec<LspServerConfig>>,
@@ -350,6 +353,7 @@ impl Default for AppConfig {
             lsp_servers: Some(default_lsp_servers()),
             server_mode: ServerMode::Single,
             agent_tools_disabled: Vec::new(),
+            agent_files_hidden: false,
             harness_roles: Default::default(),
             providers: Vec::new(),
             external_target: None,

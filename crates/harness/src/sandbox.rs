@@ -9,11 +9,24 @@ use anyhow::{bail, Result};
 /// definitions, so a model can never add a tool to its own next run.
 const PROTECTED_WRITE: &[&str] = &[".werk/plugins", ".werk/skills"];
 
+/// `AGENTS.md` (any case) and `.agent*` names: the agent's own instruction
+/// files, hidden from every tool when the user turns them off.
+fn is_agent_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| {
+            let lower = n.to_ascii_lowercase();
+            lower == "agents.md" || lower.starts_with(".agent")
+        })
+        .unwrap_or(false)
+}
+
 /// Sandboxed root plus extra read-only roots (never writable).
 #[derive(Debug, Clone)]
 pub struct PathJail {
     root: PathBuf,
     extra_read: Vec<PathBuf>,
+    hide_agent_files: bool,
 }
 
 impl PathJail {
@@ -27,11 +40,23 @@ impl PathJail {
         Ok(Self {
             root,
             extra_read: extra_read.iter().map(|p| strip_verbatim(p.clone())).collect(),
+            hide_agent_files: false,
         })
     }
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Hide `AGENTS.md`/`.agent*` files from every tool path when set.
+    pub fn hide_agent_files(mut self, hide: bool) -> Self {
+        self.hide_agent_files = hide;
+        self
+    }
+
+    /// True when this path is an agent file the jail currently hides.
+    pub fn hides(&self, path: &Path) -> bool {
+        self.hide_agent_files && is_agent_file(path)
     }
 
     /// Lexical join: `..` above the root is an error, never an escape.
@@ -63,10 +88,15 @@ impl PathJail {
         }
         // Absolute paths are accepted inside the root (or an extra root here).
         let p = Path::new(rel);
-        if p.is_absolute() {
-            return self.absolute(p, false);
+        let p = if p.is_absolute() {
+            self.absolute(p, false)?
+        } else {
+            self.join(rel)?
+        };
+        if self.hides(&p) {
+            bail!("Agent files are hidden (Tools → Agent): {rel}");
         }
-        self.join(rel)
+        Ok(p)
     }
 
     pub fn check_write(&self, rel: &str) -> Result<PathBuf> {
@@ -76,6 +106,9 @@ impl PathJail {
         } else {
             self.join(rel)?
         };
+        if self.hides(&p) {
+            bail!("Agent files are hidden (Tools → Agent): {rel}");
+        }
         if self.extra_read.iter().any(|r| under(r, &p)) {
             bail!("Path is read-only: {rel}");
         }
@@ -225,6 +258,21 @@ mod tests {
         let (dir, canon, jail) = jail("case");
         let shouty = format!("{}\\SUB\\A.TXT", canon.to_string_lossy().to_uppercase());
         assert!(jail.check_write(&shouty).is_ok(), "{shouty}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn agent_files_can_be_hidden() {
+        let (dir, _, jail) = jail("agentfiles");
+        let hidden = jail.clone().hide_agent_files(true);
+        assert!(hidden.check_read("AGENTS.md").is_err());
+        assert!(hidden.check_read("sub/.agent").is_err());
+        assert!(hidden.check_write("AGENTS.md").is_err());
+        assert!(hidden.hides(&dir.join(".agentrc")));
+        assert!(!hidden.hides(&dir.join("src/main.rs")));
+        // Visible by default, and other files are unaffected.
+        assert!(jail.check_read("AGENTS.md").is_ok());
+        assert!(hidden.check_read("src/notes.md").is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

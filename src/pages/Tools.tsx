@@ -5,6 +5,7 @@ import {
   Bot,
   CheckCircle2,
   ExternalLink,
+  FileCode,
   FolderOpen,
   Globe,
   Pencil,
@@ -22,7 +23,7 @@ import type { McpServerEntry, McpServerStatus, ServerStatus, ServerToolInfo } fr
 import { call } from "../utils/ipc";
 import { useAppConfig } from "../utils/useAppConfig";
 import Toggle from "../components/Toggle";
-import { AgentToolsCard, LspCard, PluginToolsCard, useToolsList } from "../components/ToolSettings";
+import { AgentFilesCard, AgentToolsCard, LspCard, PluginToolsCard, useToolsList } from "../components/ToolSettings";
 import { KNOWN_TOOLS, toolsArgValue } from "../utils/tools";
 
 const emptyEntry = (): McpServerEntry => ({
@@ -72,11 +73,13 @@ export default function Tools({ active = true }: { active?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   // Live = what the running server and agent MCP servers currently offer;
   // Agent = run by werk; Server = run by llama-server for WebUI/API clients.
-  const [pane, setPane] = useState<"live" | "agent" | "server" | "mcp">(() => {
+  const [pane, setPane] = useState<"live" | "agent" | "server" | "mcp" | "lsp">(() => {
     const saved = localStorage.getItem("werk.tools.pane");
-    return saved === "live" || saved === "server" || saved === "mcp" ? saved : "agent";
+    return saved === "live" || saved === "server" || saved === "mcp" || saved === "lsp"
+      ? saved
+      : "agent";
   });
-  const switchPane = (p: "live" | "agent" | "server" | "mcp") => {
+  const switchPane = (p: "live" | "agent" | "server" | "mcp" | "lsp") => {
     setPane(p);
     localStorage.setItem("werk.tools.pane", p);
   };
@@ -368,6 +371,7 @@ export default function Tools({ active = true }: { active?: boolean }) {
               { id: "agent" as const, label: "Agent", icon: Bot },
               { id: "server" as const, label: "Server", icon: Server },
               { id: "mcp" as const, label: "MCP", icon: Plug },
+              { id: "lsp" as const, label: "LSP", icon: FileCode },
             ]
           ).map(({ id, label, icon: Icon }) => (
             <button
@@ -386,11 +390,10 @@ export default function Tools({ active = true }: { active?: boolean }) {
         {pane === "agent" && (
           <>
             <AgentToolsCard builtin={toolsList.builtin} reload={toolsList.reload} />
-            <LspCard
+            <AgentFilesCard
               appConfig={appConfig}
               setAppConfig={setAppConfig}
               refresh={refreshConfig}
-              reloadTools={toolsList.reload}
             />
             <PluginToolsCard
               plugins={toolsList.plugins}
@@ -400,6 +403,15 @@ export default function Tools({ active = true }: { active?: boolean }) {
               reload={toolsList.reload}
             />
           </>
+        )}
+
+        {pane === "lsp" && (
+          <LspCard
+            appConfig={appConfig}
+            setAppConfig={setAppConfig}
+            refresh={refreshConfig}
+            reloadTools={toolsList.reload}
+          />
         )}
 
         {pane === "server" && mode === "external" && (

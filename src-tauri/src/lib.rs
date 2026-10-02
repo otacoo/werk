@@ -134,6 +134,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::set_system_prompt_presets,
         chat::set_utility_target,
         chat::set_lsp_enabled,
+        chat::set_agent_files_hidden,
         chat::set_agent_tool_enabled,
         chat::set_lsp_servers,
         chat::reset_lsp_servers,

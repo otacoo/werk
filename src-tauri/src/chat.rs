@@ -143,6 +143,7 @@ struct PromptTools {
     remember: bool,
     ask_user: bool,
     spawn_subagent: bool,
+    get_time: bool,
 }
 
 impl PromptTools {
@@ -158,6 +159,7 @@ impl PromptTools {
             remember: true,
             ask_user: true,
             spawn_subagent: true,
+            get_time: true,
         }
     }
 
@@ -173,6 +175,7 @@ impl PromptTools {
             remember: on("remember"),
             ask_user: on("ask_user"),
             spawn_subagent: on("spawn_subagent"),
+            get_time: on("get_time"),
         }
     }
 }
@@ -272,6 +275,13 @@ fn system_prompt_for(
             "When you genuinely need the user's input to proceed — an ambiguous requirement, a fork in \
              the plan — ask one focused multiple-choice question with the ask_user tool (2-4 options); \
              never ask about facts you can look up yourself."
+                .to_string(),
+        );
+    }
+    if tools.get_time {
+        parts.push(
+            "Call get_time before date-sensitive work — search queries, releases, anything \
+             'latest' — so results aren't anchored to training-time dates."
                 .to_string(),
         );
     }
@@ -1202,11 +1212,14 @@ pub async fn harness_agent_send(
 
     load_permission_grants(&state);
     let root = project_root(&state).map_err(|e| e.to_string())?;
-    let jail = Arc::new(
-        PathJail::new(&root, &[]).map_err(|e| e.to_string())?,
-    );
     let global_base = global_base_dir();
     let app_config = state.config.lock().unwrap().clone();
+    // The jail can hide the agent's own instruction files from every tool.
+    let jail = Arc::new(
+        PathJail::new(&root, &[])
+            .map_err(|e| e.to_string())?
+            .hide_agent_files(app_config.agent_files_hidden),
+    );
     let disabled = app_config.plugin_disabled.clone();
     let lsp = app_config.lsp_enabled.then(|| state.lsp.clone());
     // MCP tools run in the harness (all modes): spawn servers once, reuse the
@@ -2777,6 +2790,15 @@ fn utility_target_client(
     Some((server_client(port, state), model))
 }
 
+/// Hide or show `AGENTS.md`/`.agent*` files for every agent tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_agent_files_hidden(hidden: bool, state: State<'_, AppState>) -> Result<(), String> {
+    let mut config = state.config.lock().unwrap();
+    config.agent_files_hidden = hidden;
+    config.save().map_err(|e| e.to_string())
+}
+
 /// Toggle language-server diagnostics and the `lsp` tool for the next run.
 #[tauri::command]
 #[specta::specta]
@@ -3241,7 +3263,7 @@ mod tests {
 
     #[test]
     fn disabled_tools_leave_the_prompt() {
-        let disabled: Vec<String> = ["remember", "ask_user", "spawn_subagent"]
+        let disabled: Vec<String> = ["remember", "ask_user", "spawn_subagent", "get_time"]
             .iter()
             .map(|s| s.to_string())
             .collect();
@@ -3253,6 +3275,7 @@ mod tests {
         assert!(!prompt.contains("remember tool"), "{prompt}");
         assert!(!prompt.contains("ask_user"), "{prompt}");
         assert!(!prompt.contains("subagent"), "{prompt}");
+        assert!(!prompt.contains("get_time"), "{prompt}");
         // Remaining tools stay named.
         assert!(prompt.contains("read_file to read"), "{prompt}");
         assert!(prompt.contains("exec"), "{prompt}");

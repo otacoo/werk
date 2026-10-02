@@ -258,6 +258,50 @@ fn heal_trailing_whitespace(text: &str, search: &str, replace: &str) -> Result<(
     Ok((joined, " (ignoring trailing whitespace)"))
 }
 
+// ── get_time ──────────────────────────────────────────────────────────────
+
+/// Current UTC time; dependency-free like the memory dates. Date-sensitive
+/// work (search queries, "latest" questions) should check it first.
+pub struct TimeTool;
+
+impl TimeTool {
+    pub fn now_utc() -> String {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let days = secs / 86_400;
+        let weekday = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+            [((days + 4) % 7) as usize];
+        format!(
+            "{} {:02}:{:02} UTC ({weekday})",
+            crate::memory::today_iso(),
+            (secs % 86_400) / 3600,
+            (secs % 3600) / 60
+        )
+    }
+}
+
+impl Tool for TimeTool {
+    fn name(&self) -> String {
+        "get_time".to_string()
+    }
+    fn description(&self) -> String {
+        "Current date and time in UTC, with the weekday. Use it before date-sensitive work \
+         (search queries, releases, anything 'latest')."
+            .to_string()
+    }
+    fn parameters(&self) -> Value {
+        json!({"type": "object", "properties": {}})
+    }
+    fn approval_key(&self, _args: &Value) -> Option<ApprovalKey> {
+        None
+    }
+    fn execute(&self, _args: &Value) -> Result<String> {
+        Ok(Self::now_utc())
+    }
+}
+
 // ── find_files ────────────────────────────────────────────────────────────
 
 fn ignored_dir(name: &str) -> bool {
@@ -296,7 +340,8 @@ impl Tool for FindFilesTool {
         for entry in walkdir::WalkDir::new(self.jail.root())
             .into_iter()
             .filter_entry(|e| {
-                e.file_name().to_str().map(|n| !ignored_dir(n)).unwrap_or(true)
+                !self.jail.hides(e.path())
+                    && e.file_name().to_str().map(|n| !ignored_dir(n)).unwrap_or(true)
             })
             .flatten()
         {
@@ -364,7 +409,8 @@ impl Tool for SearchContentTool {
         for entry in walkdir::WalkDir::new(self.jail.root())
             .into_iter()
             .filter_entry(|e| {
-                e.file_name().to_str().map(|n| !ignored_dir(n)).unwrap_or(true)
+                !self.jail.hides(e.path())
+                    && e.file_name().to_str().map(|n| !ignored_dir(n)).unwrap_or(true)
             })
             .flatten()
         {
@@ -855,6 +901,7 @@ impl ToolRegistry {
                 Arc::new(FindFilesTool { jail: jail.clone() }),
                 Arc::new(SearchContentTool { jail: jail.clone() }),
                 Arc::new(ExecTool { jail: jail.clone() }),
+                Arc::new(TimeTool),
                 Arc::new(SpawnSubagentTool),
                 Arc::new(AskUserTool),
             ],
@@ -979,6 +1026,7 @@ impl ToolRegistry {
             BuiltinToolInfo { name: "find_files", summary: "Glob file search.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "search_content", summary: "Regex content search.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "exec", summary: "Shell commands; read-only runs free.", approval: "conditional", note: "" },
+            BuiltinToolInfo { name: "get_time", summary: "Current UTC date and time.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "spawn_subagent", summary: "Delegate to an ephemeral specialist.", approval: "auto", note: "Orchestrator only." },
             BuiltinToolInfo { name: "ask_user", summary: "Ask the user a multiple-choice question.", approval: "auto", note: "Orchestrator only." },
             BuiltinToolInfo { name: "skill", summary: "Load a learned skill.", approval: "auto", note: "" },

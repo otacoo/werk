@@ -65,6 +65,8 @@ export const commands = {
 	setUtilityTarget: (target: string | null) => typedError<null, string>(__TAURI_INVOKE("set_utility_target", { target })),
 	/**  Toggle language-server diagnostics and the `lsp` tool for the next run. */
 	setLspEnabled: (enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_lsp_enabled", { enabled })),
+	/**  Hide or show `AGENTS.md`/`.agent*` files for every agent tool. */
+	setAgentFilesHidden: (hidden: boolean) => typedError<null, string>(__TAURI_INVOKE("set_agent_files_hidden", { hidden })),
 	/**  Enable/disable one agent tool for future runs. */
 	setAgentToolEnabled: (name: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_agent_tool_enabled", { name, enabled })),
 	/**  Replace the configured stdio language servers. */
@@ -231,6 +233,8 @@ export type AppConfig_Deserialize = {
 	server_mode?: ServerMode,
 	/**  Agent tool names the harness must not offer; empty enables all. */
 	agent_tools_disabled?: string[],
+	/**  Hide `AGENTS.md`/`.agent*` files from every agent tool when set. */
+	agent_files_hidden?: boolean,
 	/**  stdio language servers by name; None seeds the defaults. */
 	lsp_servers?: LspServerConfig_Deserialize[] | null,
 	/**  Which model plans vs executes; a distinct worker needs router mode. */
@@ -304,6 +308,8 @@ export type AppConfig_Serialize = {
 	server_mode: ServerMode,
 	/**  Agent tool names the harness must not offer; empty enables all. */
 	agent_tools_disabled: string[],
+	/**  Hide `AGENTS.md`/`.agent*` files from every agent tool when set. */
+	agent_files_hidden: boolean,
 	/**  stdio language servers by name; None seeds the defaults. */
 	lsp_servers?: LspServerConfig_Serialize[] | null,
 	/**  Which model plans vs executes; a distinct worker needs router mode. */

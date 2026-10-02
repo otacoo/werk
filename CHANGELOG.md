@@ -33,6 +33,13 @@
 
 ### Added
 
+- `get_time`: a free tool returning the current UTC date/time and weekday;
+  the prompt suggests calling it before date-sensitive work (search queries,
+  releases, anything "latest").
+- Tools → Agent → "Agent files": hides `AGENTS.md`/`.agent*` files from every
+  agent tool — reads, writes, edits, globs, and content search — for the next
+  run. Visible by default.
+- LSP settings moved to their own tab in the Tools page, after MCP.
 - Settings → Memory shows "Restore backup" when `/distill` left a
   `MEMORY.md.bak`, so a bad coalesce is one click from recovery.
 - Tool authoring: "New plugin" in Tools → Agent → Plugin tools scaffolds a
