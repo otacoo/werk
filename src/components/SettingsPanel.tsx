@@ -303,6 +303,42 @@ function SystemPromptCard({ appConfig, setAppConfig }: {
   );
 }
 
+/// Visibility of the agent's own instruction files for every tool.
+function AgentFilesCard({ appConfig, setAppConfig, refresh }: {
+  appConfig: AppConfig | null;
+  setAppConfig: React.Dispatch<React.SetStateAction<AppConfig | null>>;
+  refresh: () => Promise<void>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const hidden = appConfig?.agent_files_hidden ?? false;
+
+  const setVisible = async (visible: boolean) => {
+    setAppConfig((c) => (c ? { ...c, agent_files_hidden: !visible } : c));
+    try {
+      await call(commands.setAgentFilesHidden(!visible));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+    await refresh();
+  };
+
+  return (
+    <div className="card">
+      <h2 className="section-title mb-1">Agent files</h2>
+      <p className="section-desc">
+        <span className="font-mono">AGENTS.md</span> and <span className="font-mono">.agent*</span>{" "}
+        files carry the agent's own instructions. When hidden, every tool — reads, writes, edits,
+        globs, and content search — skips them for the next run.
+      </p>
+      <div className="mt-3">
+        <Toggle label="Visible to the agent" checked={!hidden} onChange={setVisible} />
+      </div>
+      {error && <p className="text-[0.625rem] text-accent-red mt-2 break-words">{error}</p>}
+    </div>
+  );
+}
+
 function MemoryCard() {
   const [files, setFiles] = useState<MemoryFileDto[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -962,6 +998,11 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange 
                 <BehaviorCard appConfig={appConfig} setAppConfig={setAppConfig} />
                 <UtilityModelCard appConfig={appConfig} setAppConfig={setAppConfig} />
                 <SystemPromptCard appConfig={appConfig} setAppConfig={setAppConfig} />
+                <AgentFilesCard
+                  appConfig={appConfig}
+                  setAppConfig={setAppConfig}
+                  refresh={refreshConfig}
+                />
               </div>
               <div className="space-y-4">
                 <SkillsCard />

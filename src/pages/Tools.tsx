@@ -23,7 +23,7 @@ import type { McpServerEntry, McpServerStatus, ServerStatus, ServerToolInfo } fr
 import { call } from "../utils/ipc";
 import { useAppConfig } from "../utils/useAppConfig";
 import Toggle from "../components/Toggle";
-import { AgentFilesCard, AgentToolsCard, LspCard, PluginToolsCard, useToolsList } from "../components/ToolSettings";
+import { AgentToolsCard, LspCard, PluginToolsCard, useToolsList } from "../components/ToolSettings";
 import { KNOWN_TOOLS, toolsArgValue } from "../utils/tools";
 
 const emptyEntry = (): McpServerEntry => ({
@@ -390,11 +390,6 @@ export default function Tools({ active = true }: { active?: boolean }) {
         {pane === "agent" && (
           <>
             <AgentToolsCard builtin={toolsList.builtin} reload={toolsList.reload} />
-            <AgentFilesCard
-              appConfig={appConfig}
-              setAppConfig={setAppConfig}
-              refresh={refreshConfig}
-            />
             <PluginToolsCard
               plugins={toolsList.plugins}
               errors={toolsList.errors}

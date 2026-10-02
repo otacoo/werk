@@ -102,42 +102,6 @@ export function AgentToolsCard({ builtin, reload }: { builtin: BuiltinInfo[]; re
 }
 
 /// stdio language servers: enable toggle, list with editor, restore defaults.
-/// Visibility of the agent's own instruction files for every tool.
-export function AgentFilesCard({ appConfig, setAppConfig, refresh }: {
-  appConfig: AppConfig | null;
-  setAppConfig: React.Dispatch<React.SetStateAction<AppConfig | null>>;
-  refresh: () => Promise<void>;
-}) {
-  const [error, setError] = useState<string | null>(null);
-  const hidden = appConfig?.agent_files_hidden ?? false;
-
-  const setVisible = async (visible: boolean) => {
-    setAppConfig((c) => (c ? { ...c, agent_files_hidden: !visible } : c));
-    try {
-      await call(commands.setAgentFilesHidden(!visible));
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    }
-    await refresh();
-  };
-
-  return (
-    <div className="card">
-      <h2 className="section-title mb-1">Agent files</h2>
-      <p className="section-desc">
-        <span className="font-mono">AGENTS.md</span> and <span className="font-mono">.agent*</span>{" "}
-        files carry the agent's own instructions. When hidden, every tool — reads, writes, edits,
-        globs, and content search — skips them for the next run.
-      </p>
-      <div className="mt-3">
-        <Toggle label="Visible to the agent" checked={!hidden} onChange={setVisible} />
-      </div>
-      {error && <p className="text-[0.625rem] text-accent-red mt-2 break-words">{error}</p>}
-    </div>
-  );
-}
-
 export function LspCard({ appConfig, setAppConfig, refresh, reloadTools }: {
   appConfig: AppConfig | null;
   setAppConfig: React.Dispatch<React.SetStateAction<AppConfig | null>>;
