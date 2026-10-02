@@ -40,6 +40,11 @@
 
 ### Changed
 
+- Agent settings moved out of the Settings menu into their own header tab,
+  split into Behavior / Prompt / Access / Memory sub-tabs (verification and
+  turns, utility model and server lifecycle, system prompt, agent files and
+  sensitive shielding, skills and memory). Settings keeps General,
+  Appearance, and About.
 - `exec`'s free read-only path also rejects environment reads (`$env:KEY`,
   `echo $HOME`); they need approval now.
 - The built-in system prompt is ~35% shorter (1.3K chars) with the same

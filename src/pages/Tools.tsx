@@ -24,7 +24,7 @@ import { call } from "../utils/ipc";
 import { useAppConfig } from "../utils/useAppConfig";
 import Toggle from "../components/Toggle";
 import { AgentToolsCard, LspCard, PluginToolsCard, useToolsList } from "../components/ToolSettings";
-import type { SettingsSection } from "../components/SettingsPanel";
+import type { Tab } from "../App";
 import { KNOWN_TOOLS, toolsArgValue } from "../utils/tools";
 
 const emptyEntry = (): McpServerEntry => ({
@@ -56,9 +56,9 @@ const parseEnv = (text: string): Record<string, string> => {
 const envToText = (env: Record<string, string> | undefined): string =>
   Object.entries(env ?? {}).map(([k, v]) => `${k}=${v}`).join("\n");
 
-export default function Tools({ active = true, onOpenSettings }: {
+export default function Tools({ active = true, go }: {
   active?: boolean;
-  onOpenSettings?: (section: SettingsSection) => void;
+  go?: (t: Tab) => void;
 }) {
   const [serverStatus, setServerStatus] = useState<ServerStatus>({ type: "stopped" });
   const [appConfig, setAppConfig, , refreshConfig] = useAppConfig(true);
@@ -398,12 +398,9 @@ export default function Tools({ active = true, onOpenSettings }: {
             <div className="card border-accent/30 bg-accent/5">
               <p className="text-xs text-dim">
                 More agent options — system prompt, memory, utility model, and agent file
-                visibility — live in{" "}
-                <button
-                  className="text-accent-soft hover:underline"
-                  onClick={() => onOpenSettings?.("agent")}
-                >
-                  Settings → Agent
+                visibility — live in the{" "}
+                <button className="text-accent-soft hover:underline" onClick={() => go?.("agent")}>
+                  Agent tab
                 </button>
                 .
               </p>

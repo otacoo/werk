@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import {
+  Brain,
   FlaskConical,
   LayoutDashboard,
   MessageSquare,
@@ -17,6 +18,7 @@ import Run from "./pages/Run";
 import Chat from "./pages/Chat";
 import Bench from "./pages/Bench";
 import Tools from "./pages/Tools";
+import Agent from "./pages/Agent";
 import Mode from "./pages/Mode";
 import Api from "./pages/Api";
 import Wizard from "./pages/Wizard";
@@ -28,12 +30,13 @@ import { loadAppearance, setAutoCorners } from "./utils/appearance";
 import { getQuickBench, setQuickBench, subscribeQuickBench, subscribeConfigChanged } from "./utils/appSettings";
 import { startServerStatusPolling, subscribeServerStatus } from "./utils/serverStatus";
 
-export type Tab = "dashboard" | "run" | "chat" | "tools" | "bench" | "mode" | "api";
+export type Tab = "dashboard" | "run" | "chat" | "tools" | "agent" | "bench" | "mode" | "api";
 
 const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "mode", label: "Mode", icon: Network },
   { id: "tools", label: "Tools", icon: Wrench },
+  { id: "agent", label: "Agent", icon: Brain },
   { id: "api", label: "API", icon: Plug },
   { id: "bench", label: "Bench", icon: FlaskConical },
   { id: "run", label: "Run", icon: Play },
@@ -211,13 +214,10 @@ export default function App() {
         </div>
         {tab === "bench" && showBench && <Bench />}
         <div className="h-full min-h-0" style={{ display: tab === "tools" ? undefined : "none" }}>
-          <Tools
-            active={tab === "tools"}
-            onOpenSettings={(s) => {
-              setSettingsSection(s);
-              setSettingsOpen(true);
-            }}
-          />
+          <Tools active={tab === "tools"} go={(t) => setTab(t)} />
+        </div>
+        <div className="h-full min-h-0" style={{ display: tab === "agent" ? undefined : "none" }}>
+          <Agent active={tab === "agent"} />
         </div>
         <div className="h-full min-h-0" style={{ display: tab === "mode" ? undefined : "none" }}>
           <Mode go={(t) => setTab(t)} />

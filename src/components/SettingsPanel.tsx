@@ -5,7 +5,6 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   ArrowUpCircle,
-  Brain,
   Download,
   ExternalLink,
   FolderOpen,
@@ -56,9 +55,9 @@ import {
 
 const REPO_URL = "https://github.com/otacoo/werk";
 
-export type SettingsSection = "general" | "agent" | "appearance" | "about";
+export type SettingsSection = "general" | "appearance" | "about";
 
-function BehaviorCard({ appConfig, setAppConfig }: {
+export function BehaviorCard({ appConfig, setAppConfig }: {
   appConfig: AppConfig | null;
   setAppConfig: React.Dispatch<React.SetStateAction<AppConfig | null>>;
 }) {
@@ -88,7 +87,7 @@ function BehaviorCard({ appConfig, setAppConfig }: {
   );
 }
 
-function UtilityModelCard({ appConfig, setAppConfig }: {
+export function UtilityModelCard({ appConfig, setAppConfig }: {
   appConfig: AppConfig | null;
   setAppConfig: React.Dispatch<React.SetStateAction<AppConfig | null>>;
 }) {
@@ -132,7 +131,7 @@ function UtilityModelCard({ appConfig, setAppConfig }: {
   );
 }
 
-function SystemPromptCard({ appConfig, setAppConfig }: {
+export function SystemPromptCard({ appConfig, setAppConfig }: {
   appConfig: AppConfig | null;
   setAppConfig: React.Dispatch<React.SetStateAction<AppConfig | null>>;
 }) {
@@ -304,7 +303,7 @@ function SystemPromptCard({ appConfig, setAppConfig }: {
 }
 
 /// Visibility of the agent's own instruction files for every tool.
-function AgentFilesCard({ appConfig, setAppConfig, refresh }: {
+export function AgentFilesCard({ appConfig, setAppConfig, refresh }: {
   appConfig: AppConfig | null;
   setAppConfig: React.Dispatch<React.SetStateAction<AppConfig | null>>;
   refresh: () => Promise<void>;
@@ -340,7 +339,7 @@ function AgentFilesCard({ appConfig, setAppConfig, refresh }: {
 }
 
 /// Sensitive-file policy: built-ins + .gitignore, plus the user lists.
-function SensitiveShieldingCard({ appConfig, refresh }: {
+export function SensitiveShieldingCard({ appConfig, refresh }: {
   appConfig: AppConfig | null;
   refresh: () => Promise<void>;
 }) {
@@ -415,7 +414,7 @@ function SensitiveShieldingCard({ appConfig, refresh }: {
 }
 
 /// Local server lifecycle: auto-start on send and idle unload.
-function ServerLifecycleCard({ appConfig, refresh }: {
+export function ServerLifecycleCard({ appConfig, refresh }: {
   appConfig: AppConfig | null;
   refresh: () => Promise<void>;
 }) {
@@ -473,7 +472,7 @@ function ServerLifecycleCard({ appConfig, refresh }: {
   );
 }
 
-function MemoryCard() {
+export function MemoryCard() {
   const [files, setFiles] = useState<MemoryFileDto[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
@@ -585,7 +584,7 @@ function MemoryCard() {
   );
 }
 
-function SkillsCard() {
+export function SkillsCard() {
   const [skills, setSkills] = useState<SkillDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1087,7 +1086,6 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange 
   if (!open) return null;
   const visible: { id: SettingsSection; label: string; icon: LucideIcon }[] = [
     { id: "general", label: "General", icon: SlidersHorizontal },
-    { id: "agent", label: "Agent", icon: Brain },
     { id: "appearance", label: "Appearance", icon: Palette },
     { id: "about", label: "About", icon: Info },
   ];
@@ -1117,7 +1115,7 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange 
         </div>
       </aside>
       <div className="flex-1 overflow-y-auto p-6">
-        <div className={section === "agent" ? "space-y-4" : "max-w-3xl space-y-4"}>
+        <div className="max-w-3xl space-y-4">
           {configError && (
             <div className="card border-accent-red/30 bg-accent-red/5">
               <p className="text-sm text-accent-red">{configError}</p>
@@ -1125,26 +1123,6 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange 
           )}
           {section === "general" && (
             <GeneralCard appConfig={appConfig} setAppConfig={setAppConfig} refresh={refreshConfig} />
-          )}
-          {section === "agent" && (
-            <div className="grid grid-cols-2 gap-4 items-start">
-              <div className="space-y-4">
-                <AgentFilesCard
-                  appConfig={appConfig}
-                  setAppConfig={setAppConfig}
-                  refresh={refreshConfig}
-                />
-                <SensitiveShieldingCard appConfig={appConfig} refresh={refreshConfig} />
-                <ServerLifecycleCard appConfig={appConfig} refresh={refreshConfig} />
-                <BehaviorCard appConfig={appConfig} setAppConfig={setAppConfig} />
-                <UtilityModelCard appConfig={appConfig} setAppConfig={setAppConfig} />
-                <SystemPromptCard appConfig={appConfig} setAppConfig={setAppConfig} />
-              </div>
-              <div className="space-y-4">
-                <SkillsCard />
-                <MemoryCard />
-              </div>
-            </div>
           )}
           {section === "appearance" && <AppearanceCard />}
           {section === "about" && (

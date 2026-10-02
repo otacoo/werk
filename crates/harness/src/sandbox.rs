@@ -107,7 +107,7 @@ impl PathJail {
             self.join(rel)?
         };
         if self.hides(&p) {
-            bail!("Agent files are hidden (Tools → Agent): {rel}");
+            bail!("Agent files are hidden (Agent tab): {rel}");
         }
         if self.shielded(&p) {
             bail!("Path is shielded by the sensitive-file policy: {rel}");
@@ -123,7 +123,7 @@ impl PathJail {
             self.join(rel)?
         };
         if self.hides(&p) {
-            bail!("Agent files are hidden (Tools → Agent): {rel}");
+            bail!("Agent files are hidden (Agent tab): {rel}");
         }
         if self.shielded(&p) {
             bail!("Path is shielded by the sensitive-file policy: {rel}");
