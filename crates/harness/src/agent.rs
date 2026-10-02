@@ -19,9 +19,9 @@ pub const DEFAULT_SUBAGENT_MAX_TURNS: usize = 25;
 /// Shared shell guidance so workers use the right idioms.
 pub fn os_shell_snippet() -> String {
     if cfg!(windows) {
-        "You run on Windows. Shell commands execute via PowerShell (`powershell -NoProfile -Command ...`): use Windows syntax (Get-ChildItem, Get-Content, Select-String; separate statements with `;`) — never sh/bash syntax (`ls -la`, `&&`, `grep`, `/dev/null`, leading `/` paths).".to_string()
+        "You run on Windows: shell commands use PowerShell (Get-ChildItem, Get-Content, Select-String; statements separated by `;`) — never sh/bash (`ls -la`, `&&`, `grep`, `/dev/null`, `/` paths).".to_string()
     } else {
-        "You run on a POSIX system. Shell commands execute via `sh -c ...`: use POSIX syntax (ls, cat, grep; separate statements with `&&` or `;`) — never PowerShell syntax.".to_string()
+        "You run on a POSIX system: shell commands use sh (ls, cat, grep; `&&` or `;`) — never PowerShell.".to_string()
     }
 }
 
@@ -33,9 +33,9 @@ const FILE_TOOL_RULE: &str = "Use the native file tools for all file work — ne
 
 /// Subagents only see an image when the task attaches one; small models
 /// otherwise confabulate visual detail from filenames and context.
-const IMAGE_RULE: &str = "You cannot view image files through shell commands or scripts. If \
-    your task includes an attached image, describe only what is actually visible in it — never \
-    invent or embellish visual details; if no image is attached, say so instead of guessing.";
+const IMAGE_RULE: &str = "If your task includes an attached image, describe only what is \
+    visible; never invent details — if no image is attached, say so. You cannot open image files \
+    yourself.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubagentKind {

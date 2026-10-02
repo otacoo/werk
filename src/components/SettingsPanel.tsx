@@ -995,14 +995,14 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange 
           {section === "agent" && (
             <div className="grid grid-cols-2 gap-4 items-start">
               <div className="space-y-4">
-                <BehaviorCard appConfig={appConfig} setAppConfig={setAppConfig} />
-                <UtilityModelCard appConfig={appConfig} setAppConfig={setAppConfig} />
-                <SystemPromptCard appConfig={appConfig} setAppConfig={setAppConfig} />
                 <AgentFilesCard
                   appConfig={appConfig}
                   setAppConfig={setAppConfig}
                   refresh={refreshConfig}
                 />
+                <BehaviorCard appConfig={appConfig} setAppConfig={setAppConfig} />
+                <UtilityModelCard appConfig={appConfig} setAppConfig={setAppConfig} />
+                <SystemPromptCard appConfig={appConfig} setAppConfig={setAppConfig} />
               </div>
               <div className="space-y-4">
                 <SkillsCard />

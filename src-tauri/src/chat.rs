@@ -185,21 +185,15 @@ impl PromptTools {
 /// `spawn_subagent` (or `remember`) drops the mention too.
 fn verify_protocol(delegate: bool, remember: bool) -> String {
     let fallback = if delegate {
-        "otherwise a single researcher subagent"
+        "or one researcher subagent"
     } else {
-        "otherwise one direct read or search"
+        "or one direct read/search"
     };
-    let save = if remember {
-        " (save verified facts with the remember tool)"
-    } else {
-        ""
-    };
+    let save = if remember { " (save facts with remember)" } else { "" };
     format!(
-        "Verify load-bearing claims from memory before acting on them: when you are about to use an API \
-        default, flag, or version behavior you recall from training (not something you read this session), \
-        check it first — one direct read or search when the answer lives in this project, {fallback}. \
-        Never verify trivia, never verify the same fact twice{save}, \
-        and never let verification stall the task: one check, then proceed. "
+        "Verify load-bearing claims you recall from training (API defaults, flags, version behavior) \
+        before acting: one direct read/search, {fallback}. Never verify trivia or the same fact \
+        twice{save}; one check, then proceed."
     )
 }
 
@@ -216,83 +210,70 @@ fn system_prompt_for(
     };
 
     let mut parts: Vec<String> = vec![
-        "You are Werk's agent, working inside a sandboxed project directory. File tools are rooted at \
-         that directory; relative paths resolve there."
+        "You are Werk's agent in a sandboxed project directory; relative paths resolve there."
             .to_string(),
     ];
 
     let mut file_tools: Vec<&str> = Vec::new();
     if tools.read_file {
-        file_tools.push("read_file to read");
+        file_tools.push("read_file");
     }
     if tools.write_file {
-        file_tools.push("write_file to create");
+        file_tools.push("write_file");
     }
     if tools.edit_file {
-        file_tools.push("edit_file for search/replace edits");
+        file_tools.push("edit_file");
     }
     if tools.find_files {
-        file_tools.push("find_files to list");
+        file_tools.push("find_files");
     }
     if tools.search_content {
-        file_tools.push("search_content to search");
+        file_tools.push("search_content");
     }
     if !file_tools.is_empty() {
         let exec_clause = if tools.exec {
-            " — `exec` is only for running programs (builds, tests, git, servers)."
+            " — exec is only for programs (builds, tests, git, servers)."
         } else {
             "."
         };
         parts.push(format!(
-            "Use the native file tools for all file work: {}. Never use shell commands to read, list, \
-             search, or edit files{exec_clause}",
+            "Use the file tools for all file work ({}). Never use shell commands for files{exec_clause}",
             file_tools.join(", ")
         ));
     }
     parts.push(
-        "You cannot view image files through shell commands or scripts — images reach you only when \
-         attached to the conversation."
+        "Images only reach you when attached to the conversation; you cannot view image files from \
+         disk."
             .to_string(),
     );
     if tools.exec {
         parts.push(harness::agent::os_shell_snippet());
     }
     parts.push(
-        "Read-only operations run automatically; writes and shell commands may require user approval — \
-         if denied, adapt instead of retrying the same call."
+        "Reads run free; writes and shell commands may need approval — if denied, adapt, don't retry."
             .to_string(),
     );
     if tools.remember {
         parts.push(
-            "Learn across sessions: when the user states a durable preference or corrects you, save it \
-             with the remember tool (project scope unless it is about the user themselves). Keep \
-             memories short."
+            "Save durable preferences and corrections with remember (project scope; global only for \
+             the user themselves). Keep memories short."
                 .to_string(),
         );
     }
     if tools.ask_user {
         parts.push(
-            "When you genuinely need the user's input to proceed — an ambiguous requirement, a fork in \
-             the plan — ask one focused multiple-choice question with the ask_user tool (2-4 options); \
-             never ask about facts you can look up yourself."
+            "Use ask_user (2-4 options) when genuinely blocked on a decision; never for facts you can \
+             look up."
                 .to_string(),
         );
     }
     if tools.get_time {
-        parts.push(
-            "Call get_time before date-sensitive work — search queries, releases, anything \
-             'latest' — so results aren't anchored to training-time dates."
-                .to_string(),
-        );
+        parts.push("Call get_time before date-sensitive work (search, releases, 'latest').".to_string());
     }
     if !verify.trim().is_empty() {
         parts.push(verify.trim().to_string());
     }
-    parts.push(
-        "Work step by step: read before editing, make small exact edits, verify results, and give a \
-         concise summary when done."
-            .to_string(),
-    );
+    parts.push("Read before editing; make small exact edits; summarize concisely when done.".to_string());
     parts.join(" ")
 }
 
@@ -1345,8 +1326,8 @@ pub async fn harness_agent_send(
                 .unwrap_or_else(move || system_prompt_for(verify, server_mode, prompt_tools));
             if !subagent_targets.is_empty() && prompt_tools.spawn_subagent {
                 base.push_str(&format!(
-                    "\n\nSubagent model choices: {} (pass one as spawn_subagent's `model`; \
-                     `agent_type` is always 'coder' or 'researcher').",
+                    "\n\nSubagent models: {} — pass as spawn_subagent's `model`; `agent_type` is \
+                     'coder' or 'researcher'.",
                     subagent_targets.join(", ")
                 ));
             }
@@ -1365,12 +1346,10 @@ pub async fn harness_agent_send(
                     .map(|p| crate::server::find_mmproj_sibling(std::path::Path::new(p)).is_some())
                     .unwrap_or(false);
                 base.push_str(&format!(
-                    "\n\nSubagents run on {label} (vision: {}) inside the same project sandbox. \
-                    'coder' can read/write/edit and run commands; 'researcher' is read-only. \
-                    To let a subagent view one image, pass `image: <path>` to spawn_subagent — \
-                    it must be inside the project or the read allowlist, and the subagent's model \
-                    must have vision. A path alone is not enough: subagents cannot open image \
-                    files themselves, so an image reaches one only through this argument.",
+                    "\n\nSubagents share the sandbox and run on {label} (vision: {}). 'coder' \
+                     reads/writes/edits and runs commands; 'researcher' is read-only. For an image, \
+                     pass `image: <path>` to spawn_subagent (inside the project/allowlist, needs \
+                     vision) — subagents cannot open image files themselves.",
                     if vision { "yes" } else { "no" }
                 ));
             }
@@ -3262,6 +3241,19 @@ mod tests {
     }
 
     #[test]
+    fn prompt_stays_compact() {
+        let full = system_prompt_for(
+            harness::agent::VerifyMode::Normal,
+            crate::config::ServerMode::Router,
+            PromptTools::all(),
+        );
+        assert!(full.len() < 1_700, "prompt grew to {} chars: {full}", full.len());
+        for needle in ["file tools", "approval", "remember", "ask_user", "get_time", "Verify"] {
+            assert!(full.contains(needle), "missing {needle}: {full}");
+        }
+    }
+
+    #[test]
     fn disabled_tools_leave_the_prompt() {
         let disabled: Vec<String> = ["remember", "ask_user", "spawn_subagent", "get_time"]
             .iter()
@@ -3277,7 +3269,7 @@ mod tests {
         assert!(!prompt.contains("subagent"), "{prompt}");
         assert!(!prompt.contains("get_time"), "{prompt}");
         // Remaining tools stay named.
-        assert!(prompt.contains("read_file to read"), "{prompt}");
+        assert!(prompt.contains("read_file"), "{prompt}");
         assert!(prompt.contains("exec"), "{prompt}");
 
         let all_off: Vec<String> = [

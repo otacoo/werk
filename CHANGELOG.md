@@ -16,6 +16,9 @@
 
 ### Changed
 
+- The built-in system prompt is ~35% shorter (1.3K chars) with the same
+  rules — tighter wording, bare tool names, condensed subagent notes. A test
+  caps its size so it can't creep back up.
 - The agent can no longer write its own tool or skill definitions:
   `.werk/plugins` and `.werk/skills` are read-only to the file tools.
 - `exec`'s free read-only path rejects shell metacharacters (redirection,
