@@ -331,7 +331,7 @@ export function PluginToolsCard({ plugins, errors, pluginsDir, setPlugins, reloa
             className="btn-ghost text-[0.625rem]"
             onClick={createPlugin}
             disabled={creating}
-            title="Scaffold a commented plugin in the active project's .werk/plugins and open it"
+            title="Scaffold a commented plugin in your global plugins folder and open it"
           >
             <Plus size={11} /> New plugin
           </button>

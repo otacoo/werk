@@ -1424,7 +1424,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
           <div className="flex items-end gap-2">
             <ContextRing
               used={slotCtx?.used ?? contextUsed}
-              total={slotCtx?.total ?? caps?.context_length ?? null}
+              total={slotCtx?.total ?? null}
               avgTokps={externalMode ? null : avgTokps}
               model={lastAssistant?.model}
               genTokens={lastAssistant?.tokens}

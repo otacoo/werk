@@ -90,8 +90,8 @@ export const commands = {
 	toolsList: () => typedError<ToolsList, string>(__TAURI_INVOKE("tools_list")),
 	pluginSetEnabled: (name: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("plugin_set_enabled", { name, enabled })),
 	/**
-	 *  Create a commented plugin template under the active project's
-	 *  `.werk/plugins/`; returns the manifest path so the UI can open it.
+	 *  Create a commented plugin template in the global plugins folder (the one
+	 *  the Tools page lists); returns the manifest path so the UI can open it.
 	 */
 	scaffoldPlugin: () => typedError<string, string>(__TAURI_INVOKE("scaffold_plugin")),
 	/**  Write the chat draft to the scratch file; returns its path. */

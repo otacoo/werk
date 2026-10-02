@@ -130,19 +130,72 @@ pub struct RunResult {
 
 // ── System prompt ─────────────────────────────────────────────────────────
 
+/// Builtin tools the built-in prompt may reference. Disabled ones are left
+/// out entirely, so the model is never told about a tool it cannot call.
+#[derive(Debug, Clone, Copy)]
+struct PromptTools {
+    read_file: bool,
+    write_file: bool,
+    edit_file: bool,
+    find_files: bool,
+    search_content: bool,
+    exec: bool,
+    remember: bool,
+    ask_user: bool,
+    spawn_subagent: bool,
+}
+
+impl PromptTools {
+    /// Everything enabled; the Settings preview of the default prompt.
+    fn all() -> Self {
+        Self {
+            read_file: true,
+            write_file: true,
+            edit_file: true,
+            find_files: true,
+            search_content: true,
+            exec: true,
+            remember: true,
+            ask_user: true,
+            spawn_subagent: true,
+        }
+    }
+
+    fn from_disabled(disabled: &[String]) -> Self {
+        let on = |name: &str| !disabled.iter().any(|d| d == name);
+        Self {
+            read_file: on("read_file"),
+            write_file: on("write_file"),
+            edit_file: on("edit_file"),
+            find_files: on("find_files"),
+            search_content: on("search_content"),
+            exec: on("exec"),
+            remember: on("remember"),
+            ask_user: on("ask_user"),
+            spawn_subagent: on("spawn_subagent"),
+        }
+    }
+}
+
 /// Router mode has a worker model to delegate to; single and external modes
-/// don't, so their prompt never suggests subagents.
-fn verify_protocol(delegate: bool) -> String {
+/// don't, so their prompt never suggests subagents. A disabled
+/// `spawn_subagent` (or `remember`) drops the mention too.
+fn verify_protocol(delegate: bool, remember: bool) -> String {
     let fallback = if delegate {
         "otherwise a single researcher subagent"
     } else {
         "otherwise one direct read or search"
     };
+    let save = if remember {
+        " (save verified facts with the remember tool)"
+    } else {
+        ""
+    };
     format!(
         "Verify load-bearing claims from memory before acting on them: when you are about to use an API \
         default, flag, or version behavior you recall from training (not something you read this session), \
         check it first — one direct read or search when the answer lives in this project, {fallback}. \
-        Never verify trivia, never verify the same fact twice (save verified facts with the remember tool), \
+        Never verify trivia, never verify the same fact twice{save}, \
         and never let verification stall the task: one check, then proceed. "
     )
 }
@@ -150,33 +203,87 @@ fn verify_protocol(delegate: bool) -> String {
 fn system_prompt_for(
     mode: harness::agent::VerifyMode,
     server_mode: crate::config::ServerMode,
+    tools: PromptTools,
 ) -> String {
+    let delegate = server_mode == crate::config::ServerMode::Router && tools.spawn_subagent;
     let verify = if mode == harness::agent::VerifyMode::Off {
         String::new()
     } else {
-        verify_protocol(server_mode == crate::config::ServerMode::Router)
+        verify_protocol(delegate, tools.remember)
     };
-    format!(
-        "You are Werk's agent, working inside a sandboxed project directory. \
-        File tools are rooted at that directory; relative paths resolve there. \
-        Use the native file tools for all file work: read_file to read, write_file to create, \
-        edit_file for search/replace edits, find_files to list, search_content to search. \
-        Never use shell commands to read, list, search, or edit files — `exec` is only for \
-        running programs (builds, tests, git, servers). You cannot view image files through \
-        shell commands or scripts — images reach you only when attached to the conversation. \
-        {} \
-        Read-only operations run automatically; writes and shell commands may require user approval — \
-        if denied, adapt instead of retrying the same call. \
-        Learn across sessions: when the user states a durable preference or corrects you, save it with the \
-        remember tool (project scope unless it is about the user themselves). Keep memories short. \
-        When you genuinely need the user's input to proceed — an ambiguous requirement, a fork in the plan — \
-        ask one focused multiple-choice question with the ask_user tool (2-4 options); never ask about \
-        facts you can look up yourself. \
-        {verify}\
-        Work step by step: read before editing, make small exact edits, verify results, \
-        and give a concise summary when done.",
-        harness::agent::os_shell_snippet()
-    )
+
+    let mut parts: Vec<String> = vec![
+        "You are Werk's agent, working inside a sandboxed project directory. File tools are rooted at \
+         that directory; relative paths resolve there."
+            .to_string(),
+    ];
+
+    let mut file_tools: Vec<&str> = Vec::new();
+    if tools.read_file {
+        file_tools.push("read_file to read");
+    }
+    if tools.write_file {
+        file_tools.push("write_file to create");
+    }
+    if tools.edit_file {
+        file_tools.push("edit_file for search/replace edits");
+    }
+    if tools.find_files {
+        file_tools.push("find_files to list");
+    }
+    if tools.search_content {
+        file_tools.push("search_content to search");
+    }
+    if !file_tools.is_empty() {
+        let exec_clause = if tools.exec {
+            " — `exec` is only for running programs (builds, tests, git, servers)."
+        } else {
+            "."
+        };
+        parts.push(format!(
+            "Use the native file tools for all file work: {}. Never use shell commands to read, list, \
+             search, or edit files{exec_clause}",
+            file_tools.join(", ")
+        ));
+    }
+    parts.push(
+        "You cannot view image files through shell commands or scripts — images reach you only when \
+         attached to the conversation."
+            .to_string(),
+    );
+    if tools.exec {
+        parts.push(harness::agent::os_shell_snippet());
+    }
+    parts.push(
+        "Read-only operations run automatically; writes and shell commands may require user approval — \
+         if denied, adapt instead of retrying the same call."
+            .to_string(),
+    );
+    if tools.remember {
+        parts.push(
+            "Learn across sessions: when the user states a durable preference or corrects you, save it \
+             with the remember tool (project scope unless it is about the user themselves). Keep \
+             memories short."
+                .to_string(),
+        );
+    }
+    if tools.ask_user {
+        parts.push(
+            "When you genuinely need the user's input to proceed — an ambiguous requirement, a fork in \
+             the plan — ask one focused multiple-choice question with the ask_user tool (2-4 options); \
+             never ask about facts you can look up yourself."
+                .to_string(),
+        );
+    }
+    if !verify.trim().is_empty() {
+        parts.push(verify.trim().to_string());
+    }
+    parts.push(
+        "Work step by step: read before editing, make small exact edits, verify results, and give a \
+         concise summary when done."
+            .to_string(),
+    );
+    parts.join(" ")
 }
 
 // ── Approval gate ─────────────────────────────────────────────────────────
@@ -501,7 +608,7 @@ pub async fn get_harness_system_prompt_default(state: State<'_, AppState>) -> Re
         let c = state.config.lock().unwrap();
         (c.verify_mode, c.server_mode)
     };
-    Ok(system_prompt_for(verify, server_mode))
+    Ok(system_prompt_for(verify, server_mode, PromptTools::all()))
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────
@@ -1213,6 +1320,7 @@ pub async fn harness_agent_send(
         crate::config::ServerMode::Single => Vec::new(),
     };
     if !history.iter().any(|m| m.role == "system") {
+        let prompt_tools = PromptTools::from_disabled(&app_config.agent_tools_disabled);
         let base = {
             let c = state.config.lock().unwrap();
             let verify = c.verify_mode;
@@ -1221,15 +1329,15 @@ pub async fn harness_agent_send(
                 .harness_system_prompt
                 .clone()
                 .filter(|p| !p.trim().is_empty())
-                .unwrap_or_else(move || system_prompt_for(verify, server_mode));
-            if !subagent_targets.is_empty() {
+                .unwrap_or_else(move || system_prompt_for(verify, server_mode, prompt_tools));
+            if !subagent_targets.is_empty() && prompt_tools.spawn_subagent {
                 base.push_str(&format!(
                     "\n\nSubagent model choices: {} (pass one as spawn_subagent's `model`; \
                      `agent_type` is always 'coder' or 'researcher').",
                     subagent_targets.join(", ")
                 ));
             }
-            if mode == crate::config::ServerMode::Router {
+            if mode == crate::config::ServerMode::Router && prompt_tools.spawn_subagent {
                 let sub_model = app_config
                     .harness_roles
                     .worker
@@ -1993,14 +2101,10 @@ pub struct ContextStats {
     pub total: Option<u32>,
 }
 
-fn gguf_context(path: &str) -> Option<u32> {
-    crate::models::read_model_metadata(Path::new(path))
-        .and_then(|m| m.context_length)
-        .map(|c| c.min(u32::MAX as u64) as u32)
-}
-
-/// Effective context for the orchestrator with no live slot: role override in
-/// router mode, the external provider declaration, then the local GGUF header.
+/// Effective context for the orchestrator with no live slot, in the same
+/// precedence the run uses: role override, the launch `--ctx-size` (the Run
+/// page setting), then the GGUF header as a last resort. External mode uses
+/// the provider's declared context instead.
 fn orchestrator_context(state: &AppState) -> Option<u32> {
     let (mode, role_ctx, role_path, external) = {
         let config = state.config.lock().unwrap();
@@ -2011,20 +2115,34 @@ fn orchestrator_context(state: &AppState) -> Option<u32> {
             config.external_target.clone(),
         )
     };
-    match mode {
+    // The launch context is what the router children inherit and what a
+    // single-model server was started with.
+    let launch_n_ctx = state
+        .server
+        .lock()
+        .unwrap()
+        .config
+        .as_ref()
+        .map(|c| c.n_ctx)
+        .unwrap_or(0);
+    let effective = match mode {
         crate::config::ServerMode::External => {
             let target = external?;
             let config = state.config.lock().unwrap();
             crate::config::Provider::split_target(&target, &config.providers)
                 .and_then(|(p, _)| p.context_length)
+                .map(u64::from)
         }
-        crate::config::ServerMode::Router => role_ctx
-            .or_else(|| role_path.as_deref().and_then(gguf_context))
-            .or_else(|| active_model_path(state).as_deref().and_then(gguf_context)),
+        crate::config::ServerMode::Router => {
+            let path = role_path.or_else(|| active_model_path(state));
+            role_context_limit(role_ctx, launch_n_ctx, path.as_deref())
+        }
         crate::config::ServerMode::Single => {
-            active_model_path(state).as_deref().and_then(gguf_context)
+            let path = active_model_path(state);
+            role_context_limit(None, launch_n_ctx, path.as_deref())
         }
-    }
+    };
+    effective.map(|n| n.min(u32::MAX as u64) as u32)
 }
 
 #[tauri::command]
@@ -2037,14 +2155,16 @@ pub async fn harness_context_stats(
         used: Some(used.min(u32::MAX as u64) as u32),
         total: None,
     };
-    // External API mode never reads the local server, even if one runs.
-    let external =
-        state.config.lock().unwrap().server_mode == crate::config::ServerMode::External;
+    let mode = state.config.lock().unwrap().server_mode;
+    // External API mode never reads the local server, even if one runs. A
+    // router's own /slots and /props describe the router, not the loaded
+    // child, so router mode computes the effective context instead.
+    let read_live = mode == crate::config::ServerMode::Single;
     // Take the status by value: holding the guard in the match arms would
     // deadlock orchestrator_context, which locks the same mutex.
     let status = state.server.lock().unwrap().status.clone();
     let port = match status {
-        crate::server::ServerStatus::Running { port, .. } if !external => port,
+        crate::server::ServerStatus::Running { port, .. } if read_live => port,
         _ => {
             stats.total = orchestrator_context(&state);
             return Ok(stats);
@@ -2069,9 +2189,7 @@ pub async fn harness_context_stats(
         }
     }
     if stats.total.is_none() {
-        if let Some(path) = active_model_path(&state) {
-            stats.total = gguf_context(&path);
-        }
+        stats.total = orchestrator_context(&state);
     }
     Ok(stats)
 }
@@ -2865,13 +2983,14 @@ pub async fn plugin_set_enabled(
     config.save().map_err(|e| e.to_string())
 }
 
-/// Create a commented plugin template under the active project's
-/// `.werk/plugins/`; returns the manifest path so the UI can open it.
+/// Create a commented plugin template in the global plugins folder (the one
+/// the Tools page lists); returns the manifest path so the UI can open it.
 #[tauri::command]
 #[specta::specta]
-pub async fn scaffold_plugin(state: State<'_, AppState>) -> Result<String, String> {
-    let root = project_root(&state).map_err(|e| e.to_string())?;
-    let base = root.join(".werk").join("plugins");
+pub async fn scaffold_plugin() -> Result<String, String> {
+    let base = crate::config::data_dir()
+        .map(|d| d.join("werk").join("plugins"))
+        .ok_or_else(|| "Cannot find the data directory".to_string())?;
     std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
     let mut name = "my_tool".to_string();
     let mut n = 1;
@@ -3075,18 +3194,85 @@ mod tests {
 
     #[test]
     fn prompt_only_suggests_delegation_in_router_mode() {
-        let single =
-            system_prompt_for(harness::agent::VerifyMode::Normal, crate::config::ServerMode::Single);
-        let external =
-            system_prompt_for(harness::agent::VerifyMode::Normal, crate::config::ServerMode::External);
-        let router =
-            system_prompt_for(harness::agent::VerifyMode::Normal, crate::config::ServerMode::Router);
+        let all = PromptTools::all();
+        let single = system_prompt_for(
+            harness::agent::VerifyMode::Normal,
+            crate::config::ServerMode::Single,
+            all,
+        );
+        let external = system_prompt_for(
+            harness::agent::VerifyMode::Normal,
+            crate::config::ServerMode::External,
+            all,
+        );
+        let router = system_prompt_for(
+            harness::agent::VerifyMode::Normal,
+            crate::config::ServerMode::Router,
+            all,
+        );
         assert!(!single.contains("subagent"), "{single}");
         assert!(!external.contains("subagent"), "{external}");
         assert!(router.contains("researcher subagent"), "{router}");
         // Verification off drops the paragraph entirely.
-        let off = system_prompt_for(harness::agent::VerifyMode::Off, crate::config::ServerMode::Router);
+        let off = system_prompt_for(
+            harness::agent::VerifyMode::Off,
+            crate::config::ServerMode::Router,
+            all,
+        );
         assert!(!off.contains("Verify load-bearing"), "{off}");
+    }
+
+    #[test]
+    fn context_precedence_role_then_launch_then_gguf() {
+        // The role override wins over the launch ctx-size.
+        assert_eq!(role_context_limit(Some(90_000), 32_768, None), Some(90_000));
+        // The launch value is what the Run page sets; a zero override falls
+        // through to it instead of jumping to the GGUF training maximum.
+        assert_eq!(role_context_limit(Some(0), 92_160, None), Some(92_160));
+        assert_eq!(role_context_limit(None, 92_160, None), Some(92_160));
+        // Nothing configured and no readable model: unknown.
+        assert_eq!(role_context_limit(None, 0, None), None);
+    }
+
+    #[test]
+    fn disabled_tools_leave_the_prompt() {
+        let disabled: Vec<String> = ["remember", "ask_user", "spawn_subagent"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let prompt = system_prompt_for(
+            harness::agent::VerifyMode::Normal,
+            crate::config::ServerMode::Router,
+            PromptTools::from_disabled(&disabled),
+        );
+        assert!(!prompt.contains("remember tool"), "{prompt}");
+        assert!(!prompt.contains("ask_user"), "{prompt}");
+        assert!(!prompt.contains("subagent"), "{prompt}");
+        // Remaining tools stay named.
+        assert!(prompt.contains("read_file to read"), "{prompt}");
+        assert!(prompt.contains("exec"), "{prompt}");
+
+        let all_off: Vec<String> = [
+            "read_file",
+            "write_file",
+            "edit_file",
+            "find_files",
+            "search_content",
+            "exec",
+            "remember",
+            "ask_user",
+            "spawn_subagent",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let bare = system_prompt_for(
+            harness::agent::VerifyMode::Normal,
+            crate::config::ServerMode::Single,
+            PromptTools::from_disabled(&all_off),
+        );
+        assert!(!bare.contains("read_file") && !bare.contains("exec"), "{bare}");
+        assert!(bare.contains("sandboxed project directory"), "{bare}");
     }
 
     #[test]

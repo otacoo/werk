@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Changed
+
+- "New plugin" scaffolds into the global plugins folder (the one the Tools
+  page lists) instead of the active project's `.werk/plugins/`, so it works
+  without a project open.
+
+### Fixed
+
+- The Chat context ring shows the effective context window instead of the
+  model's training maximum: the orchestrator's role override wins, then the
+  launch `--ctx-size` set on the Run page, and only then the GGUF length
+  (a 92K setting now reads as 92K, not 262K). Router mode no longer reads the
+  router's own `/slots`/`/props` — they describe the router, not the loaded
+  child; single-model mode still prefers live slot values, which include
+  `--fit` shrinking.
+- The system prompt no longer names disabled tools: with `remember`,
+  `ask_user`, `spawn_subagent`, the file tools, or `exec` switched off, their
+  sentences are dropped (or the tool list is rewritten) so the model is never
+  told about a tool it cannot call. The tool schemas were already filtered.
+
 ## [0.3.7] - 2026-10-01
 
 ### Added
