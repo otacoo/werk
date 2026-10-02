@@ -25,7 +25,7 @@ export function SysNotice({ text }: { text: string }) {
         <span className="flex-1 h-px bg-border" />
       </div>
       <div className="flex justify-center mt-1">
-        <div className="max-w-[85%] text-center">
+        <div className="max-w-[85%] xl:max-w-[75%] text-center">
           <button
             className="text-[0.6875rem] text-dim hover:text-ink transition-colors select-text"
             onClick={() => body && setOpen((v) => !v)}
@@ -90,7 +90,7 @@ export function ChangesCard({
   const hidden = files.length - visible.length;
   return (
     <div className="flex justify-start">
-      <div className="max-w-[85%] rounded border border-border bg-surface-2 px-3 py-2 text-xs space-y-1.5">
+      <div className="max-w-[85%] xl:max-w-[75%] rounded border border-border bg-surface-2 px-3 py-2 text-xs space-y-1.5">
         <p className="text-ink font-medium">
           {files.length} file{files.length === 1 ? "" : "s"} changed
           {added > 0 && <span className="text-accent-green ml-2 tabular-nums">+{added}</span>}
@@ -223,7 +223,7 @@ export const ToolCard = memo(function ToolCard({ tool, args, output, subagentMod
   useEffect(() => subscribeBubbleAlign(setAlign), []);
   return (
     <div className={`flex items-center gap-2 ${align === "right" ? "justify-start" : "justify-end"}`}>
-      <div className="max-w-[85%] rounded border border-border bg-surface-2 px-3 py-2 text-xs">
+      <div className="max-w-[85%] xl:max-w-[75%] rounded border border-border bg-surface-2 px-3 py-2 text-xs">
         <button
           className="w-full text-dim flex items-center gap-1.5 text-left"
           onClick={() => setOpen((v) => !v)}

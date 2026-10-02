@@ -1141,7 +1141,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
               const isLastAssistant = it.role === "assistant" && i === lastAssistantIdx;
               return (
                 <div key={i} className={`flex ${isUser ? userJustify : modelJustify}`}>
-                  <div className="max-w-[80%]">
+                  <div className="max-w-[80%] xl:max-w-[75%]">
                     {isUser && (
                       <div
                         className={`text-[0.625rem] text-faint mb-0.5 select-text ${
@@ -1203,7 +1203,13 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
               );
             }
             if (it.kind === "reasoning") {
-              return <ReasoningBlock key={`reasoning-${i}`} text={it.text} />;
+              return (
+                <div key={`reasoning-${i}`} className={`flex ${modelJustify}`}>
+                  <div className="max-w-[80%] xl:max-w-[75%]">
+                    <ReasoningBlock text={it.text} />
+                  </div>
+                </div>
+              );
             }
             if (it.kind === "sys") {
               return <SysNotice key={`sys-${i}`} text={it.text} />;
@@ -1221,7 +1227,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
             }
             return (
               <div key={i} className={`flex ${modelJustify}`}>
-                <div className="max-w-[85%] rounded border border-accent-yellow/40 bg-accent-yellow/5 px-3 py-2 text-xs">
+                <div className="max-w-[85%] xl:max-w-[75%] rounded border border-accent-yellow/40 bg-accent-yellow/5 px-3 py-2 text-xs">
                   <p className="text-ink flex items-center gap-1.5 mb-1">
                     <FileWarning size={11} className="text-accent-yellow shrink-0" />
                     Approval requested: <span className="font-medium">{it.tool}</span>
@@ -1260,7 +1266,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
           })}
           {reasoningText !== null && (
             <div className={`flex ${modelJustify}`}>
-              <div className="max-w-[80%] w-full">
+              <div className="max-w-[80%] w-full xl:max-w-[75%]">
                 <ReasoningBlock
                   text={reasoningText}
                   streaming={reasoningLive}
@@ -1272,7 +1278,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
           )}
           {streamText !== null && (
             <div className={`flex ${modelJustify}`}>
-              <div className="max-w-[80%] rounded px-3 py-2 bg-surface-2 text-ink select-text">
+              <div className="max-w-[80%] xl:max-w-[75%] rounded px-3 py-2 bg-surface-2 text-ink select-text">
                 <Markdown content={streamText} />
                 {streaming && <span className="ml-0.5 inline-block w-2 h-4 bg-dim animate-pulse align-middle" />}
               </div>
