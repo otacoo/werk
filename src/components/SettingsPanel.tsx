@@ -5,6 +5,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowUpCircle,
+  Bug,
   Download,
   ExternalLink,
   Info,
@@ -50,7 +51,7 @@ import {
 
 const REPO_URL = "https://github.com/otacoo/werk";
 
-export type SettingsSection = "general" | "appearance" | "about";
+export type SettingsSection = "general" | "appearance" | "debug" | "about";
 
 function GeneralCard({ appConfig, setAppConfig, refresh }: {
   appConfig: AppConfig | null;
@@ -448,11 +449,12 @@ function AppearanceCard() {
   );
 }
 
-export default function SettingsPanel({ open, onClose, section, onSectionChange }: {
+export default function SettingsPanel({ open, onClose, section, onSectionChange, onRestartWizard }: {
   open: boolean;
   onClose: () => void;
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
+  onRestartWizard: () => void;
 }) {
   const [appConfig, setAppConfig, configError, refreshConfig] = useAppConfig(open);
 
@@ -469,6 +471,7 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange 
   const visible: { id: SettingsSection; label: string; icon: LucideIcon }[] = [
     { id: "general", label: "General", icon: SlidersHorizontal },
     { id: "appearance", label: "Appearance", icon: Palette },
+    { id: "debug", label: "Debug", icon: Bug },
     { id: "about", label: "About", icon: Info },
   ];
 
@@ -507,6 +510,18 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange 
             <GeneralCard appConfig={appConfig} setAppConfig={setAppConfig} refresh={refreshConfig} />
           )}
           {section === "appearance" && <AppearanceCard />}
+          {section === "debug" && (
+            <div className="card">
+              <h2 className="section-title mb-1">Setup wizard</h2>
+              <p className="section-desc">
+                Run the first-launch setup again: hardware overview, runtime install, model
+                downloads, and appearance.
+              </p>
+              <button className="btn-secondary text-xs mt-3" onClick={onRestartWizard}>
+                <RefreshCw size={12} /> Start wizard again
+              </button>
+            </div>
+          )}
           {section === "about" && (
             <div className="card text-center">
               <p className="text-3xl font-bold tracking-tight select-none">

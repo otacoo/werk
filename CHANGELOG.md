@@ -20,6 +20,7 @@
 - Sending now starts the local server on demand; the Local server card keeps only the idle unload.
 - The Dashboard is rebuilt around a server overview (model, runtime, backend, quick actions) and a machine card (CPU, memory, GPU, backend), with Runtime/Models/Browse as plain tab cards.
 - The HuggingFace browser drops its owner filter and the curated quantizer list.
+- Settings gains a Debug section with a button to run the setup wizard again.
 
 ## [0.5.0] - 2026-10-02
 

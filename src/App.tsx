@@ -281,6 +281,10 @@ export default function App() {
           onClose={closeSettings}
           section={settingsSection}
           onSectionChange={setSettingsSection}
+          onRestartWizard={() => {
+            closeSettings();
+            setWizard(true);
+          }}
         />
       </main>
     </div>
