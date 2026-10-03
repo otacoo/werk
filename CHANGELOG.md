@@ -24,6 +24,8 @@
 - The setup wizard gets a sticky footer that carries each step's action, including model downloads.
 - The wizard shows the machine summary as a single spec card, and its theme cards match the Settings layout.
 - Round corners now actually apply — the theme's `--radius` token was overriding the setting.
+- The recommended Gemma entry now points at unsloth/gemma-4-E4B-it-GGUF as "Gemma E4B IT".
+- Cancelling a recommended-model download discards the partial file instead of leaving it to be counted as installed.
 
 ## [0.5.0] - 2026-10-02
 

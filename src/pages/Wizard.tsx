@@ -113,7 +113,12 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
   const [queue, setQueue] = useState(false);
   const [modelsDir, setModelsDir] = useState<string | null>(null);
   const [dirError, setDirError] = useState<string | null>(null);
-  const book = useRef(new Map<string, { repoPath: string; stopNote: string | null }>());
+  const book = useRef(
+    new Map<
+      string,
+      { repoPath: string; stopNote: string | null; repoId: string; discard?: boolean }
+    >(),
+  );
 
   // Progress events arrive in chunks; repaint at most ~8fps.
   const lastTick = useRef(0);
@@ -274,15 +279,22 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
             setModelErrors((prev) => ({ ...prev, [m.filename]: "File not found in repo" }));
             continue;
           }
-          book.current.set(m.filename, { repoPath, stopNote: null });
+          book.current.set(m.filename, { repoPath, stopNote: null, repoId: m.repo_id });
           const saved = await call(commands.downloadModel(m.repo_id, repoPath, null, null));
           setInstalled((prev) => new Set(prev).add(m.filename));
           setLocations((prev) => ({ ...prev, [m.filename]: saved }));
           setDlProgress(({ [m.filename]: _, ...rest }) => rest);
         } catch (e) {
           const msg = String(e);
-          const note = book.current.get(m.filename)?.stopNote ?? null;
-          const stop = note ?? (/cancel/i.test(msg) ? "Cancelled — press Download to resume." : null);
+          const entry = book.current.get(m.filename);
+          // A cancelled download is discarded; removing the partial again now
+          // that the task has stopped guarantees it is never read as installed.
+          if (entry?.discard) {
+            await call(commands.discardDownload(entry.repoId, entry.repoPath, null, null)).catch(
+              () => {},
+            );
+          }
+          const stop = entry?.stopNote ?? (/cancel/i.test(msg) ? "Cancelled." : null);
           setModelErrors((prev) => ({ ...prev, [m.filename]: stop ?? msg }));
           setDlProgress(({ [m.filename]: _, ...rest }) => rest);
           if (stop) break;
@@ -294,12 +306,17 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const haltModel = async (filename: string, note: string) => {
+  const haltModel = async (filename: string, note: string, discard = false) => {
     const entry = book.current.get(filename);
     if (!entry) return;
     entry.stopNote = note;
+    if (discard) entry.discard = true;
     try {
-      await call(commands.cancelDownload(entry.repoPath));
+      if (discard) {
+        await call(commands.discardDownload(entry.repoId, entry.repoPath, null, null));
+      } else {
+        await call(commands.cancelDownload(entry.repoPath));
+      }
     } catch {}
   };
 
@@ -678,7 +695,7 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
                         <button
                           className="btn-ghost text-xs shrink-0"
                           onClick={() =>
-                            haltModel(m.filename, "Cancelled — press Download to resume.")
+                            haltModel(m.filename, "Cancelled.", true)
                           }
                         >
                           Cancel
