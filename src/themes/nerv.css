@@ -1,0 +1,110 @@
+/* NERV: black terminal, orange ink, red alerts, and a green sweep along
+   card borders — old computer graphics. */
+[data-theme="nerv"] {
+  color-scheme: dark;
+  --accent: 255 122 0;
+  --accent-soft: 255 176 59;
+  --accent-ink: 8 6 2;
+  --border: 255 122 0 / 0.3;
+  --ink: 255 176 59;
+  --dim: 214 138 44;
+  --faint: 148 96 30;
+  --surface-0: 3 3 3;
+  --surface-1: 9 8 5;
+  --surface-2: 15 13 8;
+  --surface-3: 23 19 12;
+  --scrollbar-thumb: 110 66 18;
+  --scrollbar-thumb-hover: 190 112 28;
+}
+
+/* Cards: a green gradient sweeps along the border. */
+[data-theme="nerv"] .card {
+  position: relative;
+  border-color: rgb(0 255 136 / 0.22);
+  box-shadow: 0 0 14px rgb(0 255 136 / 0.07);
+}
+[data-theme="nerv"] .card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgb(0 255 136 / 0.6) 50%, transparent 100%);
+  background-size: 250% 100%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: nerv-sweep 7s linear infinite;
+}
+@keyframes nerv-sweep {
+  from {
+    background-position: 250% 0;
+  }
+  to {
+    background-position: -250% 0;
+  }
+}
+
+/* Focus rings read green; warnings keep the shared reds. */
+[data-theme="nerv"] .input:focus {
+  border-color: rgb(0 255 136 / 0.6);
+}
+
+/* Code: orange keywords, green strings, red deletions. */
+[data-theme="nerv"] .hljs-comment,
+[data-theme="nerv"] .hljs-quote {
+  color: #8a7a4a;
+}
+[data-theme="nerv"] .hljs-keyword,
+[data-theme="nerv"] .hljs-selector-tag,
+[data-theme="nerv"] .hljs-literal,
+[data-theme="nerv"] .hljs-section,
+[data-theme="nerv"] .hljs-link,
+[data-theme="nerv"] .hljs-doctag {
+  color: #ff7a00;
+}
+[data-theme="nerv"] .hljs-string,
+[data-theme="nerv"] .hljs-regexp,
+[data-theme="nerv"] .hljs-template-tag,
+[data-theme="nerv"] .hljs-template-variable {
+  color: #00ff88;
+}
+[data-theme="nerv"] .hljs-number,
+[data-theme="nerv"] .hljs-symbol,
+[data-theme="nerv"] .hljs-bullet,
+[data-theme="nerv"] .hljs-meta {
+  color: #ffb000;
+}
+[data-theme="nerv"] .hljs-title,
+[data-theme="nerv"] .hljs-title.function_,
+[data-theme="nerv"] .hljs-name,
+[data-theme="nerv"] .hljs-built_in,
+[data-theme="nerv"] .hljs-builtin-name {
+  color: #ffd166;
+}
+[data-theme="nerv"] .hljs-type,
+[data-theme="nerv"] .hljs-class .hljs-title,
+[data-theme="nerv"] .hljs-title.class_,
+[data-theme="nerv"] .hljs-selector-class,
+[data-theme="nerv"] .hljs-selector-id,
+[data-theme="nerv"] .hljs-subst {
+  color: #7ef0c0;
+}
+[data-theme="nerv"] .hljs-variable,
+[data-theme="nerv"] .hljs-params,
+[data-theme="nerv"] .hljs-property,
+[data-theme="nerv"] .hljs-attr,
+[data-theme="nerv"] .hljs-attribute {
+  color: #ffa04d;
+}
+[data-theme="nerv"] .hljs-tag {
+  color: #ff4d2e;
+}
+[data-theme="nerv"] .hljs-addition {
+  color: #00ff88;
+}
+[data-theme="nerv"] .hljs-deletion {
+  color: #ff2a1a;
+}

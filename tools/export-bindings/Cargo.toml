@@ -1,0 +1,12 @@
+[package]
+name = "export-bindings"
+version = "0.5.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Regenerates src/bindings.ts from the app's canonical command list"
+publish = false
+
+[dependencies]
+werk = { path = "../../src-tauri" }
+# Pinned exact: must match the app's specta trio.
+specta-typescript = "=0.0.12"

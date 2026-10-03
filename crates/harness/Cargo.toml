@@ -1,0 +1,21 @@
+[package]
+name = "harness"
+version = "0.5.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Werk agent harness core: loop, tools, permissions, compaction"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Pinned exact with src-tauri; Type derives only (no Tauri dependency).
+specta = "=2.0.0-rc.25"
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+futures = "0.3"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
+walkdir = "2"
+glob = "0.3"
+regex = "1"
+# .gitignore matching for the sensitive-file policy (ripgrep's engine).
+ignore = "0.4"

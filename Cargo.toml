@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/harness", "src-tauri", "tools/export-bindings"]
+resolver = "2"

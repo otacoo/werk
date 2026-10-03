@@ -1,0 +1,23 @@
+/* Migu: graphite and silver with teal and neon-pink highlights. */
+/* Migu: graphite and silver with teal and neon-pink highlights. */
+[data-theme="migu"] {
+  color-scheme: dark;
+  --accent: 57 197 187;
+  --accent-soft: 244 114 182;
+  --accent-ink: 12 26 26;
+  --border: 200 214 222 / 0.16;
+  --ink: 227 234 238;
+  --dim: 158 172 181;
+  --faint: 111 125 135;
+  --surface-0: 24 28 32;
+  --surface-1: 31 36 41;
+  --surface-2: 39 45 51;
+  --surface-3: 49 56 63;
+  --scrollbar-thumb: 92 103 112;
+  --scrollbar-thumb-hover: 124 137 147;
+}
+
+/* Graphite cards, deep neutral shadow. */
+[data-theme="migu"] .card {
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.45);
+}
