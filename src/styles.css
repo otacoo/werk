@@ -3,7 +3,8 @@
 @tailwind utilities;
 
 
-[data-corners="round"] {
+/* Must outrank the theme's :root --radius (themes load after this file). */
+:root[data-corners="round"] {
   --radius: 10px;
 }
 

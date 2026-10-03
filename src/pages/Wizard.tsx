@@ -414,37 +414,45 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
             )}
 
             {system && (
-              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                <StatTile
-                  icon={Cpu}
-                  label="CPU"
-                  value={shortCpuName(system.cpu_name)}
-                  detail={`${system.cpu_cores} cores · ${system.cpu_threads} threads`}
-                />
-                <StatTile
-                  icon={MemoryStick}
-                  label="Memory"
-                  value={mbToGb(system.total_ram_mb)}
-                  detail={`${mbToGb(system.available_ram_mb)} free`}
-                />
-                <StatTile
-                  icon={Monitor}
-                  label="GPU"
-                  value={system.gpus.length > 0 ? shortGpuName(system.gpus[0].name) : "None"}
-                  detail={
-                    vram > 0
-                      ? `${mbToGb(vram)} VRAM`
-                      : system.gpus.length > 0
-                        ? "shared memory"
-                        : "No GPU detected"
-                  }
-                />
-                <StatTile
-                  icon={Zap}
-                  label="Backend"
-                  value={`${system.recommended_backend.toUpperCase()}${cuda?.version ? ` ${cuda.version}` : ""}`}
-                  detail="Recommended for this machine"
-                />
+              <div className="card">
+                <div className="flex items-baseline justify-between gap-3 mb-3">
+                  <h3 className="section-title mb-0">This machine</h3>
+                  <span className="text-[0.625rem] font-mono text-faint truncate">
+                    {system.os} · {system.arch}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border border border-border rounded overflow-hidden">
+                  <SpecCell
+                    icon={Cpu}
+                    label="CPU"
+                    value={shortCpuName(system.cpu_name)}
+                    detail={`${system.cpu_cores} cores · ${system.cpu_threads} threads`}
+                  />
+                  <SpecCell
+                    icon={MemoryStick}
+                    label="Memory"
+                    value={mbToGb(system.total_ram_mb)}
+                    detail={`${mbToGb(system.available_ram_mb)} free`}
+                  />
+                  <SpecCell
+                    icon={Monitor}
+                    label="GPU"
+                    value={system.gpus.length > 0 ? shortGpuName(system.gpus[0].name) : "None"}
+                    detail={
+                      vram > 0
+                        ? `${mbToGb(vram)} VRAM`
+                        : system.gpus.length > 0
+                          ? "shared memory"
+                          : "No GPU detected"
+                    }
+                  />
+                  <SpecCell
+                    icon={Zap}
+                    label="Backend"
+                    value={`${system.recommended_backend.toUpperCase()}${cuda?.version ? ` ${cuda.version}` : ""}`}
+                    detail="Recommended for this machine"
+                  />
+                </div>
               </div>
             )}
 
@@ -694,7 +702,7 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 gap-2">
               {THEME_OPTIONS.map((opt) => {
                 const active = theme === opt.value;
                 return (
@@ -704,12 +712,12 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
                     className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded border text-center transition-colors ${
                       active
                         ? "border-accent bg-accent/10 text-ink"
-                        : "border-border bg-surface-1 hover:bg-surface-2 text-dim"
+                        : "border-border bg-surface-2 hover:bg-surface-3 text-dim"
                     }`}
                   >
-                    <ThemeIcon theme={opt.value} className={active ? "text-accent-soft" : "text-dim"} />
+                    <ThemeIcon theme={opt.value} className={active ? "text-accent" : "text-faint"} />
                     <span className="text-xs font-medium">{opt.label}</span>
-                    <span className="text-[0.625rem] text-dim leading-tight">{opt.description}</span>
+                    <span className="text-[0.625rem] text-faint leading-tight">{opt.description}</span>
                   </button>
                 );
               })}
@@ -803,7 +811,7 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
   );
 }
 
-function StatTile({
+function SpecCell({
   icon: Icon,
   label,
   value,
@@ -815,11 +823,11 @@ function StatTile({
   detail?: string;
 }) {
   return (
-    <div className="rounded border border-border bg-surface-2 p-2.5 min-w-0">
-      <div className="flex items-center gap-1.5 text-faint">
-        <Icon size={12} className="shrink-0" />
-        <span className="text-[0.625rem] uppercase tracking-wider">{label}</span>
-      </div>
+    <div className="bg-surface-2 px-3 py-2.5 min-w-0">
+      <p className="flex items-center gap-1.5 text-[0.625rem] uppercase tracking-wider text-faint">
+        <Icon size={11} className="shrink-0" />
+        {label}
+      </p>
       <p className="mt-1 text-xs font-medium text-ink truncate" title={value}>
         {value}
       </p>
