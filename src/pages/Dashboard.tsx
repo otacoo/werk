@@ -17,7 +17,6 @@ import type {
   FoundBinaryDto,
   HfFileDto,
   HfModel,
-  KnownOwnerDto,
   ModelDto,
   ReleaseDto,
   RuntimeInfo,
@@ -79,8 +78,6 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
 
   // HuggingFace browser.
   const [searchQuery, setSearchQuery] = useState("");
-  const [owners, setOwners] = useState<KnownOwnerDto[]>([]);
-  const [selectedOwner, setSelectedOwner] = useState("");
   const [sortBy, setSortBy] = useState<HfSort>("downloads");
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<HfModel[]>([]);
@@ -189,7 +186,6 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
   useEffect(() => {
     loadData();
     reloadDirs();
-    call(commands.getKnownOwners()).then(setOwners).catch(() => {});
     const unsubStatus = subscribeServerStatus(setStatus);
     const unlisten = listen<{ id: string; downloaded: number; total?: number | null }>(
       "download_progress",
@@ -418,13 +414,11 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
   // ── HuggingFace browser ───────────────────────────────────────────
 
   const doSearch = async (sort: HfSort = sortBy) => {
-    if (!searchQuery.trim() && !selectedOwner) return;
+    if (!searchQuery.trim()) return;
     setSearching(true);
     setError(null);
     try {
-      setSearchResults(
-        await call(commands.searchHfModels(searchQuery.trim(), selectedOwner || null, sort)),
-      );
+      setSearchResults(await call(commands.searchHfModels(searchQuery.trim(), sort)));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -592,8 +586,49 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
   }
 
   const totalVram = system?.gpus.reduce((s, g) => s + g.vram_mb, 0) ?? 0;
-  const totalRam = system?.available_ram_mb ?? 0;
+  const totalRam = system?.total_ram_mb ?? 0;
+  const freeRam = system?.available_ram_mb ?? 0;
+  const usedRam = Math.max(0, totalRam - freeRam);
+  const gpus = system?.gpus ?? [];
+  const selectedModelName =
+    (appConfig?.selected_model ?? "").split(/[\\/]/).pop() || "None selected";
+  const recommendedBackend = system?.backends.find(
+    (b) => b.id === system.recommended_backend,
+  );
+  const runtimeLabel = (() => {
+    if (activeRt?.type === "managed") {
+      const hit = managed.find(
+        (r) => r.build === activeRt.build && (r.backend_id ?? "") === (activeRt.backend_id ?? ""),
+      );
+      return `b${activeRt.build}${hit ? ` · ${hit.backend_label}` : ""}`;
+    }
+    if (activeRt?.type === "custom") {
+      return custom[activeRt.index]?.label ?? "Custom build";
+    }
+    return "None";
+  })();
   const installedNames = new Set(models.map((m) => m.filename));
+  const dashTabs: { id: DashTab; label: string; desc: string; icon: typeof Cpu }[] = [
+    {
+      id: "runtime",
+      label: `Runtime (${managed.length + custom.length})`,
+      desc: "llama.cpp builds used to serve models.",
+      icon: Cpu,
+    },
+    {
+      id: "models",
+      label: `Models (${models.length})`,
+      desc: "GGUF files found across your model folders.",
+      icon: Database,
+    },
+    {
+      id: "browse",
+      label: "Browse HuggingFace",
+      desc: "Search and download GGUF models from HuggingFace.",
+      icon: Search,
+    },
+  ];
+  const currentTab = dashTabs.find((t) => t.id === dashTab) ?? dashTabs[0];
 
   const comp = companion
     ? (() => {
@@ -613,7 +648,14 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="p-6 space-y-4">
+      <div className="p-6 space-y-4 max-w-6xl mx-auto">
+        <div>
+          <h1 className="section-title">Dashboard</h1>
+          <p className="section-desc">
+            Your machine, the local server, llama.cpp builds, and models.
+          </p>
+        </div>
+
         {error && (
           <div className="card border-accent-red/30 bg-accent-red/5">
             <p className="text-sm text-accent-red">{error}</p>
@@ -637,66 +679,10 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
           </div>
         )}
 
-        {/* Machine cards. */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="card flex items-center gap-2">
-            <Cpu size={16} className="text-accent-soft shrink-0" />
-            <div className="min-w-0">
-              <p className="text-xs text-dim">CPU</p>
-              <p className="text-xs font-medium text-ink truncate">
-                {shortCpuName(system?.cpu_name ?? "Unknown")}
-              </p>
-              <p className="text-[0.625rem] text-faint">
-                {system?.cpu_cores ? `${system.cpu_cores}c / ${system.cpu_threads}t` : "—"}
-              </p>
-            </div>
-          </div>
-          <div className="card flex items-center gap-2">
-            <MemoryStick size={16} className="text-accent-green shrink-0" />
-            <div>
-              <p className="text-xs text-dim">RAM</p>
-              <p className="text-xs font-medium text-ink">{mbToGb(system?.total_ram_mb ?? 0)} total</p>
-              <p className="text-[0.625rem] text-faint">{mbToGb(system?.available_ram_mb ?? 0)} free</p>
-            </div>
-          </div>
-          <div className="card flex items-center gap-2">
-            <Monitor size={16} className="text-accent-yellow shrink-0" />
-            <div className="min-w-0">
-              <p className="text-xs text-dim">GPU</p>
-              {system && system.gpus.length > 0 ? (
-                <>
-                  <p className="text-xs font-medium text-ink truncate">
-                    {shortGpuName(system.gpus[0].name)}
-                    {system.gpus.length > 1 ? ` +${system.gpus.length - 1}` : ""}
-                  </p>
-                  <p className="text-[0.625rem] text-faint">
-                    {totalVram > 0 ? `${mbToGb(totalVram)} VRAM` : "shared memory"}
-                  </p>
-                </>
-              ) : (
-                <p className="text-xs text-dim">None</p>
-              )}
-            </div>
-          </div>
-          <div className="card flex items-center gap-2">
-            <Zap size={16} className="text-accent-soft shrink-0" />
-            <div>
-              <p className="text-xs text-dim">Backend</p>
-              <p className="text-xs font-medium text-ink uppercase">
-                {system?.recommended_backend ?? "CPU"}
-              </p>
-              <p className="text-[0.625rem] text-faint">
-                {totalVram > 0 ? `${mbToGb(totalVram)} VRAM + ` : ""}
-                {mbToGb(totalRam)} RAM
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Server status. */}
-
-          <div className="card">
-            <div className="flex items-center gap-3">
+        {/* Server and machine. */}
+        <div className="grid gap-4 lg:grid-cols-5 items-stretch">
+          <div className="card lg:col-span-2 flex flex-col">
+            <div className="flex items-center gap-2">
               <span
                 className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                   status.type === "running"
@@ -710,28 +696,55 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
                         : "bg-surface-3"
                 }`}
               />
-              <div className="flex-1 min-w-0">
-                {status.type === "running" && status.ready ? (
-                  <>
-                    <p className="text-sm font-medium text-accent-green">
-                      Running <span className="font-mono">:{status.port}</span>
-                    </p>
-                    <p className="text-xs text-dim truncate">
-                      {(appConfig?.selected_model ?? "").split(/[\\/]/).pop() || "server"}
-                    </p>
-                  </>
-                ) : status.type === "running" || status.type === "starting" ? (
-                  <p className="text-sm font-medium text-accent-yellow">
-                    Loading the model — not ready yet…
-                  </p>
-                ) : status.type === "error" ? (
-                  <p className="text-sm font-medium text-accent-red truncate">{status.message}</p>
-                ) : (
-                  <p className="text-sm font-medium text-ink">Server stopped</p>
-                )}
-              </div>
+              <h2 className="section-title mb-0">Server</h2>
+              {status.type === "running" && status.ready && (
+                <span className="badge-green text-[0.625rem] ml-auto">ready</span>
+              )}
+              {running && !(status.type === "running" && status.ready) && (
+                <span className="badge-yellow text-[0.625rem] ml-auto">loading</span>
+              )}
+            </div>
+            <p
+              className={`mt-3 text-lg font-semibold ${
+                status.type === "running" && status.ready
+                  ? "text-accent-green"
+                  : running
+                    ? "text-accent-yellow"
+                    : status.type === "error"
+                      ? "text-accent-red"
+                      : "text-ink"
+              }`}
+            >
+              {status.type === "running" && status.ready ? (
+                <>
+                  Running <span className="font-mono text-base">:{status.port}</span>
+                </>
+              ) : running ? (
+                "Loading the model…"
+              ) : status.type === "error" ? (
+                "Server error"
+              ) : (
+                "Stopped"
+              )}
+            </p>
+            <p className="section-desc mt-0.5">
+              {status.type === "error"
+                ? status.message
+                : status.type === "running" && status.ready
+                  ? "Ready for chat."
+                  : "Server starts on demand when you send a message."}
+            </p>
+            <div className="mt-4 space-y-1.5">
+              <DetailRow label="Model" value={selectedModelName} mono />
+              <DetailRow label="Runtime" value={runtimeLabel} />
+              <DetailRow
+                label="Backend"
+                value={recommendedBackend?.label ?? "—"}
+              />
+            </div>
+            <div className="mt-auto pt-4 flex items-center gap-2">
               {running ? (
-                <div className="flex items-center gap-2 shrink-0">
+                <>
                   {status.type === "running" && (
                     <button className="btn-secondary text-xs" onClick={() => go("chat")}>
                       Chat
@@ -740,44 +753,93 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
                   <button className="btn-danger text-xs" onClick={stop} disabled={stopping}>
                     Stop
                   </button>
-                </div>
+                </>
               ) : (
-                <button className="btn-ghost text-xs shrink-0" onClick={() => go("run")}>
-                  Configure launch
-                </button>
+                <>
+                  <button className="btn-primary text-xs" onClick={() => go("chat")}>
+                    Chat
+                  </button>
+                  <button className="btn-ghost text-xs" onClick={() => go("run")}>
+                    Configure launch
+                  </button>
+                </>
               )}
             </div>
           </div>
 
-        <div>
-          <div className="flex items-end gap-0.5 border-b border-border">
-            {(
-              [
-                { id: "runtime", label: `Runtime (${managed.length + custom.length})`, icon: Cpu },
-                { id: "models", label: `Models (${models.length})`, icon: Database },
-                { id: "browse", label: "Browse HuggingFace", icon: Search },
-              ] as { id: DashTab; label: string; icon: typeof Cpu }[]
-            ).map(({ id, label, icon: Icon }) => {
-              const active = dashTab === id;
-              return (
-                <button
-                  key={id}
-                  onClick={() => setDashTab(id)}
-                  className={`relative -mb-px flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-t border transition-colors ${
-                    active
-                      ? "border-border bg-surface-1 text-ink"
-                      : "border-transparent text-dim hover:text-ink hover:bg-accent/10"
-                  }`}
-                >
-                  {active && (
-                    <span className="absolute inset-0 rounded-t bg-accent/20 pointer-events-none" />
-                  )}
-                  <Icon size={14} className="relative" />
-                  <span className="relative">{label}</span>
-                </button>
-              );
-            })}
+          <div className="card lg:col-span-3">
+            <div className="flex items-baseline justify-between gap-3 mb-3">
+              <h2 className="section-title mb-0">This machine</h2>
+              <span className="text-[0.625rem] font-mono text-faint truncate">
+                {system ? `${system.os} · ${system.arch}` : ""}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              <MachineStat
+                icon={Cpu}
+                label="CPU"
+                value={shortCpuName(system?.cpu_name ?? "Unknown")}
+                detail={`${system?.cpu_cores ?? 0} cores · ${system?.cpu_threads ?? 0} threads`}
+              />
+              <MachineStat
+                icon={MemoryStick}
+                label="Memory"
+                value={
+                  totalRam > 0 ? `${mbToGb(usedRam)} / ${mbToGb(totalRam)}` : "Unknown"
+                }
+                detail={`${mbToGb(freeRam)} free`}
+                fraction={totalRam > 0 ? usedRam / totalRam : undefined}
+              />
+              <MachineStat
+                icon={Monitor}
+                label="GPU"
+                value={
+                  gpus.length > 0
+                    ? `${shortGpuName(gpus[0].name)}${gpus.length > 1 ? ` +${gpus.length - 1}` : ""}`
+                    : "None"
+                }
+                detail={
+                  gpus.length === 0
+                    ? "No GPU detected"
+                    : totalVram > 0
+                      ? `${mbToGb(totalVram)} VRAM`
+                      : "shared memory"
+                }
+              />
+              <MachineStat
+                icon={Zap}
+                label="Backend"
+                value={recommendedBackend?.label ?? "CPU"}
+                detail={
+                  recommendedBackend?.version
+                    ? `v${recommendedBackend.version}`
+                    : "Recommended for this machine"
+                }
+              />
+            </div>
           </div>
+        </div>
+
+        <div>
+          <div className="flex items-center gap-0.5">
+            {dashTabs.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setDashTab(id)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  dashTab === id
+                    ? "bg-accent/20 text-ink"
+                    : "text-dim hover:text-ink hover:bg-accent/10"
+                }`}
+              >
+                <Icon size={13} />
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="section-desc mt-2">{currentTab.desc}</p>
+
+          <div className="mt-3">
 
         {dashTab === "runtime" && (
           <RuntimeTab
@@ -834,14 +896,12 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
           <BrowseTab
             active={active}
             expandedRepo={expandedRepo}
-            owners={owners}
             paused={paused}
             progress={progress}
             repoFiles={repoFiles}
             searching={searching}
             searchQuery={searchQuery}
             searchResults={searchResults}
-            selectedOwner={selectedOwner}
             sortBy={sortBy}
             installedNames={installedNames}
             cancelDownload={cancelDownload}
@@ -852,10 +912,10 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
             pauseDownload={pauseDownload}
             resumeDownload={resumeDownload}
             setSearchQuery={setSearchQuery}
-            setSelectedOwner={setSelectedOwner}
             toggleRepo={toggleRepo}
           />
         )}
+          </div>
         </div>
       </div>
 
@@ -991,6 +1051,61 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
               Cancel
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-baseline gap-2 min-w-0">
+      <span className="w-14 shrink-0 text-[0.625rem] uppercase tracking-wider text-faint">
+        {label}
+      </span>
+      <span
+        className={`text-xs truncate ${mono ? "font-mono text-dim" : "text-ink"}`}
+        title={value}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function MachineStat({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  fraction,
+}: {
+  icon: typeof Cpu;
+  label: string;
+  value: string;
+  detail?: string;
+  fraction?: number;
+}) {
+  return (
+    <div className="rounded border border-border bg-surface-2 p-2.5 min-w-0">
+      <div className="flex items-center gap-1.5 text-faint">
+        <Icon size={12} className="shrink-0" />
+        <span className="text-[0.625rem] uppercase tracking-wider">{label}</span>
+      </div>
+      <p className="mt-1 text-xs font-medium text-ink truncate" title={value}>
+        {value}
+      </p>
+      {detail && (
+        <p className="mt-0.5 text-[0.625rem] text-faint truncate" title={detail}>
+          {detail}
+        </p>
+      )}
+      {fraction != null && (
+        <div className="mt-1.5 h-0.5 rounded bg-surface-3 overflow-hidden">
+          <div
+            className="h-full bg-accent transition-all"
+            style={{ width: `${Math.min(100, Math.max(0, fraction * 100))}%` }}
+          />
         </div>
       )}
     </div>

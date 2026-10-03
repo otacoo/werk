@@ -72,11 +72,9 @@ export function RuntimeTab(props: RuntimeTabProps) {
     checkForBuilds,
     setAutoDeleteOld,
   } = props;
-  return (          <div className="card rounded-t-none border-t-0">
-            <div className="flex items-center justify-between mb-1">
-              <p className="section-desc">llama.cpp builds used to serve models.</p>
-              <div className="flex items-center gap-3">
-                {(managed.length > 0 || custom.length > 0) && (
+  return (          <div className="card">
+            <div className="flex items-center justify-end gap-3">
+              {(managed.length > 0 || custom.length > 0) && (
                   <label
                     className="flex items-center gap-1.5 text-[0.6875rem] text-dim cursor-pointer"
                     title="Delete older builds of the same backend after installing a new one"
@@ -106,7 +104,6 @@ export function RuntimeTab(props: RuntimeTabProps) {
                 >
                   <FolderOpen size={11} /> Browse…
                 </button>
-              </div>
             </div>
             <div className="mt-2 flex items-center gap-2">
               <button

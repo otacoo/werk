@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, Download, ExternalLink, Search } from "lucide-react";
-import type { HfFileDto, HfModel, KnownOwnerDto } from "../../bindings";
+import type { HfFileDto, HfModel } from "../../bindings";
 import { fmtMB } from "../../utils/ipc";
 import {
   formatSize,
@@ -15,14 +15,12 @@ import { baseOf, type ActiveDl, type HfSort } from "./shared";
 type BrowseTabProps = {
   active: Record<string, ActiveDl>;
   expandedRepo: string | null;
-  owners: KnownOwnerDto[];
   paused: Record<string, boolean>;
   progress: Record<string, { downloaded: number; total: number | null }>;
   repoFiles: Record<string, HfFileDto[]>;
   searching: boolean;
   searchQuery: string;
   searchResults: HfModel[];
-  selectedOwner: string;
   sortBy: HfSort;
   installedNames: Set<string>;
   cancelDownload: (id: string) => void;
@@ -33,7 +31,6 @@ type BrowseTabProps = {
   pauseDownload: (id: string) => void;
   resumeDownload: (id: string) => void;
   setSearchQuery: (v: string) => void;
-  setSelectedOwner: (v: string) => void;
   toggleRepo: (repoId: string) => void;
 };
 
@@ -41,14 +38,12 @@ export function BrowseTab(props: BrowseTabProps) {
   const {
     active,
     expandedRepo,
-    owners,
     paused,
     progress,
     repoFiles,
     searching,
     searchQuery,
     searchResults,
-    selectedOwner,
     sortBy,
     installedNames,
     cancelDownload,
@@ -59,13 +54,9 @@ export function BrowseTab(props: BrowseTabProps) {
     pauseDownload,
     resumeDownload,
     setSearchQuery,
-    setSelectedOwner,
     toggleRepo,
   } = props;
-  return (          <div className="card rounded-t-none border-t-0">
-            <div className="flex items-baseline justify-between mb-2">
-              <p className="section-desc">Search and download models from HuggingFace.</p>
-            </div>
+  return (          <div className="card">
             <div className="flex gap-2 mb-2">
               <div className="flex-1 relative min-w-0">
                 <Search
@@ -90,18 +81,6 @@ export function BrowseTab(props: BrowseTabProps) {
                 <option value="downloads">By downloads</option>
                 <option value="likes">By stars</option>
                 <option value="lastModified">Newest</option>
-              </select>
-              <select
-                className="input py-1 px-2 text-xs shrink-0 max-w-40"
-                value={selectedOwner}
-                onChange={(e) => setSelectedOwner(e.target.value)}
-              >
-                <option value="">Any owner</option>
-                {owners.map((o) => (
-                  <option key={o.id} value={o.id} title={o.description}>
-                    {o.id}
-                  </option>
-                ))}
               </select>
               <button className="btn-primary text-xs shrink-0" onClick={() => doSearch()} disabled={searching}>
                 {searching ? "…" : "Search"}
@@ -247,7 +226,7 @@ export function BrowseTab(props: BrowseTabProps) {
                   <Search size={26} className="mx-auto mb-3 opacity-30" />
                   <p className="text-sm">Search for GGUF models on HuggingFace.</p>
                   <p className="text-xs mt-1 text-faint">
-                    Try "llama 3", "mistral", or pick an owner to browse.
+                    Try "llama 3", "mistral", or a quant like "Q4_K_M".
                   </p>
                 </div>
               )

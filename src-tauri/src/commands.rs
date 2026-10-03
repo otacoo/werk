@@ -147,12 +147,6 @@ pub struct HfFileDto {
     pub size_bytes: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, specta::Type)]
-pub struct KnownOwnerDto {
-    pub id: String,
-    pub description: String,
-}
-
 // ── Hardware ──────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -1175,68 +1169,16 @@ pub async fn get_hf_repo_files(
 #[specta::specta]
 pub async fn search_hf_models(
     query: String,
-    owner: Option<String>,
     sort: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::models::HfModel>, String> {
     crate::models::search_hf(
         &state.http_client,
         &query,
-        owner.as_deref(),
         sort.as_deref().unwrap_or("downloads"),
     )
     .await
     .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn get_known_owners(state: State<'_, AppState>) -> Result<Vec<KnownOwnerDto>, String> {
-    let config = state.config.lock().unwrap();
-    let mut ids = config.preferred_owners.clone();
-    for (known, _) in crate::models::KNOWN_GGUF_OWNERS {
-        if !ids.iter().any(|id| id == known) {
-            ids.push(known.to_string());
-        }
-    }
-    Ok(ids
-        .into_iter()
-        .map(|id| {
-            let description = crate::models::KNOWN_GGUF_OWNERS
-                .iter()
-                .find(|(k, _)| *k == id)
-                .map(|(_, d)| d.to_string())
-                .unwrap_or_else(|| "User-added source".to_string());
-            KnownOwnerDto { id, description }
-        })
-        .collect())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn validate_hf_owner(
-    owner: String,
-    state: State<'_, AppState>,
-) -> Result<bool, String> {
-    crate::models::validate_hf_owner(&state.http_client, &owner)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn set_preferred_owners(
-    owners: Vec<String>,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let mut config = state.config.lock().unwrap();
-    let mut seen = std::collections::HashSet::new();
-    config.preferred_owners = owners
-        .into_iter()
-        .map(|o| o.trim().to_string())
-        .filter(|o| !o.is_empty() && seen.insert(o.clone()))
-        .collect();
-    config.save().map_err(|e| e.to_string())
 }
 
 /// Download a repo file plus optional split parts under one progress id;

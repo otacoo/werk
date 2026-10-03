@@ -200,10 +200,7 @@ export const commands = {
 	removeModelDir: (path: string) => typedError<null, string>(__TAURI_INVOKE("remove_model_dir", { path })),
 	setDownloadDir: (path: string) => typedError<null, string>(__TAURI_INVOKE("set_download_dir", { path })),
 	getHfRepoFiles: (repoId: string) => typedError<HfFileDto_Serialize[], string>(__TAURI_INVOKE("get_hf_repo_files", { repoId })),
-	searchHfModels: (query: string, owner: string | null, sort: string | null) => typedError<HfModel[], string>(__TAURI_INVOKE("search_hf_models", { query, owner, sort })),
-	getKnownOwners: () => typedError<KnownOwnerDto[], string>(__TAURI_INVOKE("get_known_owners")),
-	setPreferredOwners: (owners: string[]) => typedError<null, string>(__TAURI_INVOKE("set_preferred_owners", { owners })),
-	validateHfOwner: (owner: string) => typedError<boolean, string>(__TAURI_INVOKE("validate_hf_owner", { owner })),
+	searchHfModels: (query: string, sort: string | null) => typedError<HfModel[], string>(__TAURI_INVOKE("search_hf_models", { query, sort })),
 	/**
 	 *  Download a repo file plus optional split parts under one progress id;
 	 *  `save_as` renames the main file (companion sidecars). Returns the main file.
@@ -323,8 +320,6 @@ export type AppConfig_Deserialize = {
 	bench_visible?: boolean,
 	/**  Delete older builds of the same backend when a new one installs. */
 	auto_delete_old_runtimes?: boolean,
-	/**  HuggingFace sources in preference order (browse filter). */
-	preferred_owners?: string[],
 	/**  Built-in server file tools for every run (subset of known names). */
 	server_tools?: string[],
 	/**  MCP servers disabled by name (mcp.json stays complete). */
@@ -408,8 +403,6 @@ export type AppConfig_Serialize = {
 	bench_visible: boolean,
 	/**  Delete older builds of the same backend when a new one installs. */
 	auto_delete_old_runtimes: boolean,
-	/**  HuggingFace sources in preference order (browse filter). */
-	preferred_owners: string[],
 	/**  Built-in server file tools for every run (subset of known names). */
 	server_tools: string[],
 	/**  MCP servers disabled by name (mcp.json stays complete). */
@@ -708,11 +701,6 @@ export type HistoryView_Serialize = {
 	messages: HistoryMessage_Serialize[],
 	meta: MetaEntry_Serialize[],
 	todos: TodoDto[],
-};
-
-export type KnownOwnerDto = {
-	id: string,
-	description: string,
 };
 
 /**  Wire-ready launch command for the Run page (same prep as `start_server`). */

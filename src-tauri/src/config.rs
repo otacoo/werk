@@ -357,9 +357,6 @@ pub struct AppConfig {
     /// Delete older builds of the same backend when a new one installs.
     #[serde(default)]
     pub auto_delete_old_runtimes: bool,
-    /// HuggingFace sources in preference order (browse filter).
-    #[serde(default = "default_preferred_owners")]
-    pub preferred_owners: Vec<String>,
     /// Built-in server file tools for every run (subset of known names).
     #[serde(default)]
     pub server_tools: Vec<String>,
@@ -399,10 +396,6 @@ fn default_true() -> bool {
 
 fn default_idle_unload() -> u32 {
     5
-}
-
-fn default_preferred_owners() -> Vec<String> {
-    crate::models::DEFAULT_PREFERRED_OWNERS.iter().map(|s| s.to_string()).collect()
 }
 
 impl Default for AppConfig {
@@ -446,7 +439,6 @@ impl Default for AppConfig {
             last_preset: None,
             bench_visible: false,
             auto_delete_old_runtimes: false,
-            preferred_owners: default_preferred_owners(),
             server_tools: Vec::new(),
             mcp_disabled: Vec::new(),
             close_to_tray: false,
@@ -682,7 +674,6 @@ mod tests {
         assert!(!restored.bench_visible);
         assert!(restored.auto_delete_old_runtimes);
         assert_eq!(restored.model_presets.get("/m/qwen.gguf").map(String::as_str), Some("fast"));
-        assert!(!restored.preferred_owners.is_empty());
         assert!(restored.sound_agent && restored.sound_permissions && restored.sound_errors);
         assert!(restored.server_tools.is_empty());
         assert!(restored.mcp_disabled.is_empty());

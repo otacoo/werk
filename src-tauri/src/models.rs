@@ -588,29 +588,6 @@ fn reject_traversal(path: &str) -> Result<()> {
     Ok(())
 }
 
-/// True when the author publishes at least one GGUF model.
-pub async fn validate_hf_owner(client: &reqwest::Client, owner: &str) -> Result<bool> {
-    let mut url = reqwest::Url::parse("https://huggingface.co/api/models")
-        .context("Bad owner URL")?;
-    {
-        let mut q = url.query_pairs_mut();
-        q.append_pair("author", owner)
-            .append_pair("filter", "gguf")
-            .append_pair("limit", "1");
-    }
-    let resp = client
-        .get(url)
-        .header("User-Agent", "werk/0.1.0")
-        .send()
-        .await
-        .context("Validating owner")?;
-    if !resp.status().is_success() {
-        anyhow::bail!("Validation failed: {}", resp.status());
-    }
-    let hits: Vec<serde_json::Value> = resp.json().await?;
-    Ok(!hits.is_empty())
-}
-
 /// Basename of a repo path (`a/b.gguf` -> `b.gguf`).
 pub fn repo_basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
@@ -641,25 +618,6 @@ pub fn download_dest(
 
 // ── HuggingFace search ────────────────────────────────────────────────────
 
-/// Curated GGUF sources, in default preference order.
-pub const DEFAULT_PREFERRED_OWNERS: &[&str] = &[
-    "ggml-org",
-    "bartowski",
-    "unsloth",
-    "orcarouter",
-    "mradermacher",
-];
-
-pub const KNOWN_GGUF_OWNERS: &[(&str, &str)] = &[
-    ("unsloth", "Dominant quantizer, Unsloth Dynamic 2.0 quants"),
-    ("bartowski", "High-quality imatrix quants, large catalog"),
-    ("ggml-org", "Official llama.cpp org, reference quants"),
-    ("lmstudio-community", "LM Studio curated models"),
-    ("mradermacher", "Prolific community quantizer, i1 variants"),
-    ("mmnga", "Various quants including Japanese models"),
-    ("QuantFactory", "Quantized models collection"),
-];
-
 /// Wire search hit (counts fit u32 with room to spare).
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct HfModel {
@@ -689,7 +647,6 @@ struct HfSearchHit {
 pub async fn search_hf(
     client: &reqwest::Client,
     query: &str,
-    owner: Option<&str>,
     sort: &str,
 ) -> Result<Vec<HfModel>> {
     let sort = match sort {
@@ -705,9 +662,6 @@ pub async fn search_hf(
             .append_pair("direction", "-1")
             .append_pair("limit", "25")
             .append_pair("filter", "gguf");
-        if let Some(o) = owner.filter(|o| !o.is_empty()) {
-            q.append_pair("author", o);
-        }
     }
     let resp = client
         .get(url)

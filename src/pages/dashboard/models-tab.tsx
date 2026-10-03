@@ -71,11 +71,8 @@ export function ModelsTab(props: ModelsTabProps) {
       <ArrowUp size={10} className="opacity-0 group-hover:opacity-30" />
     );
 
-  return (          <div className="card rounded-t-none border-t-0">
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <div className="flex items-baseline gap-2 shrink-0">
-                <p className="section-desc">List of models available to launch.</p>
-              </div>
+  return (          <div className="card">
+            <div className="flex items-center justify-end gap-3 mb-2">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-[0.6875rem] font-mono text-dim truncate max-w-72" title={downloadDir}>
                   {downloadDir || "Not set"}
