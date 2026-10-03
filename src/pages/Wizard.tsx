@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -45,6 +45,13 @@ type Progress = { downloaded: number; total: number | null };
 type FitLevel = "vram" | "mixed" | "tight" | "no";
 
 const FIT_ORDER: Record<FitLevel, number> = { vram: 0, mixed: 1, tight: 2, no: 3 };
+
+const STEPS: { n: Step; label: string }[] = [
+  { n: 1, label: "System & Runtime" },
+  { n: 2, label: "Models" },
+  { n: 3, label: "Appearance" },
+];
+
 const FIT_BADGE: Record<FitLevel, { text: string; cls: string }> = {
   vram: { text: "Fits in VRAM", cls: "badge-green" },
   mixed: { text: "VRAM + RAM", cls: "badge-blue" },
@@ -334,9 +341,18 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
 
   const builds = release?.assets.slice(0, 5) ?? [];
 
+  const stepHint =
+    step === 1
+      ? runtimeReady
+        ? "Runtime ready."
+        : "Install a llama.cpp build or point to an existing one."
+      : step === 2
+        ? `${picks.size}/3 selected`
+        : "Changes preview live.";
+
   return (
     <div className="h-screen overflow-hidden bg-surface-0 text-ink flex flex-col border border-border">
-      <div className="relative flex items-center justify-between pl-8 h-14 border-b border-border shrink-0">
+      <div className="relative flex items-stretch h-14 shrink-0 border-b border-border select-none">
         <div
           data-tauri-drag-region
           className="absolute inset-0"
@@ -344,43 +360,48 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
             getCurrentWindow().toggleMaximize().catch((e) => console.error("Maximize failed:", e));
           }}
         />
-        <div className="relative z-10 flex items-center gap-2">
-          <p className="text-sm font-semibold select-none">
-            werk<span className="text-accent">.</span>
+        <div className="relative z-10 flex flex-1 items-center gap-4 px-4 min-w-0">
+          <p className="flex items-baseline gap-1.5 shrink-0 text-sm font-semibold select-none">
+            werk<span className="text-accent text-[1.1em]">.</span>
+            <span className="text-sm font-normal text-dim">Setup</span>
           </p>
-          <span className="text-sm text-dim select-none">Setup</span>
-        </div>
-        <div className="relative z-10 flex items-center gap-4">
-          <div className="flex items-center gap-2 text-xs text-dim">
-            {([1, 2, 3] as Step[]).map((n, i) => (
-              <Fragment key={n}>
-                {i > 0 && <span className="text-faint">—</span>}
+          <nav className="flex items-center gap-0.5 ml-auto min-w-0 overflow-x-auto">
+            {STEPS.map(({ n, label }) => {
+              const active = step === n;
+              const done = step > n;
+              return (
                 <button
+                  key={n}
                   onClick={() => setStep(n)}
-                  title={`Step ${n}`}
-                  className={`w-6 h-6 flex items-center justify-center border rounded text-xs font-medium transition-colors ${
-                    step === n
-                      ? "border-accent bg-accent text-white"
-                      : step > n
-                        ? "border-accent/50 text-accent-soft hover:bg-accent/10"
-                        : "border-border text-dim hover:text-ink hover:bg-accent/10"
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors ${
+                    active ? "bg-accent/20 text-ink" : "text-dim hover:text-ink hover:bg-accent/10"
                   }`}
                 >
-                  {n}
+                  <span
+                    className={`w-4 h-4 rounded-full text-[0.625rem] flex items-center justify-center shrink-0 ${
+                      active
+                        ? "bg-accent text-white"
+                        : done
+                          ? "border border-accent/50 text-accent-soft"
+                          : "border border-border text-faint"
+                    }`}
+                  >
+                    {n}
+                  </span>
+                  {label}
                 </button>
-              </Fragment>
-            ))}
-          </div>
-          <button className="btn-ghost text-xs" onClick={finish}>
-            Skip wizard
-          </button>
-          <WindowControls />
+              );
+            })}
+          </nav>
+        </div>
+        <div className="relative z-10 shrink-0">
+          <WindowControls tall />
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6">
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
         {step === 1 && (
-          <div className="max-w-2xl mx-auto space-y-6">
+          <div className="max-w-3xl mx-auto space-y-5">
             <div>
               <h2 className="section-title">System &amp; Runtime</h2>
               <p className="section-desc">
@@ -405,42 +426,37 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
             )}
 
             {system && (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div className="card flex items-center gap-2">
-                  <Cpu size={14} className="text-accent-soft shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-xs text-dim">CPU</p>
-                    <p className="text-xs font-medium text-ink truncate">
-                      {shortCpuName(system.cpu_name)}
-                    </p>
-                  </div>
-                </div>
-                <div className="card flex items-center gap-2">
-                  <MemoryStick size={14} className="text-accent-green shrink-0" />
-                  <div>
-                    <p className="text-xs text-dim">RAM</p>
-                    <p className="text-xs font-medium text-ink">{mbToGb(system.total_ram_mb)}</p>
-                  </div>
-                </div>
-                <div className="card flex items-center gap-2">
-                  <Monitor size={14} className="text-accent-yellow shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-xs text-dim">GPU</p>
-                    <p className="text-xs font-medium text-ink truncate">
-                      {system.gpus.length > 0 ? shortGpuName(system.gpus[0].name) : "None"}
-                    </p>
-                  </div>
-                </div>
-                <div className="card flex items-center gap-2">
-                  <Zap size={14} className="text-accent-soft shrink-0" />
-                  <div>
-                    <p className="text-xs text-dim">Backend</p>
-                    <p className="text-xs font-medium text-ink uppercase">
-                      {system.recommended_backend}
-                      {cuda?.version ? ` ${cuda.version}` : ""}
-                    </p>
-                  </div>
-                </div>
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                <StatTile
+                  icon={Cpu}
+                  label="CPU"
+                  value={shortCpuName(system.cpu_name)}
+                  detail={`${system.cpu_cores} cores · ${system.cpu_threads} threads`}
+                />
+                <StatTile
+                  icon={MemoryStick}
+                  label="Memory"
+                  value={mbToGb(system.total_ram_mb)}
+                  detail={`${mbToGb(system.available_ram_mb)} free`}
+                />
+                <StatTile
+                  icon={Monitor}
+                  label="GPU"
+                  value={system.gpus.length > 0 ? shortGpuName(system.gpus[0].name) : "None"}
+                  detail={
+                    vram > 0
+                      ? `${mbToGb(vram)} VRAM`
+                      : system.gpus.length > 0
+                        ? "shared memory"
+                        : "No GPU detected"
+                  }
+                />
+                <StatTile
+                  icon={Zap}
+                  label="Backend"
+                  value={`${system.recommended_backend.toUpperCase()}${cuda?.version ? ` ${cuda.version}` : ""}`}
+                  detail="Recommended for this machine"
+                />
               </div>
             )}
 
@@ -560,12 +576,13 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
         )}
 
         {step === 2 && (
-          <div className="max-w-2xl mx-auto space-y-6">
+          <div className="max-w-3xl mx-auto space-y-5">
             <div>
-              <h2 className="section-title">Locate your models or choose up to 3 to download.</h2>
+              <h2 className="section-title">Models</h2>
               <p className="section-desc">
-                Models are sorted by fit for your {vram > 0 ? `${mbToGb(vram)} VRAM + ` : ""}
-                {mbToGb(ram)} RAM.
+                werk. scans your model folders; the list is sorted by fit for your{" "}
+                {vram > 0 ? `${mbToGb(vram)} VRAM + ` : ""}
+                {mbToGb(ram)} RAM — pick up to 3 to download.
               </p>
             </div>
 
@@ -578,8 +595,6 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
                 ))}
               </div>
             )}
-
-            <div className="text-xs text-dim">{picks.size}/3 selected</div>
 
             <div className="card flex items-center gap-3">
               <FolderOpen size={14} className="text-accent-soft shrink-0" />
@@ -679,18 +694,11 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
                 );
               })}
             </div>
-
-            {picks.size > 0 && !queue && !picksDone && (
-              <button className="btn-primary text-sm" onClick={downloadPicks}>
-                <Download size={14} /> Download {picks.size} model
-                {picks.size !== 1 ? "s" : ""}
-              </button>
-            )}
           </div>
         )}
 
         {step === 3 && (
-          <div className="max-w-2xl mx-auto space-y-6">
+          <div className="max-w-3xl mx-auto space-y-5">
             <div>
               <h2 className="section-title">Appearance</h2>
               <p className="section-desc">
@@ -760,30 +768,78 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
         )}
       </div>
 
-      <div className="flex items-center justify-between px-8 py-4 border-t border-border shrink-0">
-        <div>
+      <div className="flex items-center gap-3 h-14 px-4 shrink-0 border-t border-border">
+        <div className="flex flex-1 items-center gap-3 min-w-0">
           {step > 1 && (
-            <button className="btn-ghost text-sm" onClick={() => setStep((step - 1) as Step)}>
+            <button
+              className="btn-ghost text-sm shrink-0"
+              onClick={() => setStep((step - 1) as Step)}
+            >
               <ChevronLeft size={14} /> Back
             </button>
           )}
+          <span className="text-xs text-dim truncate">{stepHint}</span>
         </div>
-        <div className="flex items-center gap-3">
-          {step === 1 ? (
+        <div className="flex items-center gap-2 shrink-0">
+          <button className="btn-ghost text-sm" onClick={finish}>
+            Skip wizard
+          </button>
+          {step === 1 && (
             <button className="btn-primary text-sm" onClick={() => setStep(2)}>
               {runtimeReady ? "Next" : "Skip this step"} <ChevronRight size={14} />
             </button>
-          ) : step === 2 ? (
-            <button className="btn-primary text-sm" onClick={() => setStep(3)}>
-              Next <ChevronRight size={14} />
-            </button>
-          ) : (
+          )}
+          {step === 2 &&
+            (queue ? (
+              <button className="btn-primary text-sm" disabled>
+                <RefreshCw size={14} className="animate-spin" /> Downloading…
+              </button>
+            ) : picks.size > 0 && !picksDone ? (
+              <button className="btn-primary text-sm" onClick={downloadPicks}>
+                <Download size={14} /> Download {picks.size} model
+                {picks.size === 1 ? "" : "s"}
+              </button>
+            ) : (
+              <button className="btn-primary text-sm" onClick={() => setStep(3)}>
+                Next <ChevronRight size={14} />
+              </button>
+            ))}
+          {step === 3 && (
             <button className="btn-primary text-sm" onClick={finish}>
               Finish
             </button>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: typeof Cpu;
+  label: string;
+  value: string;
+  detail?: string;
+}) {
+  return (
+    <div className="rounded border border-border bg-surface-2 p-2.5 min-w-0">
+      <div className="flex items-center gap-1.5 text-faint">
+        <Icon size={12} className="shrink-0" />
+        <span className="text-[0.625rem] uppercase tracking-wider">{label}</span>
+      </div>
+      <p className="mt-1 text-xs font-medium text-ink truncate" title={value}>
+        {value}
+      </p>
+      {detail && (
+        <p className="mt-0.5 text-[0.625rem] text-faint truncate" title={detail}>
+          {detail}
+        </p>
+      )}
     </div>
   );
 }

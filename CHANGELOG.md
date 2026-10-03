@@ -21,6 +21,7 @@
 - The Dashboard is rebuilt around a server overview (model, runtime, backend, quick actions) and a machine card (CPU, memory, GPU, backend), with Runtime/Models/Browse as plain tab cards.
 - The HuggingFace browser drops its owner filter and the curated quantizer list.
 - Settings gains a Debug section with a button to run the setup wizard again.
+- The setup wizard is restyled with step tabs in the header, full-height window controls, stat tiles, and a sticky footer that carries each step's action — including model downloads.
 
 ## [0.5.0] - 2026-10-02
 
