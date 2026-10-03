@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-03
+
 ### Added
 
 - Talk has a Reasoning button that shows or hides every reasoning trace, live and restored.
