@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -45,12 +45,6 @@ type Progress = { downloaded: number; total: number | null };
 type FitLevel = "vram" | "mixed" | "tight" | "no";
 
 const FIT_ORDER: Record<FitLevel, number> = { vram: 0, mixed: 1, tight: 2, no: 3 };
-
-const STEPS: { n: Step; label: string }[] = [
-  { n: 1, label: "System & Runtime" },
-  { n: 2, label: "Models" },
-  { n: 3, label: "Appearance" },
-];
 
 const FIT_BADGE: Record<FitLevel, { text: string; cls: string }> = {
   vram: { text: "Fits in VRAM", cls: "badge-green" },
@@ -360,42 +354,36 @@ export default function Wizard({ onDone }: { onDone: () => void }) {
             getCurrentWindow().toggleMaximize().catch((e) => console.error("Maximize failed:", e));
           }}
         />
-        <div className="relative z-10 flex flex-1 items-center gap-4 px-4 min-w-0">
-          <p className="flex items-baseline gap-1.5 shrink-0 text-sm font-semibold select-none">
-            werk<span className="text-accent text-[1.1em]">.</span>
-            <span className="text-sm font-normal text-dim">Setup</span>
-          </p>
-          <nav className="flex items-center gap-0.5 ml-auto min-w-0 overflow-x-auto">
-            {STEPS.map(({ n, label }) => {
-              const active = step === n;
-              const done = step > n;
-              return (
+        <div className="relative z-10 flex flex-1 items-center gap-4 px-4 min-w-0 pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-2 shrink-0">
+            <p className="text-sm font-semibold select-none">
+              werk<span className="text-accent">.</span>
+            </p>
+            <span className="text-sm text-dim select-none">Setup</span>
+          </div>
+          <div className="pointer-events-auto ml-auto flex items-center gap-2 text-xs text-dim">
+            {([1, 2, 3] as Step[]).map((n, i) => (
+              <Fragment key={n}>
+                {i > 0 && <span className="text-faint">—</span>}
                 <button
-                  key={n}
                   onClick={() => setStep(n)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors ${
-                    active ? "bg-accent/20 text-ink" : "text-dim hover:text-ink hover:bg-accent/10"
+                  title={`Step ${n}`}
+                  className={`w-6 h-6 flex items-center justify-center border rounded text-xs font-medium transition-colors ${
+                    step === n
+                      ? "border-accent bg-accent text-white"
+                      : step > n
+                        ? "border-accent/50 text-accent-soft hover:bg-accent/10"
+                        : "border-border text-dim hover:text-ink hover:bg-accent/10"
                   }`}
                 >
-                  <span
-                    className={`w-4 h-4 rounded-full text-[0.625rem] flex items-center justify-center shrink-0 ${
-                      active
-                        ? "bg-accent text-white"
-                        : done
-                          ? "border border-accent/50 text-accent-soft"
-                          : "border border-border text-faint"
-                    }`}
-                  >
-                    {n}
-                  </span>
-                  {label}
+                  {n}
                 </button>
-              );
-            })}
-          </nav>
+              </Fragment>
+            ))}
+          </div>
         </div>
-        <div className="relative z-10 shrink-0">
-          <WindowControls tall />
+        <div className="relative z-10 flex items-center shrink-0 pointer-events-auto">
+          <WindowControls />
         </div>
       </div>
 
