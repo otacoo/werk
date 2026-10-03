@@ -2,30 +2,36 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-03
+
 ### Added
 
 - Chat profiles: the Mode page flows from the server mode to a profile row (general/code, WebUI, roleplay), where roleplay swaps Chat for a Talk tab with character avatars, one continuous discussion per character, and distill into character memory.
+- Roleplay: character cards (SillyTavern V1-V3, AICC) with per-character memory, greeting picker, sampling overrides, an editable system prompt, and a reasoning-effort picker in Generation settings.
 - The WebUI profile embeds llama-server's own UI in a mounted WebUI tab.
-- The WebUI profile keeps the server's own UI enabled automatically and hides the agent tools and LSP from the Tools page.
 - Talk's context ring drops down from the header and tracks the talk transcript.
-- ask_user is available in roleplay, with its question box in Talk.
-- The WebUI profile card greys out in External API mode.
+- ask_user is available in roleplay, with its question box in Talk, and answer options can carry an optional description shown under the title.
+- Settings gains a Debug section with a button to run the setup wizard again.
+
+### Changed
+
+- The Dashboard is rebuilt around a server overview (model, runtime, backend, quick actions) and a machine card (CPU, memory, GPU, backend), with Runtime/Models/Browse as plain tab cards.
+- Sending starts the local server on demand; the Local server card keeps only the idle unload (the auto-start toggle is gone).
+- The setup wizard is restyled: a sticky footer carries each step's action (including model downloads), the machine summary is a single spec card, and its theme cards match Settings.
+- The HuggingFace browser drops its owner filter and the curated quantizer list.
+- The WebUI profile keeps the server's own UI enabled automatically, hides the agent tools and LSP from the Tools page, and its card greys out in External API mode.
+- The app icon is a bold lowercase w. with a blue dot, generated for every platform from assets/logo.png.
+- Chat transcript bubbles and cards are a little narrower on wide windows.
+
+### Fixed
+
 - Talk's run lock is its own, so a second message no longer reports an agent run in progress.
 - The Tools page follows mode/profile changes, and profile switches move between Chat and Talk immediately.
 - Chat shortcuts on the Dashboard and Run open Talk in the roleplay profile instead of leaving the Chat page visible.
 - Talk reloads the user avatar after an import or clear, without needing a restart.
-- Roleplay's Generation settings card always offers a reasoning-effort picker: the model's template levels when it declares any, the standard llama.cpp levels otherwise.
-- Roleplay gets an editable System prompt card that falls back to the card's prompt or the built-in default, and the You card moves beside Characters.
-- ask_user answer options can carry an optional description shown under the title.
-- Sending now starts the local server on demand; the Local server card keeps only the idle unload.
-- The Dashboard is rebuilt around a server overview (model, runtime, backend, quick actions) and a machine card (CPU, memory, GPU, backend), with Runtime/Models/Browse as plain tab cards.
-- The HuggingFace browser drops its owner filter and the curated quantizer list.
-- Settings gains a Debug section with a button to run the setup wizard again.
-- The setup wizard gets a sticky footer that carries each step's action, including model downloads.
-- The wizard shows the machine summary as a single spec card, and its theme cards match the Settings layout.
 - Round corners now actually apply — the theme's `--radius` token was overriding the setting.
-- The recommended Gemma entry now points at unsloth/gemma-4-E4B-it-GGUF as "Gemma E4B IT".
 - Cancelling a recommended-model download discards the partial file instead of leaving it to be counted as installed.
+- The recommended Gemma model now points at unsloth/gemma-4-E4B-it-GGUF as "Gemma E4B IT".
 
 ## [0.5.0] - 2026-10-02
 
