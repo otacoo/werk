@@ -5,7 +5,7 @@
 ### Added
 
 - Assistant learning polish: an auto-distill toggle summarizes a session into memory with the utility model when it is reset, and an opt-in daily reflection merges duplicate memories and extracts durable facts.
-- The assistant gets a `uia` tool that drives app controls through Windows UI Automation — find by name or automation id and invoke, type, toggle, focus, or read them without moving the mouse — with an Access toggle.
+- The assistant's `uia` tool drives app controls through the platform accessibility API — Windows UI Automation, macOS Accessibility, Linux AT-SPI — find by name or id and invoke, type, toggle, focus, or read them without moving the mouse, with an OS-labelled Access toggle.
 
 ### Changed
 

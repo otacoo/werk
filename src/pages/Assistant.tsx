@@ -558,8 +558,12 @@ function SystemControlCard() {
     browser_user_profile: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [os, setOs] = useState("");
 
   const load = () => {
+    call(commands.getPlatformStyle())
+      .then((p) => setOs(p.os))
+      .catch(() => {});
     call(commands.getConfig())
       .then((c) =>
         setAccess({
@@ -662,8 +666,20 @@ function SystemControlCard() {
             onChange={(v) => apply({ ...access, input: v })}
           />
           <Toggle
-            label="Accessibility (UIA)"
-            hint="Find and invoke app controls by name without moving the mouse; Windows only."
+            label={
+              os === "macos"
+                ? "Accessibility (AX)"
+                : os === "linux"
+                  ? "Accessibility (AT-SPI)"
+                  : "Accessibility (UIA)"
+            }
+            hint={
+              os === "macos"
+                ? "Find and press app controls by name without moving the mouse; needs Accessibility permission."
+                : os === "linux"
+                  ? "Find and activate app controls by name without moving the mouse; needs at-spi2-core."
+                  : "Find and invoke app controls by name without moving the mouse."
+            }
             checked={access.uia}
             onChange={(v) => apply({ ...access, uia: v })}
           />

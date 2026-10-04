@@ -489,11 +489,12 @@ impl Tool for UiaTool {
     }
 
     fn description(&self) -> String {
-        "Interact with app controls through Windows UI Automation: find controls by name or \
-         automation id and invoke, type into, toggle, focus, or read them without moving the \
-         mouse. Actions: tree (list the window's controls), click, type, toggle, focus, read. \
-         Targets the foreground window unless `window` names one. Prefer this over `input` for \
-         standard controls."
+        "Interact with app controls through the platform accessibility API (Windows UI \
+         Automation, macOS Accessibility, Linux AT-SPI): find controls by name or id and \
+         invoke, type into, toggle, focus, or read them without moving the mouse. Actions: \
+         tree (list the window's controls), click, type, toggle, focus, read. Targets the \
+         foreground window unless `window` names one. Prefer this over `input` for standard \
+         controls."
             .to_string()
     }
 
@@ -521,10 +522,18 @@ impl Tool for UiaTool {
         {
             return uia_run(action, args);
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "macos")]
+        {
+            return ax_run(action, args);
+        }
+        #[cfg(target_os = "linux")]
+        {
+            return atspi_run(action, args);
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
         {
             let _ = action;
-            bail!("UI Automation is only available on Windows")
+            bail!("Accessibility control is not available on this platform")
         }
     }
 }
@@ -778,6 +787,370 @@ unsafe fn uia_find(
         }
     }
     bail!("No enabled control matches the given name/automation id")
+}
+
+// ── macOS Accessibility (AXUIElement) ─────────────────────────────────────
+
+#[cfg(target_os = "macos")]
+fn ax_run(action: &str, args: &Value) -> Result<String> {
+    use accessibility::{
+        AXAttribute, AXUIElement, AXUIElementActions, AXUIElementAttributes, ElementFinder,
+    };
+    use core_foundation::base::TCFType;
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::string::CFString;
+    use objc::runtime::Object;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    let name = args
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let id = args
+        .get("automation_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let window = args
+        .get("window")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let workspace: *mut Object = unsafe { msg_send![class!(NSWorkspace), sharedWorkspace] };
+    let front: *mut Object = unsafe { msg_send![workspace, frontmostApplication] };
+    let pid: i32 = unsafe { msg_send![front, processIdentifier] };
+    if pid <= 0 {
+        bail!("No frontmost application");
+    }
+    let app = AXUIElement::application(pid);
+
+    let root = match window {
+        Some(title) => {
+            let needle = title.to_lowercase();
+            let finder = ElementFinder::new(
+                &app,
+                move |el| {
+                    let role = el.role().map(|r| r.to_string()).unwrap_or_default();
+                    let t = el.title().map(|t| t.to_string()).unwrap_or_default();
+                    role == "AXWindow" && t.to_lowercase().contains(&needle)
+                },
+                None,
+            );
+            finder.find().map_err(|_| {
+                anyhow!("No window matching '{title}' (grant Accessibility permission if needed)")
+            })?
+        }
+        None => app,
+    };
+
+    match action {
+        "tree" => {
+            let mut out = String::new();
+            let mut shown = 0usize;
+            ax_tree(&root, 0, &mut out, &mut shown);
+            if out.is_empty() {
+                out.push_str("No named controls in the window.");
+            }
+            Ok(out)
+        }
+        "read" => {
+            let el = ax_find(&root, name, id)?;
+            Ok(format!(
+                "{} \"{}\"{} enabled={}{}",
+                el.role().map(|r| r.to_string()).unwrap_or_default(),
+                el.title().map(|t| t.to_string()).unwrap_or_default(),
+                el.identifier()
+                    .map(|i| i.to_string())
+                    .filter(|i| !i.is_empty())
+                    .map(|i| format!(" ({i})"))
+                    .unwrap_or_default(),
+                el.enabled().map(bool::from).unwrap_or(true),
+                el.value()
+                    .map(|v| ax_value_string(&v))
+                    .filter(|v| !v.is_empty())
+                    .map(|v| format!(" value=\"{v}\""))
+                    .unwrap_or_default(),
+            ))
+        }
+        "click" => {
+            let el = ax_find(&root, name, id)?;
+            el.press().map_err(|e| anyhow!("Press failed: {e}"))?;
+            Ok("Pressed the control.".to_string())
+        }
+        "type" => {
+            let text = args
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("'text' is required for type"))?;
+            let el = ax_find(&root, name, id)?;
+            el.set_value(CFString::new(text).as_CFType())
+                .map_err(|e| anyhow!("Set value failed: {e}"))?;
+            Ok(format!("Set {} characters.", text.chars().count()))
+        }
+        "toggle" => {
+            let el = ax_find(&root, name, id)?;
+            el.press().map_err(|e| anyhow!("Press failed: {e}"))?;
+            Ok("Toggled the control.".to_string())
+        }
+        "focus" => {
+            let el = ax_find(&root, name, id)?;
+            el.set_attribute(&AXAttribute::focused(), CFBoolean::from(true))
+                .or_else(|_| el.press())
+                .map_err(|e| anyhow!("Focus failed: {e}"))?;
+            Ok("Focused the control.".to_string())
+        }
+        other => bail!("Unknown action '{other}'"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn ax_tree(el: &accessibility::AXUIElement, depth: usize, out: &mut String, shown: &mut usize) {
+    use accessibility::AXUIElementAttributes;
+    if depth > 12 || *shown >= 80 {
+        return;
+    }
+    if let Ok(children) = el.children() {
+        for child in children {
+            if *shown >= 80 {
+                out.push_str("[…more controls]\n");
+                return;
+            }
+            let role = child.role().map(|r| r.to_string()).unwrap_or_default();
+            let title = child.title().map(|t| t.to_string()).unwrap_or_default();
+            let desc = child.description().map(|t| t.to_string()).unwrap_or_default();
+            let id = child.identifier().map(|t| t.to_string()).unwrap_or_default();
+            let label = if !title.is_empty() { title } else { desc };
+            if !label.is_empty() {
+                out.push_str(&format!(
+                    "{} \"{}\"{}\n",
+                    role,
+                    label,
+                    if id.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({id})")
+                    }
+                ));
+                *shown += 1;
+            }
+            ax_tree(&child, depth + 1, out, shown);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn ax_find(
+    root: &accessibility::AXUIElement,
+    name: Option<&str>,
+    id: Option<&str>,
+) -> Result<accessibility::AXUIElement> {
+    use accessibility::{AXUIElementAttributes, ElementFinder};
+    if name.is_none() && id.is_none() {
+        bail!("Provide 'name' or 'automation_id'");
+    }
+    let needle = name.map(|n| n.to_lowercase());
+    let id = id.map(|x| x.to_string());
+    let finder = ElementFinder::new(
+        root,
+        move |el| {
+            let title = el.title().map(|t| t.to_string()).unwrap_or_default();
+            let desc = el.description().map(|t| t.to_string()).unwrap_or_default();
+            let ident = el.identifier().map(|t| t.to_string()).unwrap_or_default();
+            let name_ok = needle.as_ref().map_or(true, |n| {
+                title.to_lowercase().contains(n) || desc.to_lowercase().contains(n)
+            });
+            let id_ok = id.as_ref().map_or(true, |x| ident.eq_ignore_ascii_case(x));
+            let enabled = el.enabled().map(bool::from).unwrap_or(true);
+            name_ok && id_ok && enabled
+        },
+        None,
+    );
+    finder
+        .find()
+        .map_err(|_| anyhow!("No matching control (grant Accessibility permission if needed)"))
+}
+
+#[cfg(target_os = "macos")]
+fn ax_value_string(value: &core_foundation::base::CFType) -> String {
+    use core_foundation::base::TCFType;
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::string::CFString;
+    if value.instance_of::<CFString>() {
+        unsafe { CFString::wrap_under_get_rule(value.as_CFTypeRef() as _) }.to_string()
+    } else if value.instance_of::<CFBoolean>() {
+        bool::from(unsafe { CFBoolean::wrap_under_get_rule(value.as_CFTypeRef() as _) }).to_string()
+    } else {
+        String::new()
+    }
+}
+
+// ── Linux AT-SPI ──────────────────────────────────────────────────────────
+
+#[cfg(target_os = "linux")]
+fn atspi_run(action: &str, args: &Value) -> Result<String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| anyhow!("Cannot start the AT-SPI runtime: {e}"))?;
+    runtime.block_on(atspi_run_async(action, args))
+}
+
+#[cfg(target_os = "linux")]
+async fn atspi_run_async(action: &str, args: &Value) -> Result<String> {
+    use atspi::connection::{AccessibilityConnection, P2P};
+    use atspi::proxy::accessible::AccessibleProxy;
+
+    let name = args
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let id = args
+        .get("automation_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let conn = AccessibilityConnection::new()
+        .await
+        .map_err(|e| anyhow!("AT-SPI unavailable (is at-spi2-core running?): {e}"))?;
+    let root = conn
+        .root_accessible_on_registry()
+        .await
+        .map_err(|e| anyhow!("AT-SPI registry unavailable: {e}"))?;
+
+    match action {
+        "tree" => {
+            let mut out = String::new();
+            let mut shown = 0usize;
+            let mut stack: Vec<(AccessibleProxy<'_>, usize)> = vec![(root.clone(), 0)];
+            while let Some((el, depth)) = stack.pop() {
+                if shown >= 80 {
+                    out.push_str("[…more controls]\n");
+                    break;
+                }
+                if depth > 12 {
+                    continue;
+                }
+                let Ok(children) = el.get_children().await else {
+                    continue;
+                };
+                for child in children {
+                    let Ok(proxy) = conn.object_as_accessible(&child).await else {
+                        continue;
+                    };
+                    let text = proxy.name().await.unwrap_or_default();
+                    if !text.trim().is_empty() && shown < 80 {
+                        let role = proxy
+                            .role()
+                            .await
+                            .map(|r| format!("{r:?}"))
+                            .unwrap_or_default();
+                        out.push_str(&format!("{role} \"{}\"\n", text.trim()));
+                        shown += 1;
+                    }
+                    stack.push((proxy, depth + 1));
+                }
+            }
+            if out.is_empty() {
+                out.push_str("No named controls in the accessibility tree.");
+            }
+            Ok(out)
+        }
+        "read" => {
+            let el = atspi_find(&conn, &root, name, id).await?;
+            let text = el.name().await.unwrap_or_default();
+            let role = el.role().await.map(|r| format!("{r:?}")).unwrap_or_default();
+            Ok(format!("{role} \"{text}\""))
+        }
+        "click" | "toggle" => {
+            let el = atspi_find(&conn, &root, name, id).await?;
+            let action_iface = el
+                .get_action_iface()
+                .await
+                .map_err(|e| anyhow!("No action interface: {e}"))?;
+            action_iface
+                .do_action(0)
+                .await
+                .map_err(|e| anyhow!("Action failed: {e}"))?;
+            Ok("Activated the control.".to_string())
+        }
+        "type" => {
+            let text = args
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("'text' is required for type"))?;
+            let el = atspi_find(&conn, &root, name, id).await?;
+            let edit = el
+                .get_editable_text_iface()
+                .await
+                .map_err(|e| anyhow!("No editable text interface: {e}"))?;
+            edit.set_text_contents(text)
+                .await
+                .map_err(|e| anyhow!("Set text failed: {e}"))?;
+            Ok(format!("Set {} characters.", text.chars().count()))
+        }
+        "focus" => {
+            let el = atspi_find(&conn, &root, name, id).await?;
+            let component = el
+                .get_component_iface()
+                .await
+                .map_err(|e| anyhow!("No component interface: {e}"))?;
+            component
+                .grab_focus()
+                .await
+                .map_err(|e| anyhow!("Focus failed: {e}"))?;
+            Ok("Focused the control.".to_string())
+        }
+        other => bail!("Unknown action '{other}'"),
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn atspi_find<'a>(
+    conn: &'a atspi::connection::AccessibilityConnection,
+    root: &atspi::proxy::accessible::AccessibleProxy<'a>,
+    name: Option<&str>,
+    id: Option<&str>,
+) -> Result<atspi::proxy::accessible::AccessibleProxy<'a>> {
+    use atspi::connection::P2P;
+    if name.is_none() && id.is_none() {
+        bail!("Provide 'name' or 'automation_id'");
+    }
+    let needle = name.map(|n| n.to_lowercase());
+    let exact = id.map(|x| x.to_string());
+    let mut stack: Vec<(atspi::proxy::accessible::AccessibleProxy<'a>, usize)> =
+        vec![(root.clone(), 0)];
+    let mut seen = 0usize;
+    while let Some((el, depth)) = stack.pop() {
+        if seen > 4000 {
+            break;
+        }
+        seen += 1;
+        let text = el.name().await.unwrap_or_default();
+        let name_ok = needle
+            .as_ref()
+            .map_or(true, |n| text.to_lowercase().contains(n));
+        let id_ok = exact
+            .as_ref()
+            .map_or(true, |x| text.eq_ignore_ascii_case(x));
+        if name_ok && id_ok && !text.trim().is_empty() {
+            return Ok(el);
+        }
+        if depth >= 12 {
+            continue;
+        }
+        if let Ok(children) = el.get_children().await {
+            for child in children {
+                if let Ok(proxy) = conn.object_as_accessible(&child).await {
+                    stack.push((proxy, depth + 1));
+                }
+            }
+        }
+    }
+    bail!("No matching control (is at-spi2-core running?)")
 }
 
 // ── Screen capture ────────────────────────────────────────────────────────

@@ -60,5 +60,13 @@ windows = { version = "0.61", features = [
     "Win32_UI_HiDpi",
 ] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+atspi = { version = "0.30", features = ["connection", "proxies"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+accessibility = "0.2"
+core-foundation = "0.10"
+objc = "0.2"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
