@@ -216,7 +216,7 @@ pub fn score_release<'a>(
         }
         out.push(ScoredAsset { asset, backend_id, backend_label, score });
     }
-    out.sort_by(|a, b| b.score.cmp(&a.score));
+    out.sort_by_key(|s| std::cmp::Reverse(s.score));
     out
 }
 
@@ -433,7 +433,7 @@ pub fn register_downloaded_runtime(
             }
         }
     }
-    config.managed_runtimes.sort_by(|a, b| b.build.cmp(&a.build));
+    config.managed_runtimes.sort_by_key(|r| std::cmp::Reverse(r.build));
     config.active_runtime = ActiveRuntime::Managed {
         build,
         backend_id: backend_id.to_string(),
@@ -645,8 +645,10 @@ mod tests {
 
     #[test]
     fn register_auto_deletes_only_same_backend() {
-        let mut config = AppConfig::default();
-        config.auto_delete_old_runtimes = true;
+        let mut config = AppConfig {
+            auto_delete_old_runtimes: true,
+            ..Default::default()
+        };
         config.managed_runtimes.push(managed(3000, "cuda"));
         config.managed_runtimes.push(managed(3000, "vulkan"));
         register_downloaded_runtime(&mut config, 5000, "b5000", "cuda", "CUDA", "a.zip", "b5000-cuda".into());

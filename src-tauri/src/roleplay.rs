@@ -176,7 +176,7 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
 
 fn base64_encode(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let n = ((chunk[0] as u32) << 16)
             | ((*chunk.get(1).unwrap_or(&0) as u32) << 8)
@@ -550,7 +550,7 @@ pub fn list_cards() -> Result<Vec<CardSummary>, String> {
         let has_avatar = card_png_path(&dir, &card.id).exists();
         out.push(summary(&card, has_avatar));
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|a| a.name.to_lowercase());
     Ok(out)
 }
 

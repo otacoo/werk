@@ -468,7 +468,7 @@ pub async fn fetch_server_info(
                 }
                 slots_idle = slots
                     .iter()
-                    .filter(|s| s.get("is_processing").and_then(|v| v.as_bool()).unwrap_or(true) == false)
+                    .filter(|s| !s.get("is_processing").and_then(|v| v.as_bool()).unwrap_or(true))
                     .count()
                     .min(u32::MAX as usize) as u32;
             }
@@ -943,6 +943,12 @@ pub struct ServerState {
     pub status: ServerStatus,
     pub log_lines: Vec<String>,
     pub config: Option<ServerConfig>,
+}
+
+impl Default for ServerState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ServerState {

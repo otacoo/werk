@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn skill_tool_loads_body() {
         let root = skill_dir("load", "lint", "---\nname: lint\ndescription: lint things\n---\nRun the linter.\n");
-        let defs = discover(&[root.clone()]);
+        let defs = discover(std::slice::from_ref(&root));
         let tool = SkillTool::new(defs);
         let out = tool.execute(&json!({"name": "lint"})).unwrap();
         assert!(out.contains("linter"));

@@ -1226,6 +1226,7 @@ impl ToolRegistry {
         self.add(Arc::new(crate::lsp::tool::LspTool::new(jail, lsp)))
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, tool: Arc<dyn Tool>) -> Self {
         self.tools.push(tool);
         self

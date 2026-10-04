@@ -72,6 +72,7 @@ fn mb(v: u64) -> u32 {
 }
 
 /// Estimate memory footprint; layer info comes from the GGUF header with fallbacks.
+#[allow(clippy::too_many_arguments)]
 pub fn estimate_memory(
     meta: &ModelMetadata,
     model_size_mb: u64,
@@ -577,9 +578,9 @@ pub fn suggest_full(
     // ── Threads / batch ──
     // CPU-only wants all logical threads; GPU offload wants physical cores.
     let n_threads = if n_gpu_layers == 0 {
-        cpu_threads.max(1).min(64)
+        cpu_threads.clamp(1, 64)
     } else {
-        cpu_cores.max(1).min(64)
+        cpu_cores.clamp(1, 64)
     } as i32;
     notes.push(format!(
         "Threads: {} ({})",

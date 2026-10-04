@@ -50,6 +50,12 @@ pub struct HarnessRuntime {
     pub abort: Arc<std::sync::atomic::AtomicBool>,
 }
 
+impl Default for HarnessRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HarnessRuntime {
     pub fn new() -> Self {
         Self {
@@ -536,6 +542,7 @@ pub(crate) fn load_permission_grants(state: &AppState) {
 // ── Registry + roles ──────────────────────────────────────────────────────
 
 /// Native tools + memory curator + skills + file-defined plugins.
+#[allow(clippy::too_many_arguments)]
 fn build_registry(
     jail: Arc<PathJail>,
     project_root_dir: &Path,
@@ -1408,7 +1415,7 @@ pub async fn harness_read_attachment(path: String) -> Result<AttachmentRead, Str
 
 fn base64_encode(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let n = (chunk[0] as u32) << 16 | (*chunk.get(1).unwrap_or(&0) as u32) << 8 | (*chunk.get(2).unwrap_or(&0) as u32);
         out.push(ALPHABET[(n >> 18 & 63) as usize] as char);
@@ -1559,6 +1566,7 @@ pub async fn assistant_proactive(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn agent_send_impl(
     state: &AppState,
     app: AppHandle,
@@ -1589,7 +1597,7 @@ async fn agent_send_impl(
     let root = if assistant {
         assistant_root(&app_config)
     } else {
-        project_root(&state).map_err(|e| e.to_string())?
+        project_root(state).map_err(|e| e.to_string())?
     };
     // The jail hides the agent's own instruction files and shields sensitive
     // paths (built-ins + .gitignore + the user list).
@@ -1609,7 +1617,7 @@ async fn agent_send_impl(
     } else {
         // MCP tools run in the harness (all modes): spawn servers once, reuse
         // the manager across runs; servers are gated by per-tool approval.
-        discover_mcp_tools(&state, &app_config).await
+        discover_mcp_tools(state, &app_config).await
     };
     for text in mcp_errors {
         let _ = app.emit(
@@ -1815,7 +1823,7 @@ async fn agent_send_impl(
             );
         } else {
             let prompt_tools = PromptTools::from_disabled(&app_config.agent_tools_disabled);
-            let base = agent_prompt_base(&state, &app_config, mode, &subagent_targets, prompt_tools);
+            let base = agent_prompt_base(state, &app_config, mode, &subagent_targets, prompt_tools);
             // Skill names/descriptions must be visible for the tool to be usable.
             let skill_roots: Vec<PathBuf> = [
                 global_base.as_ref().map(|b| b.join("skills")),
@@ -1861,7 +1869,7 @@ async fn agent_send_impl(
     }
     // Persist the sent transcript right away so the new chat appears in the
     // sessions list while the first reply streams (and survives a crash).
-    if let Err(e) = save_transcript(&state, &runtime, &history, None, run_mode) {
+    if let Err(e) = save_transcript(state, &runtime, &history, None, run_mode) {
         let _ = app.emit(
             event_name,
             serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
@@ -1952,7 +1960,7 @@ async fn agent_send_impl(
             let Some(port) = running_port else {
                 return Err("Server is not running".to_string());
             };
-            local_client = server_client(port, &state);
+            local_client = server_client(port, state);
             let orch_path = orchestrator_id.clone().or_else(|| {
                 state
                     .server
@@ -2093,7 +2101,7 @@ async fn agent_send_impl(
     let utility_target = app_config
         .utility_target
         .as_deref()
-        .and_then(|t| utility_target_client(&state, &app_config, t));
+        .and_then(|t| utility_target_client(state, &app_config, t));
     let utility: Option<(&LlmClient, Option<String>)> =
         utility_target.as_ref().map(|(c, m)| (c, m.clone()));
 
@@ -2239,7 +2247,7 @@ async fn agent_send_impl(
     let outcome = match result {
         Ok(outcome) => outcome,
         Err(e) => {
-            if let Err(e) = save_transcript_current(&state, &runtime, run_mode, None) {
+            if let Err(e) = save_transcript_current(state, &runtime, run_mode, None) {
                 let _ = app.emit(
                     event_name,
                     serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
@@ -2271,7 +2279,7 @@ async fn agent_send_impl(
         .iter()
         .rposition(|m| m.role == "assistant");
     let changes = if run_mode == RunMode::Agent {
-        last_run_changes(&state, &root, base_head.as_deref())
+        last_run_changes(state, &root, base_head.as_deref())
     } else {
         None
     };
@@ -2292,7 +2300,7 @@ async fn agent_send_impl(
             },
         );
         // One save with the final transcript and footer metadata.
-        if let Err(e) = save_transcript_current(&state, &runtime, run_mode, None) {
+        if let Err(e) = save_transcript_current(state, &runtime, run_mode, None) {
             let _ = app.emit(
                 event_name,
                 serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
@@ -3268,7 +3276,7 @@ pub async fn roleplay_list_discussions(
             }
         }
     }
-    out.sort_by(|a, b| b.updated.cmp(&a.updated));
+    out.sort_by_key(|s| std::cmp::Reverse(s.updated));
     Ok(out)
 }
 
@@ -3529,7 +3537,7 @@ pub async fn harness_sessions_list() -> Result<Vec<SessionSummary>, String> {
             }
         }
     }
-    out.sort_by(|a, b| b.updated.cmp(&a.updated));
+    out.sort_by_key(|s| std::cmp::Reverse(s.updated));
     Ok(out)
 }
 

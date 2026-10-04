@@ -1253,7 +1253,7 @@ pub async fn download_model(
                 repo_file,
                 &dest,
                 &move || stop.load(Ordering::SeqCst),
-                |downloaded, total| emit(downloaded, total),
+                &emit,
             )
             .await
             .map_err(|e| e.to_string())?;

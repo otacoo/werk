@@ -68,12 +68,12 @@ fn skip_value(r: &mut (impl Read + std::io::Seek), ty: u32) -> Result<()> {
             r.read_exact(&mut b)?;
             Ok(())
         }
-        3 | 4 | 5 | 6 => {
+        3..=6 => {
             let mut b = [0u8; 4];
             r.read_exact(&mut b)?;
             Ok(())
         }
-        10 | 11 | 12 => {
+        10..=12 => {
             let mut b = [0u8; 8];
             r.read_exact(&mut b)?;
             Ok(())
@@ -141,8 +141,8 @@ pub fn read_model_metadata(path: &Path) -> Option<ModelMetadata> {
                 let width: u64 = match elem {
                     0 | 1 | 7 => 1,
                     2 => 2,
-                    3 | 4 | 5 | 6 => 4,
-                    10 | 11 | 12 => 8,
+                    3..=6 => 4,
+                    10..=12 => 8,
                     8 => {
                         // Array of strings: read each (capped).
                         for _ in 0..len {
@@ -364,7 +364,7 @@ pub fn parse_reasoning_effort_levels(template: &str) -> Vec<String> {
 
 /// True when the template uses effort knobs or an enable flag.
 pub fn template_drives_reasoning(template: Option<&str>) -> bool {
-    template.map_or(false, |t| {
+    template.is_some_and(|t| {
         let lower = t.to_lowercase();
         lower.contains("reasoning_effort") || lower.contains("enable_thinking")
     })
@@ -414,11 +414,11 @@ fn meta_cache_path() -> Option<PathBuf> {
     // Tests share one temp file instead of touching the real data dir.
     #[cfg(test)]
     {
-        return Some(
+        Some(
             std::env::temp_dir()
                 .join(format!("werk-test-cache-{}", std::process::id()))
                 .join("gguf_cache2.json"),
-        );
+        )
     }
     #[cfg(not(test))]
     {
@@ -1012,7 +1012,7 @@ mod tests {
             &dir.join("layers.gguf"),
             &[("llama.target_layers", 9, layers)],
         );
-        let models = list_installed_models(&[dir.clone()]);
+        let models = list_installed_models(std::slice::from_ref(&dir));
         let names: Vec<&str> = models.iter().map(|m| m.filename.as_str()).collect();
         assert_eq!(names, vec!["real.gguf"]);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1097,7 +1097,7 @@ mod tests {
         write_gguf(&dir.join("a-Q4_K_M.gguf"), &[("general.architecture", 8, str_val("x"))]);
         std::fs::write(dir.join("mmproj.gguf"), b"junk-but-named-right").unwrap();
         std::fs::write(dir.join("notes.txt"), b"nope").unwrap();
-        let models = list_installed_models(&[dir.clone()]);
+        let models = list_installed_models(std::slice::from_ref(&dir));
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].quant.as_deref(), Some("Q4_K_M"));
         assert_eq!(models[0].name, "a Q4 K M");
@@ -1111,7 +1111,7 @@ mod tests {
         let nested = dir.join("owner").join("model");
         std::fs::create_dir_all(&nested).unwrap();
         write_gguf(&nested.join("m.gguf"), &[("general.architecture", 8, str_val("x"))]);
-        let models = list_installed_models(&[dir.clone()]);
+        let models = list_installed_models(std::slice::from_ref(&dir));
         assert_eq!(models.len(), 1);
         assert!(models[0].path.contains("owner"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1124,14 +1124,14 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("m-8B.gguf");
         write_gguf(&file, &[("general.architecture", 8, str_val("llama"))]);
-        let first = list_installed_models(&[dir.clone()]);
+        let first = list_installed_models(std::slice::from_ref(&dir));
         assert_eq!(first.len(), 1);
         // Same bytes: the cached entry serves the second scan.
-        let second = list_installed_models(&[dir.clone()]);
+        let second = list_installed_models(std::slice::from_ref(&dir));
         assert_eq!(second, first);
         // Changed size: the entry refreshes instead of going stale.
         std::fs::write(&file, std::fs::read(&file).unwrap().repeat(2)).unwrap();
-        let third = list_installed_models(&[dir.clone()]);
+        let third = list_installed_models(std::slice::from_ref(&dir));
         assert_eq!(third.len(), 1);
         assert_eq!(third[0].size_bytes, first[0].size_bytes * 2);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1189,7 +1189,7 @@ mod tests {
         std::fs::write(repo.join("m-00002-of-00002.gguf"), b"b").unwrap();
         std::fs::write(repo.join("m.jinja"), b"j").unwrap();
         std::fs::write(repo.join("m.hf.json"), b"{}".as_slice()).unwrap();
-        delete_model(&repo.join("m-00001-of-00002.gguf"), &[root.clone()]).unwrap();
+        delete_model(&repo.join("m-00001-of-00002.gguf"), std::slice::from_ref(&root)).unwrap();
         assert!(!repo.join("m-00001-of-00002.gguf").exists());
         assert!(!repo.join("m-00002-of-00002.gguf").exists(), "all parts go");
         assert!(!repo.join("m.jinja").exists(), "orphaned template goes");
@@ -1206,7 +1206,7 @@ mod tests {
         std::fs::write(root.join("a.gguf"), b"a").unwrap();
         std::fs::write(root.join("b.gguf"), b"b").unwrap();
         std::fs::write(root.join("a.jinja"), b"j").unwrap();
-        delete_model(&root.join("a.gguf"), &[root.clone()]).unwrap();
+        delete_model(&root.join("a.gguf"), std::slice::from_ref(&root)).unwrap();
         assert!(!root.join("a.gguf").exists());
         assert!(root.join("b.gguf").exists());
         assert!(root.join("a.jinja").exists(), "template stays while models remain");

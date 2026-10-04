@@ -380,6 +380,7 @@ impl LlmClient {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn chat_stream(
         &self,
         model: Option<&str>,

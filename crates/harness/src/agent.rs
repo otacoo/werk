@@ -1214,7 +1214,7 @@ impl AgentRun<'_> {
             todos: None,
         };
         let no_steer: Arc<dyn Fn() -> Vec<String> + Send + Sync> =
-            Arc::new(|| Vec::new());
+            Arc::new(Vec::new);
         let mut noop = |_ev: StreamEvent| {};
         let mut nested = |ev: AgentEvent| {
             // Subagent tool traffic is namespaced by the spawn it belongs to,

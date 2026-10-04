@@ -348,11 +348,12 @@ mod tests {
     #[test]
     fn frames_parse_back_to_back() {
         let body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}";
+        let second_frame = format!("Content-Length: {}\r\n\r\n[\"a\"]", 5);
         let raw = format!(
             "Content-Length: {}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n{}{}{}",
             body.len(),
             body,
-            format!("Content-Length: {}\r\n\r\n[\"a\"]", 5),
+            second_frame,
             ""
         );
         let mut cursor = Cursor::new(raw.into_bytes());

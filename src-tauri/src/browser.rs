@@ -521,8 +521,8 @@ async fn firefox(action: &str, args: &Value, user_profile: bool) -> Result<Strin
 
 /// One automation session on an open socket.
 async fn firefox_session(
-    mut ws: &mut BidiSocket,
-    mut id: &mut u64,
+    ws: &mut BidiSocket,
+    id: &mut u64,
     action: &str,
     args: &Value,
 ) -> Result<String> {

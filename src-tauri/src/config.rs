@@ -77,6 +77,7 @@ pub enum ChatProfile {
 /// Roleplay profile state: active card, user persona, greeting index, and
 /// per-request sampling overrides (None = server defaults).
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[derive(Default)]
 pub struct RoleplayConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card_id: Option<String>,
@@ -103,22 +104,6 @@ pub struct RoleplayConfig {
     pub user_avatar: Option<String>,
 }
 
-impl Default for RoleplayConfig {
-    fn default() -> Self {
-        Self {
-            card_id: None,
-            greeting: 0,
-            user_name: String::new(),
-            user_description: String::new(),
-            temperature: None,
-            top_p: None,
-            repeat_penalty: None,
-            reasoning_effort: None,
-            system_prompt: None,
-            user_avatar: None,
-        }
-    }
-}
 
 /// An external OpenAI-compatible provider (cloud API or another local
 /// server). External API mode targets it as `provider-id:model-id`.

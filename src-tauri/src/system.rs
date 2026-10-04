@@ -520,7 +520,7 @@ impl Tool for UiaTool {
         let action = args.get("action").and_then(Value::as_str).unwrap_or("");
         #[cfg(target_os = "windows")]
         {
-            return uia_run(action, args);
+            uia_run(action, args)
         }
         #[cfg(target_os = "macos")]
         {
@@ -779,8 +779,8 @@ unsafe fn uia_find(
             .CurrentAutomationId()
             .map(|b| b.to_string())
             .unwrap_or_default();
-        let name_ok = name.map_or(true, |n| text.to_lowercase().contains(&n.to_lowercase()));
-        let id_ok = id.map_or(true, |x| aid.eq_ignore_ascii_case(x));
+        let name_ok = name.is_none_or(|n| text.to_lowercase().contains(&n.to_lowercase()));
+        let id_ok = id.is_none_or(|x| aid.eq_ignore_ascii_case(x));
         let enabled = el.CurrentIsEnabled().map(|b| b.as_bool()).unwrap_or(true);
         if name_ok && id_ok && enabled {
             return Ok(el);
@@ -1356,8 +1356,10 @@ mod tests {
 
     #[test]
     fn roots_follow_the_file_system_settings() {
-        let mut config = AssistantConfig::default();
-        config.temp_enabled = false;
+        let mut config = AssistantConfig {
+            temp_enabled: false,
+            ..Default::default()
+        };
         assert!(roots(&config).is_empty());
         config.temp_enabled = true;
         let with_temp = roots(&config);

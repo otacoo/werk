@@ -126,7 +126,6 @@ fn parse_nvidia_smi(csv: &str) -> Vec<GpuInfo> {
         let vram = parts
             .next()
             .unwrap_or("")
-            .trim()
             .split_whitespace()
             .next()
             .and_then(|n| n.parse::<u64>().ok())

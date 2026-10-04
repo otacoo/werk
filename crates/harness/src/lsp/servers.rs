@@ -257,10 +257,10 @@ mod tests {
 
         let exts = if cfg!(windows) { vec![".exe".to_string()] } else { vec![String::new()] };
         assert_eq!(
-            find_in_dirs(&[dir.clone()], &["probe-lsp"], &exts).as_deref(),
+            find_in_dirs(std::slice::from_ref(&dir), &["probe-lsp"], &exts).as_deref(),
             Some(file.as_path())
         );
-        assert!(find_in_dirs(&[dir.clone()], &["clangd"], &exts).is_none());
+        assert!(find_in_dirs(std::slice::from_ref(&dir), &["clangd"], &exts).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

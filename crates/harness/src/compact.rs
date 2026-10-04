@@ -358,7 +358,7 @@ pub async fn summarize(
             None,
             None,
             None,
-            || should_stop(),
+            should_stop,
             &mut |ev| {
                 if let StreamEvent::Content { text } = ev {
                     summary.push_str(&text);
@@ -571,12 +571,10 @@ mod tests {
 
     #[test]
     fn verbatim_section_keeps_user_lines_chronological() {
-        let h = vec![
-            ChatMessage::system("sys"),
+        let h = [ChatMessage::system("sys"),
             user("use ESM not CJS"),
             ChatMessage::assistant("ok"),
-            user("tabs, no spaces"),
-        ];
+            user("tabs, no spaces")];
         let section = verbatim_user_section(&h[1..]).unwrap();
         assert!(section.starts_with(VERBATIM_MARKER));
         let a = section.find("ESM").unwrap();
@@ -588,13 +586,11 @@ mod tests {
     #[test]
     fn verbatim_section_carries_previous_fold() {
         let old = format!("{VERBATIM_MARKER}\nuse ESM not CJS");
-        let h = vec![
-            ChatMessage::system("sys"),
+        let h = [ChatMessage::system("sys"),
             ChatMessage::user(format!(
                 "{SUMMARY_MARKER} — summary of 2 earlier messages]\n\nold prose\n\n{old}"
             )),
-            user("also: no semicolons"),
-        ];
+            user("also: no semicolons")];
         let section = verbatim_user_section(&h[1..]).unwrap();
         assert!(section.contains("use ESM not CJS"));
         assert!(section.contains("no semicolons"));

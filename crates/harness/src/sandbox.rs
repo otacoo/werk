@@ -304,7 +304,7 @@ mod tests {
         let second = std::env::temp_dir().join(format!("werk-jail-second-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&second);
         std::fs::create_dir_all(&second).unwrap();
-        let jail = jail.with_write_roots(&[second.clone()]);
+        let jail = jail.with_write_roots(std::slice::from_ref(&second));
         let second_canon = strip_verbatim(second.canonicalize().unwrap());
         let target = second_canon.join("x.txt").to_string_lossy().to_string();
         assert_eq!(jail.check_write(&target).unwrap(), second_canon.join("x.txt"));
@@ -400,7 +400,7 @@ mod tests {
         let ro = std::env::temp_dir().join(format!("werk-jail-rox-{}", std::process::id()));
         std::fs::create_dir_all(&ro).unwrap();
         let ro_canon = strip_verbatim(ro.canonicalize().unwrap());
-        let jail = PathJail::new(&dir, &[ro.clone()]).unwrap();
+        let jail = PathJail::new(&dir, std::slice::from_ref(&ro)).unwrap();
         let abs = ro.join("f.txt").to_string_lossy().to_string();
         assert_eq!(jail.check_read(&abs).unwrap(), ro_canon.join("f.txt"));
         assert!(jail.check_write(&abs).is_err());

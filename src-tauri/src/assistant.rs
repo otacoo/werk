@@ -153,6 +153,7 @@ pub async fn set_assistant_config(
 /// Tray behavior follows the shared `close_to_tray` setting.
 #[tauri::command]
 #[specta::specta]
+#[allow(clippy::too_many_arguments)]
 pub async fn set_assistant_behavior(
     app: tauri::AppHandle,
     notify: bool,
@@ -277,6 +278,7 @@ pub async fn assistant_avatar(
 /// toggles). File locations live in `set_assistant_fs`.
 #[tauri::command]
 #[specta::specta]
+#[allow(clippy::too_many_arguments)]
 pub async fn set_assistant_access(
     system_control: bool,
     files: bool,

@@ -15,6 +15,12 @@ pub struct TerminalRuntime {
     seq: AtomicU64,
 }
 
+impl Default for TerminalRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TerminalRuntime {
     pub fn new() -> Self {
         Self {
