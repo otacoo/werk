@@ -162,36 +162,116 @@ pub fn find_mmproj_sibling(model_path: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Draft kind: purpose-built drafter vs separate MTP head.
+/// Draft kind: purpose-built drafter, MTP head, EAGLE3 decoder, or DFlash.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpecDraftKind {
     Dspark,
     MtpHead,
+    Eagle3,
+    Dflash,
 }
 
-/// Sibling draft file next to a model: a `dspark` file, else an `mtp-*` head.
+/// `--spec-type` name for a detected draft kind.
+pub fn spec_type_name(kind: SpecDraftKind) -> &'static str {
+    match kind {
+        SpecDraftKind::Dspark => "draft-dspark",
+        SpecDraftKind::MtpHead => "draft-mtp",
+        SpecDraftKind::Eagle3 => "draft-eagle3",
+        SpecDraftKind::Dflash => "draft-dflash",
+    }
+}
+
+/// Filename hints. EAGLE3 is metadata-only on purpose: its files rarely carry
+/// the name, and `eagle*` names collide with regular models.
+fn name_draft_kind(name: &str) -> Option<SpecDraftKind> {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("dspark") {
+        return Some(SpecDraftKind::Dspark);
+    }
+    if lower.contains("dflash") {
+        return Some(SpecDraftKind::Dflash);
+    }
+    let stem = lower.strip_suffix(".gguf").unwrap_or(&lower);
+    if stem.split(['-', '_', ' ', '.']).next() == Some("mtp") {
+        return Some(SpecDraftKind::MtpHead);
+    }
+    None
+}
+
+/// Kind from GGUF metadata: EAGLE3 arch or target layers, DFlash arch, an
+/// MTP `nextn.eh_proj` tensor.
+fn metadata_draft_kind(meta: &crate::models::ModelMetadata) -> Option<SpecDraftKind> {
+    match meta.architecture.as_deref() {
+        Some("eagle3") => return Some(SpecDraftKind::Eagle3),
+        Some("dflash") => return Some(SpecDraftKind::Dflash),
+        _ => {}
+    }
+    if meta.target_layers.is_some() {
+        return Some(SpecDraftKind::Eagle3);
+    }
+    if meta.has_nextn {
+        return Some(SpecDraftKind::MtpHead);
+    }
+    None
+}
+
+/// Kind for one file: filename hint, else GGUF metadata.
+pub fn spec_draft_kind(path: &Path) -> Option<SpecDraftKind> {
+    let name = path.file_name()?.to_string_lossy();
+    if let Some(kind) = name_draft_kind(&name) {
+        return Some(kind);
+    }
+    metadata_draft_kind(&crate::models::read_model_metadata(path)?)
+}
+
+/// Sibling draft file next to a model: filename hints first (sorted for
+/// stability), then GGUF metadata probes on the smallest candidates, so
+/// EAGLE3 drafts without a telling filename still auto-attach.
 pub fn find_spec_draft(model_path: &Path) -> Option<(PathBuf, SpecDraftKind)> {
     let dir = model_path.parent()?;
     let self_name = model_path.file_name()?.to_string_lossy().to_lowercase();
-    let mut mtp = None;
+    let self_size = std::fs::metadata(model_path).map(|m| m.len()).unwrap_or(u64::MAX);
+    let mut candidates: Vec<(String, PathBuf)> = Vec::new();
     for entry in std::fs::read_dir(dir).ok()?.flatten() {
         let path = entry.path();
         if !path.is_file() {
             continue;
         }
-        let lower = path.file_name()?.to_string_lossy().to_lowercase();
-        if lower == self_name || !lower.ends_with(".gguf") {
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_lowercase()) else {
+            continue;
+        };
+        if name == self_name || !name.ends_with(".gguf") {
             continue;
         }
-        if lower.contains("dspark") {
-            return Some((path, SpecDraftKind::Dspark));
+        if ["mmproj", "imatrix", "lora", "adapter"]
+            .iter()
+            .any(|skip| name.contains(skip))
+        {
+            continue;
         }
-        let stem = lower.strip_suffix(".gguf").unwrap_or(&lower);
-        if mtp.is_none() && stem.split(['-', '_', ' ', '.']).next() == Some("mtp") {
-            mtp = Some(path);
+        candidates.push((name, path));
+    }
+    candidates.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, path) in &candidates {
+        if let Some(kind) = name_draft_kind(name) {
+            return Some((path.clone(), kind));
         }
     }
-    mtp.map(|p| (p, SpecDraftKind::MtpHead))
+    // Metadata probes: drafts sit among the smallest files in a model dir.
+    let mut probes: Vec<(u64, PathBuf)> = candidates
+        .into_iter()
+        .filter_map(|(_, path)| {
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(u64::MAX);
+            (size < self_size).then_some((size, path))
+        })
+        .collect();
+    probes.sort_by_key(|(size, _)| *size);
+    for (_, path) in probes.into_iter().take(16) {
+        if let Some(kind) = spec_draft_kind(&path) {
+            return Some((path, kind));
+        }
+    }
+    None
 }
 
 /// Bytes of the companion files a launch also loads (mmproj, draft model).
@@ -535,13 +615,7 @@ pub fn build_args(config: &ServerConfig) -> (Vec<String>, Vec<String>) {
             args.push("--spec-draft-model".to_string());
             args.push(draft.to_string_lossy().to_string());
             args.push("--spec-type".to_string());
-            args.push(
-                match kind {
-                    SpecDraftKind::Dspark => "draft-dspark",
-                    SpecDraftKind::MtpHead => "draft-mtp",
-                }
-                .to_string(),
-            );
+            args.push(spec_type_name(kind).to_string());
             notes.push(format!("--spec-draft-model auto-attached: {}", draft.display()));
         }
     }
@@ -707,6 +781,9 @@ pub struct PresetEntry {
     pub mmproj_path: Option<String>,
     pub draft_model: Option<String>,
     pub spec_type: Option<String>,
+    pub draft_n_max: Option<u32>,
+    pub draft_n_min: Option<u32>,
+    pub draft_p_min: Option<f32>,
 }
 
 /// INI text for the given entries; same file repeats dedupe into one
@@ -735,6 +812,15 @@ pub fn render_router_preset(entries: &[PresetEntry]) -> String {
         if let Some(ref s) = entry.spec_type {
             ini.push_str(&format!("spec-type = {s}\n"));
         }
+        if let Some(n) = entry.draft_n_max {
+            ini.push_str(&format!("spec-draft-n-max = {n}\n"));
+        }
+        if let Some(n) = entry.draft_n_min {
+            ini.push_str(&format!("spec-draft-n-min = {n}\n"));
+        }
+        if let Some(p) = entry.draft_p_min {
+            ini.push_str(&format!("spec-draft-p-min = {p}\n"));
+        }
         ini.push('\n');
     }
     ini
@@ -758,6 +844,9 @@ fn unique_preset_entries(entries: &[PresetEntry]) -> Vec<PresetEntry> {
                 u.mmproj_path = u.mmproj_path.clone().or(e.mmproj_path.clone());
                 u.draft_model = u.draft_model.clone().or(e.draft_model.clone());
                 u.spec_type = u.spec_type.clone().or(e.spec_type.clone());
+                u.draft_n_max = u.draft_n_max.or(e.draft_n_max);
+                u.draft_n_min = u.draft_n_min.or(e.draft_n_min);
+                u.draft_p_min = u.draft_p_min.or(e.draft_p_min);
             }
             None => unique.push(PresetEntry {
                 path: path.to_string(),
@@ -767,6 +856,9 @@ fn unique_preset_entries(entries: &[PresetEntry]) -> Vec<PresetEntry> {
                 mmproj_path: e.mmproj_path.clone(),
                 draft_model: e.draft_model.clone(),
                 spec_type: e.spec_type.clone(),
+                draft_n_max: e.draft_n_max,
+                draft_n_min: e.draft_n_min,
+                draft_p_min: e.draft_p_min,
             }),
         }
     }
@@ -1222,6 +1314,27 @@ mod tests {
     }
 
     #[test]
+    fn draft_kind_hints_and_metadata() {
+        assert_eq!(name_draft_kind("Model-DSpark-Q4.gguf"), Some(SpecDraftKind::Dspark));
+        assert_eq!(name_draft_kind("mtp-llama-8b.gguf"), Some(SpecDraftKind::MtpHead));
+        assert_eq!(name_draft_kind("DFlash-draft.gguf"), Some(SpecDraftKind::Dflash));
+        // EAGLE3 names are deliberately not trusted: regular models use them.
+        assert_eq!(name_draft_kind("eagle3-llama.gguf"), None);
+        assert_eq!(name_draft_kind("llama-8b.gguf"), None);
+
+        use crate::models::ModelMetadata;
+        let eagle = ModelMetadata { architecture: Some("eagle3".into()), ..Default::default() };
+        assert_eq!(metadata_draft_kind(&eagle), Some(SpecDraftKind::Eagle3));
+        let layers = ModelMetadata { target_layers: Some(3), ..Default::default() };
+        assert_eq!(metadata_draft_kind(&layers), Some(SpecDraftKind::Eagle3));
+        let mtp = ModelMetadata { has_nextn: true, ..Default::default() };
+        assert_eq!(metadata_draft_kind(&mtp), Some(SpecDraftKind::MtpHead));
+        let dflash = ModelMetadata { architecture: Some("dflash".into()), ..Default::default() };
+        assert_eq!(metadata_draft_kind(&dflash), Some(SpecDraftKind::Dflash));
+        assert_eq!(metadata_draft_kind(&ModelMetadata::default()), None);
+    }
+
+    #[test]
     fn router_preset_ini_shape_and_dedup() {
         let dir = std::env::temp_dir().join(format!("werk-preset-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1234,6 +1347,11 @@ mod tests {
                 ctx_size: Some(32768),
                 n_gpu_layers: Some(20),
                 chat_template_file: None,
+                draft_model: Some("d.gguf".to_string()),
+                spec_type: Some("draft-eagle3".to_string()),
+                draft_n_max: Some(8),
+                draft_n_min: Some(1),
+                draft_p_min: Some(0.5),
                 ..Default::default()
             },
             PresetEntry {
@@ -1250,6 +1368,11 @@ mod tests {
         assert!(ini.contains("ctx-size = 32768"));
         assert!(ini.contains("n-gpu-layers = 20"));
         assert!(ini.contains("chat-template-file = t.jinja"));
+        assert!(ini.contains("model-draft = d.gguf"));
+        assert!(ini.contains("spec-type = draft-eagle3"));
+        assert!(ini.contains("spec-draft-n-max = 8"));
+        assert!(ini.contains("spec-draft-n-min = 1"));
+        assert!(ini.contains("spec-draft-p-min = 0.5"));
         assert!(!ini.contains("missing"));
         let _ = std::fs::remove_dir_all(&dir);
     }

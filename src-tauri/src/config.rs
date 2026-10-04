@@ -172,6 +172,18 @@ pub struct RoleServerParams {
     pub no_mmproj: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_draft: bool,
+    /// Explicit draft model for speculation; empty = auto-detect a sibling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_model: Option<String>,
+    /// Explicit spec type (e.g. draft-eagle3); empty = infer from the draft.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_n_max: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_n_min: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_p_min: Option<f32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, specta::Type)]

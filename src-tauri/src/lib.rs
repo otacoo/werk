@@ -148,6 +148,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::harness_project_set_active,
         chat::set_harness_roles,
         chat::set_role_params,
+        chat::set_role_draft,
         chat::set_role_attachment,
         chat::set_max_turns,
         chat::set_verify_mode,

@@ -352,19 +352,54 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
     nGpuLayers: number | null,
   ) => {
     const next = { ctx_size: ctxSize, n_gpu_layers: nGpuLayers };
-    setAppConfig((c) =>
-      c
-        ? {
-            ...c,
-            harness_role_params:
-              role === "worker"
-                ? { ...c.harness_role_params, worker: next }
-                : { ...c.harness_role_params, orchestrator: next },
-          }
-        : c,
-    );
+    setAppConfig((c) => {
+      if (!c) return c;
+      const hp = c.harness_role_params;
+      if (!hp) return c;
+      return {
+        ...c,
+        harness_role_params:
+          role === "worker"
+            ? { ...hp, worker: { ...hp.worker, ...next } }
+            : { ...hp, orchestrator: { ...hp.orchestrator, ...next } },
+      };
+    });
     try {
       await call(commands.setRoleParams(role, ctxSize, nGpuLayers));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const setRoleDraft = async (
+    role: "orchestrator" | "worker",
+    draft: string | null,
+    spec: string | null,
+    nMax: number | null,
+    nMin: number | null,
+    pMin: number | null,
+  ) => {
+    const next = {
+      draft_model: draft,
+      spec_type: spec,
+      draft_n_max: nMax,
+      draft_n_min: nMin,
+      draft_p_min: pMin,
+    };
+    setAppConfig((c) => {
+      if (!c) return c;
+      const hp = c.harness_role_params;
+      if (!hp) return c;
+      return {
+        ...c,
+        harness_role_params:
+          role === "worker"
+            ? { ...hp, worker: { ...hp.worker, ...next } }
+            : { ...hp, orchestrator: { ...hp.orchestrator, ...next } },
+      };
+    });
+    try {
+      await call(commands.setRoleDraft(role, draft, spec, nMax, nMin, pMin));
     } catch (e) {
       setError(String(e));
     }
@@ -375,6 +410,16 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
     if (v === "") return null;
     const n = parseInt(v, 10);
     return Number.isNaN(n) ? null : Math.max(-1, n);
+  };
+  const numDraft = (v: string, min: number, max: number) => {
+    if (v === "") return null;
+    const n = parseInt(v, 10);
+    return Number.isNaN(n) ? null : Math.min(max, Math.max(min, n));
+  };
+  const numProb = (v: string) => {
+    if (v === "") return null;
+    const n = parseFloat(v);
+    return Number.isNaN(n) ? null : Math.min(1, Math.max(0, n));
   };
 
   const setTurns = async (role: "orchestrator" | "worker", value: number) => {
@@ -440,6 +485,31 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
         ? appConfig?.harness_max_turns ?? 40
         : appConfig?.harness_subagent_max_turns ?? 25;
     const roleAttachments = (preview?.attachments ?? []).filter((a) => a.role === role);
+    const hasDraft = roleAttachments.some((a) => a.kind === "draft model");
+    const draftFields = (patch: {
+      draft_model?: string | null;
+      spec_type?: string | null;
+      draft_n_max?: number | null;
+      draft_n_min?: number | null;
+      draft_p_min?: number | null;
+    }) => {
+      const next = {
+        draft_model: params?.draft_model ?? null,
+        spec_type: params?.spec_type ?? null,
+        draft_n_max: params?.draft_n_max ?? null,
+        draft_n_min: params?.draft_n_min ?? null,
+        draft_p_min: params?.draft_p_min ?? null,
+        ...patch,
+      };
+      void setRoleDraft(
+        role,
+        next.draft_model,
+        next.spec_type,
+        next.draft_n_max,
+        next.draft_n_min,
+        next.draft_p_min,
+      );
+    };
     return (
       <div key={role} className="space-y-1.5">
         <div className="flex items-center gap-2">
@@ -546,6 +616,89 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                     onChange={(e) => update(params?.ctx_size ?? null, numNgl(e.target.value))}
                   />
                 </label>
+                <label
+                  className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
+                  title="Draft model for speculative decoding. Empty auto-detects a sibling DSpark/MTP/EAGLE3/DFlash file."
+                >
+                  <span>
+                    Draft <span className="font-mono text-[0.625rem] opacity-60">(--spec-draft-model)</span>
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="auto (sibling)"
+                    className="input w-40 py-0.5 px-1.5 text-[0.6875rem] font-mono"
+                    value={params?.draft_model ?? ""}
+                    onChange={(e) => draftFields({ draft_model: e.target.value || null })}
+                  />
+                </label>
+                <label
+                  className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
+                  title="Speculation type for this role; empty infers it from the draft file."
+                >
+                  <span>Spec</span>
+                  <select
+                    className="input py-0.5 px-1 text-[0.6875rem]"
+                    value={params?.spec_type ?? ""}
+                    onChange={(e) => draftFields({ spec_type: e.target.value || null })}
+                  >
+                    <option value="">auto</option>
+                    <option value="draft-eagle3">draft-eagle3</option>
+                    <option value="draft-mtp">draft-mtp</option>
+                    <option value="draft-dspark">draft-dspark</option>
+                    <option value="draft-dflash">draft-dflash</option>
+                    <option value="draft-simple">draft-simple</option>
+                  </select>
+                </label>
+                {hasDraft && (
+                  <>
+                    <label
+                      className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
+                      title="Max draft tokens (--spec-draft-n-max, default 16)."
+                    >
+                      <span>Draft N</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={256}
+                        placeholder="16"
+                        className="input w-14 py-0.5 px-1.5 text-[0.6875rem]"
+                        value={params?.draft_n_max ?? ""}
+                        onChange={(e) => draftFields({ draft_n_max: numDraft(e.target.value, 1, 256) })}
+                      />
+                    </label>
+                    <label
+                      className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
+                      title="Min draft tokens (--spec-draft-n-min, default 0)."
+                    >
+                      <span>Min N</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={256}
+                        placeholder="0"
+                        className="input w-14 py-0.5 px-1.5 text-[0.6875rem]"
+                        value={params?.draft_n_min ?? ""}
+                        onChange={(e) => draftFields({ draft_n_min: numDraft(e.target.value, 0, 256) })}
+                      />
+                    </label>
+                    <label
+                      className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
+                      title="Min probability for greedy drafts (--spec-draft-p-min, default 0.75)."
+                    >
+                      <span>P min</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        placeholder="0.75"
+                        className="input w-16 py-0.5 px-1.5 text-[0.6875rem]"
+                        value={params?.draft_p_min ?? ""}
+                        onChange={(e) => draftFields({ draft_p_min: numProb(e.target.value) })}
+                      />
+                    </label>
+                  </>
+                )}
               </>
             )}
             <label
@@ -2001,6 +2154,7 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                   <option value="draft-mtp">draft-mtp</option>
                   <option value="draft-dspark">draft-dspark</option>
                   <option value="draft-eagle3">draft-eagle3</option>
+                  <option value="draft-dflash">draft-dflash</option>
                   <option value="ngram-cache">ngram-cache</option>
                   <option value="ngram-simple">ngram-simple</option>
                   <option value="ngram-map-k">ngram-map-k</option>

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Router roles can override the draft model, spec type (including EAGLE3 and DFlash), and draft token limits.
+- Sibling draft files are detected from GGUF metadata (EAGLE3 target layers, DFlash arch, MTP nextn tensors), so drafts without telling filenames auto-attach.
+
 ## [0.6.0] - 2026-10-03
 
 ### Added

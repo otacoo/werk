@@ -675,13 +675,11 @@ pub fn router_role_entries(
             chat_template_file: None,
             ..Default::default()
         });
-        toggles.push((
-            params.no_chat_template,
-            params.no_mmproj,
-            params.no_draft,
-        ));
+        toggles.push(params);
     }
-    for (e, (no_template, no_mmproj, no_draft)) in entries.iter_mut().zip(toggles) {
+    for (e, params) in entries.iter_mut().zip(toggles) {
+        let (no_template, no_mmproj, no_draft) =
+            (params.no_chat_template, params.no_mmproj, params.no_draft);
         let model = Path::new(&e.path);
         if !no_template && !explicit_template && e.chat_template_file.is_none() {
             e.chat_template_file = crate::server::find_jinja_sibling(model)
@@ -692,15 +690,27 @@ pub fn router_role_entries(
                 .map(|p| p.to_string_lossy().to_string());
         }
         if !no_draft {
-            if let Some((draft, kind)) = crate::server::find_spec_draft(model) {
+            let explicit = params
+                .draft_model
+                .as_deref()
+                .map(str::trim)
+                .filter(|p| !p.is_empty());
+            let found = match explicit {
+                Some(path) => Some((
+                    PathBuf::from(path),
+                    crate::server::spec_draft_kind(Path::new(path)),
+                )),
+                None => crate::server::find_spec_draft(model).map(|(p, k)| (p, Some(k))),
+            };
+            if let Some((draft, kind)) = found {
                 e.draft_model = Some(draft.to_string_lossy().to_string());
-                e.spec_type = Some(
-                    match kind {
-                        crate::server::SpecDraftKind::Dspark => "draft-dspark",
-                        crate::server::SpecDraftKind::MtpHead => "draft-mtp",
-                    }
-                    .to_string(),
-                );
+                e.spec_type = params
+                    .spec_type
+                    .clone()
+                    .or_else(|| kind.map(|k| crate::server::spec_type_name(k).to_string()));
+                e.draft_n_max = params.draft_n_max;
+                e.draft_n_min = params.draft_n_min;
+                e.draft_p_min = params.draft_p_min;
             }
         }
     }
@@ -3441,6 +3451,53 @@ pub async fn set_role_params(
     };
     params.ctx_size = ctx_size.filter(|&c| c > 0);
     params.n_gpu_layers = n_gpu_layers;
+    config.save().map_err(|e| e.to_string())
+}
+
+/// Per-role draft-model overrides for router speculation.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_role_draft(
+    role: String,
+    draft_model: Option<String>,
+    spec_type: Option<String>,
+    draft_n_max: Option<u32>,
+    draft_n_min: Option<u32>,
+    draft_p_min: Option<f32>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    const SPEC_TYPES: &[&str] = &[
+        "draft-simple",
+        "draft-mtp",
+        "draft-dspark",
+        "draft-eagle3",
+        "draft-dflash",
+    ];
+    let draft = draft_model
+        .map(|p| p.trim().replace(['\r', '\n'], ""))
+        .filter(|p| !p.is_empty())
+        .map(|p| p.chars().take(1024).collect::<String>());
+    let spec = spec_type
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if let Some(s) = &spec {
+        if !SPEC_TYPES.contains(&s.as_str()) {
+            return Err(format!("Unknown spec type: {s}"));
+        }
+    }
+    let mut config = state.config.lock().unwrap();
+    let params = if role == "worker" {
+        &mut config.harness_role_params.worker
+    } else if role == "orchestrator" {
+        &mut config.harness_role_params.orchestrator
+    } else {
+        return Err(format!("Unknown role: {role}"));
+    };
+    params.draft_model = draft;
+    params.spec_type = spec;
+    params.draft_n_max = draft_n_max.filter(|n| (1..=256).contains(n));
+    params.draft_n_min = draft_n_min.filter(|n| *n <= 256);
+    params.draft_p_min = draft_p_min.filter(|p| (0.0..=1.0).contains(p));
     config.save().map_err(|e| e.to_string())
 }
 

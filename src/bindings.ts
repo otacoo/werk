@@ -86,6 +86,8 @@ export const commands = {
 	setHarnessRoles: (orchestrator: string | null, worker: string | null) => typedError<null, string>(__TAURI_INVOKE("set_harness_roles", { orchestrator, worker })),
 	/**  Per-role server overrides; None inherits the default. */
 	setRoleParams: (role: string, ctxSize: number | null, nGpuLayers: number | null) => typedError<null, string>(__TAURI_INVOKE("set_role_params", { role, ctxSize, nGpuLayers })),
+	/**  Per-role draft-model overrides for router speculation. */
+	setRoleDraft: (role: string, draftModel: string | null, specType: string | null, draftNMax: number | null, draftNMin: number | null, draftPMin: number | null) => typedError<null, string>(__TAURI_INVOKE("set_role_draft", { role, draftModel, specType, draftNMax, draftNMin, draftPMin })),
 	/**  Attach/detach a companion file for one router role. */
 	setRoleAttachment: (role: string, kind: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_role_attachment", { role, kind, enabled })),
 	setMaxTurns: (orchestrator: number, subagent: number) => typedError<null, string>(__TAURI_INVOKE("set_max_turns", { orchestrator, subagent })),
@@ -1150,6 +1152,13 @@ export type RoleServerParams_Deserialize = {
 	no_chat_template?: boolean,
 	no_mmproj?: boolean,
 	no_draft?: boolean,
+	/**  Explicit draft model for speculation; empty = auto-detect a sibling. */
+	draft_model?: string | null,
+	/**  Explicit spec type (e.g. draft-eagle3); empty = infer from the draft. */
+	spec_type?: string | null,
+	draft_n_max?: number | null,
+	draft_n_min?: number | null,
+	draft_p_min?: number | null,
 };
 
 /**  Per-role server overrides written into the router preset; None inherits. */
@@ -1160,6 +1169,13 @@ export type RoleServerParams_Serialize = {
 	no_chat_template?: boolean,
 	no_mmproj?: boolean,
 	no_draft?: boolean,
+	/**  Explicit draft model for speculation; empty = auto-detect a sibling. */
+	draft_model?: string | null,
+	/**  Explicit spec type (e.g. draft-eagle3); empty = infer from the draft. */
+	spec_type?: string | null,
+	draft_n_max?: number | null,
+	draft_n_min?: number | null,
+	draft_p_min?: number | null,
 };
 
 /**

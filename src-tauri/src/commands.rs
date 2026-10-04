@@ -789,7 +789,20 @@ pub async fn preview_server_args(
                     Some(role),
                 ));
             }
-            if let Some((draft, _kind)) = crate::server::find_spec_draft(model) {
+            let explicit_draft = params
+                .draft_model
+                .as_deref()
+                .map(str::trim)
+                .filter(|p| !p.is_empty());
+            if let Some(draft) = explicit_draft {
+                attachments.push(attachment_info(
+                    "draft model",
+                    draft,
+                    !params.no_draft,
+                    false,
+                    Some(role),
+                ));
+            } else if let Some((draft, _kind)) = crate::server::find_spec_draft(model) {
                 attachments.push(attachment_info(
                     "draft model",
                     &draft.to_string_lossy(),

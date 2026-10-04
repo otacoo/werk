@@ -24,6 +24,10 @@ pub struct ModelMetadata {
     pub size_label: Option<String>,
     pub chat_template: Option<String>,
     pub file_size: u64,
+    /// `<arch>.target_layers` array length: EAGLE3 draft models declare it.
+    pub target_layers: Option<u64>,
+    /// A `*.nextn.eh_proj.weight` tensor exists: an MTP draft head.
+    pub has_nextn: bool,
 }
 
 /// Template text beyond this is truncated (reasoning sniffing only).
@@ -90,8 +94,8 @@ pub fn read_model_metadata(path: &Path) -> Option<ModelMetadata> {
     if &magic != b"GGUF" {
         return None;
     }
-    let _version = read_u32(&mut r).ok()?;
-    let _n_tensors = read_u64(&mut r).ok()?;
+    let version = read_u32(&mut r).ok()?;
+    let n_tensors = read_u64(&mut r).ok()?;
     let n_kv = read_u64(&mut r).ok()?;
     if n_kv > 100_000 {
         return None;
@@ -129,6 +133,9 @@ pub fn read_model_metadata(path: &Path) -> Option<ModelMetadata> {
                 if len > 10_000_000 {
                     return None;
                 }
+                if leaf == "target_layers" {
+                    meta.target_layers = Some(len);
+                }
                 // GGUF types: 0 u8, 1 i8, 2 u16, 3 i16, 4 u32, 5 i32,
                 // 6 f32, 7 bool, 8 string, 10 u64, 11 i64, 12 f64.
                 let width: u64 = match elem {
@@ -150,6 +157,33 @@ pub fn read_model_metadata(path: &Path) -> Option<ModelMetadata> {
             }
             _ => {
                 skip_value(&mut r, ty).ok()?;
+            }
+        }
+    }
+    // Tensor infos follow the KV block; read names best-effort to fingerprint
+    // MTP heads. v1 layouts differ and are skipped.
+    if version >= 2 {
+        for _ in 0..n_tensors.min(100_000) {
+            let Ok(name) = read_gguf_string(&mut r, 1024) else {
+                break;
+            };
+            if name.ends_with(".nextn.eh_proj.weight") {
+                meta.has_nextn = true;
+            }
+            let Ok(n_dims) = read_u32(&mut r) else {
+                break;
+            };
+            if n_dims > 4 {
+                break;
+            }
+            let mut ok = true;
+            for _ in 0..n_dims {
+                ok &= read_u64(&mut r).is_ok();
+            }
+            // Shape type + data offset.
+            ok &= read_u32(&mut r).is_ok() && read_u64(&mut r).is_ok();
+            if !ok {
+                break;
             }
         }
     }
@@ -852,6 +886,71 @@ mod tests {
         let mut v = (s.len() as u64).to_le_bytes().to_vec();
         v.extend_from_slice(s.as_bytes());
         v
+    }
+
+    /// Like `write_gguf`, but with tensor infos after the KVs.
+    fn write_gguf_tensors(path: &Path, kvs: &[(&str, u8, Vec<u8>)], tensors: &[&str]) {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(b"GGUF");
+        buf.extend_from_slice(&3u32.to_le_bytes());
+        buf.extend_from_slice(&(tensors.len() as u64).to_le_bytes());
+        buf.extend_from_slice(&(kvs.len() as u64).to_le_bytes());
+        for (key, ty, val) in kvs {
+            let kb = key.as_bytes();
+            buf.extend_from_slice(&(kb.len() as u64).to_le_bytes());
+            buf.extend_from_slice(kb);
+            buf.extend_from_slice(&(*ty as u32).to_le_bytes());
+            buf.extend_from_slice(val);
+        }
+        for name in tensors {
+            let nb = name.as_bytes();
+            buf.extend_from_slice(&(nb.len() as u64).to_le_bytes());
+            buf.extend_from_slice(nb);
+            buf.extend_from_slice(&1u32.to_le_bytes()); // n_dims
+            buf.extend_from_slice(&8u64.to_le_bytes()); // dims[0]
+            buf.extend_from_slice(&0u32.to_le_bytes()); // type
+            buf.extend_from_slice(&0u64.to_le_bytes()); // offset
+        }
+        std::fs::write(path, buf).unwrap();
+    }
+
+    #[test]
+    fn draft_fingerprints_from_metadata() {
+        let dir = std::env::temp_dir().join(format!("werk-gguf-draft-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // EAGLE3: arch string plus a target_layers array.
+        let eagle = dir.join("eagle.gguf");
+        let mut layers = 4u32.to_le_bytes().to_vec();
+        layers.extend_from_slice(&3u64.to_le_bytes());
+        for v in [2u32, 15, 27] {
+            layers.extend_from_slice(&v.to_le_bytes());
+        }
+        write_gguf(
+            &eagle,
+            &[
+                ("general.architecture", 8, str_val("eagle3")),
+                ("eagle3.target_layers", 9, layers),
+            ],
+        );
+        let meta = read_model_metadata(&eagle).expect("parses");
+        assert_eq!(meta.architecture.as_deref(), Some("eagle3"));
+        assert_eq!(meta.target_layers, Some(3));
+
+        // MTP head: a nextn tensor with no telling filename metadata.
+        let mtp = dir.join("mystery.gguf");
+        write_gguf_tensors(
+            &mtp,
+            &[("general.architecture", 8, str_val("llama"))],
+            &["blk.0.attn_q.weight", "blk.31.nextn.eh_proj.weight"],
+        );
+        let meta = read_model_metadata(&mtp).expect("parses");
+        assert!(meta.has_nextn);
+        assert_eq!(meta.target_layers, None);
+        assert_eq!(meta.architecture.as_deref(), Some("llama"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
