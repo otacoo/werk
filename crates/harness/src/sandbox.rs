@@ -42,7 +42,12 @@ impl PathJail {
         }
         Ok(Self {
             root,
-            extra_read: extra_read.iter().map(|p| strip_verbatim(p.clone())).collect(),
+            // Canonicalized like the root, so symlinked spellings match.
+            extra_read: extra_read
+                .iter()
+                .filter_map(|p| p.canonicalize().ok())
+                .map(strip_verbatim)
+                .collect(),
             extra_write: Vec::new(),
             hide_agent_files: false,
             sensitive: None,
@@ -394,9 +399,10 @@ mod tests {
         let (dir, _, _) = jail("ro");
         let ro = std::env::temp_dir().join(format!("werk-jail-rox-{}", std::process::id()));
         std::fs::create_dir_all(&ro).unwrap();
+        let ro_canon = strip_verbatim(ro.canonicalize().unwrap());
         let jail = PathJail::new(&dir, &[ro.clone()]).unwrap();
         let abs = ro.join("f.txt").to_string_lossy().to_string();
-        assert_eq!(jail.check_read(&abs).unwrap(), ro.join("f.txt"));
+        assert_eq!(jail.check_read(&abs).unwrap(), ro_canon.join("f.txt"));
         assert!(jail.check_write(&abs).is_err());
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&ro);
