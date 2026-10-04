@@ -61,6 +61,7 @@
 
 ### Fixed
 
+- Firefox browser control always ends its BiDi session (even after a failed action), restarts a wedged debug browser once, creates a tab when none is open, reports Firefox's real error message, and says when Chrome/Edge aren't installed.
 - Firefox browser control creates its BiDi session over the socket (`session.new`) and ends it afterwards, fixing "invalid session id" errors.
 - Closing the main window quits the app again when close-to-tray is off; the hidden overlay window used to keep it alive.
 - The launch command passes the host value before the port again, so servers start (a regression had dropped it).

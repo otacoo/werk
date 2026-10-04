@@ -171,7 +171,10 @@ fn ensure_chromium(kind: &str) -> Result<()> {
     let exe = chromium_candidates(kind)
         .into_iter()
         .find(|p| p.is_file())
-        .ok_or_else(|| anyhow!("{kind} executable not found"))?;
+        .ok_or_else(|| {
+            let label = if kind == "edge" { "Edge" } else { "Chrome" };
+            anyhow!("{label} is not installed — install it or use browser: firefox")
+        })?;
     let profile = crate::system::temp_workspace()
         .join("browser")
         .join(format!("{kind}-profile"));
@@ -348,6 +351,9 @@ fn firefox_candidates() -> Vec<PathBuf> {
     out
 }
 
+/// The debug browser werk launched, so a wedged session can be restarted.
+static FIREFOX_CHILD: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
+
 fn ensure_firefox() -> Result<()> {
     if port_open(FIREFOX_PORT) {
         return Ok(());
@@ -360,7 +366,7 @@ fn ensure_firefox() -> Result<()> {
         .join("browser")
         .join("firefox-profile");
     std::fs::create_dir_all(&profile)?;
-    Command::new(&exe)
+    let child = Command::new(&exe)
         .arg("--remote-debugging-port")
         .arg(FIREFOX_PORT.to_string())
         .arg("--profile")
@@ -371,49 +377,85 @@ fn ensure_firefox() -> Result<()> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| anyhow!("Cannot launch {}: {e}", exe.display()))?;
+    if let Ok(mut slot) = FIREFOX_CHILD.lock() {
+        *slot = Some(child);
+    }
     wait_for_port(FIREFOX_PORT, "Firefox")
+}
+
+/// Kill the debug Firefox werk launched (if any) and start a fresh one.
+fn restart_firefox() -> Result<()> {
+    if let Ok(mut slot) = FIREFOX_CHILD.lock() {
+        if let Some(mut child) = slot.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    for _ in 0..20 {
+        if !port_open(FIREFOX_PORT) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    ensure_firefox()
 }
 
 type BidiSocket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
+async fn firefox_socket() -> Result<BidiSocket> {
+    let (ws, _) =
+        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{FIREFOX_PORT}/session"))
+            .await
+            .map_err(|e| {
+                anyhow!("Cannot attach to Firefox (is a normal Firefox already running?): {e}")
+            })?;
+    Ok(ws)
+}
+
+/// Connect and create the BiDi session; a stale session or a wedged debug
+/// instance is cleaned up by restarting the browser once.
+async fn firefox_connect() -> Result<(BidiSocket, u64)> {
+    let mut ws = firefox_socket().await?;
+    let mut id = 0u64;
+    match bidi_call(&mut ws, &mut id, "session.new", json!({"capabilities": {}})).await {
+        Ok(_) => Ok((ws, id)),
+        Err(first) => {
+            drop(ws);
+            restart_firefox()?;
+            let mut ws = firefox_socket().await?;
+            let mut id = 0u64;
+            bidi_call(&mut ws, &mut id, "session.new", json!({"capabilities": {}}))
+                .await
+                .map_err(|e| {
+                    anyhow!(
+                        "Cannot start a Firefox automation session: {first}; after a restart: {e}"
+                    )
+                })?;
+            Ok((ws, id))
+        }
+    }
+}
+
 async fn firefox(action: &str, args: &Value) -> Result<String> {
     ensure_firefox()?;
-    let (mut ws, _) = tokio_tungstenite::connect_async(format!(
-        "ws://127.0.0.1:{FIREFOX_PORT}/session"
-    ))
-    .await
-    .map_err(|e| anyhow!("Cannot attach to Firefox (is a normal Firefox already running?): {e}"))?;
-    let mut id = 0u64;
-    // Firefox exposes a BiDi-only endpoint: the session is created over the
-    // socket with the static session.new command before anything else.
-    if let Err(e) = bidi_call(
-        &mut ws,
-        &mut id,
-        "session.new",
-        json!({"capabilities": {}}),
-    )
-    .await
-    {
-        bail!(
-            "Cannot start a Firefox automation session: {e}. Close the Firefox window \
-             werk opened (debug port {FIREFOX_PORT}) and retry."
-        );
-    }
-    let tree = bidi_call(&mut ws, &mut id, "browsingContext.getTree", json!({})).await?;
-    let context = tree
-        .pointer("/result/contexts")
-        .and_then(Value::as_array)
-        .and_then(|contexts| {
-            contexts
-                .iter()
-                .find(|c| c.get("parent").is_none())
-                .and_then(|c| c.get("context"))
-                .and_then(Value::as_str)
-        })
-        .map(str::to_string)
-        .ok_or_else(|| anyhow!("Firefox has no browsing context"))?;
-    let result = match action {
+    let (mut ws, mut id) = firefox_connect().await?;
+    // Every path must end the session: Firefox allows only one at a time.
+    let result = firefox_session(&mut ws, &mut id, action, args).await;
+    let _ = bidi_call(&mut ws, &mut id, "session.end", json!({})).await;
+    let _ = ws.close(None).await;
+    result
+}
+
+/// One automation session on an open socket.
+async fn firefox_session(
+    mut ws: &mut BidiSocket,
+    mut id: &mut u64,
+    action: &str,
+    args: &Value,
+) -> Result<String> {
+    let context = firefox_context(ws, id).await?;
+    match action {
         "open" => {
             let url = req(args, "url")?;
             bidi_call(
@@ -505,11 +547,31 @@ async fn firefox(action: &str, args: &Value) -> Result<String> {
             Ok(out)
         }
         other => bail!("Unknown action '{other}'"),
-    };
-    // Firefox allows one session at a time; end ours before disconnecting.
-    let _ = bidi_call(&mut ws, &mut id, "session.end", json!({})).await;
-    let _ = ws.close(None).await;
-    result
+    }
+}
+
+/// The first top-level tab; one is created when Firefox has none.
+async fn firefox_context(ws: &mut BidiSocket, id: &mut u64) -> Result<String> {
+    let tree = bidi_call(ws, id, "browsingContext.getTree", json!({})).await?;
+    if let Some(context) = tree
+        .pointer("/result/contexts")
+        .and_then(Value::as_array)
+        .and_then(|contexts| {
+            contexts
+                .iter()
+                .find(|c| c.get("parent").is_none())
+                .and_then(|c| c.get("context"))
+                .and_then(Value::as_str)
+        })
+    {
+        return Ok(context.to_string());
+    }
+    let created = bidi_call(ws, id, "browsingContext.create", json!({"type": "tab"})).await?;
+    created
+        .pointer("/result/context")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("Firefox did not create a tab"))
 }
 
 async fn bidi_call(
@@ -541,7 +603,8 @@ async fn bidi_call(
             continue; // an event, not our reply
         }
         if let Some(error) = value.get("error") {
-            bail!("Firefox rejected {method}: {error}");
+            let message = value.get("message").and_then(Value::as_str).unwrap_or("");
+            bail!("Firefox rejected {method}: {error} — {message}");
         }
         return Ok(value);
     }
