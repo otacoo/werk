@@ -16,6 +16,7 @@ export default function Overlay() {
   const [expanded, setExpanded] = useState(false);
   const [input, setInput] = useState("");
   const [state, setState] = useState<"idle" | "working" | "sent" | "attention" | "error">("idle");
+  const [avatar, setAvatar] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const expandedRef = useRef(false);
@@ -80,6 +81,9 @@ export default function Overlay() {
 
   useEffect(() => {
     void anchor(COLLAPSED, COLLAPSED, true);
+    call(commands.assistantAvatar())
+      .then(setAvatar)
+      .catch(() => {});
   }, []);
 
   const expand = async () => {
@@ -143,6 +147,9 @@ export default function Overlay() {
   useEffect(() => {
     const unlisten = listen("assistant_focus", () => {
       void expand();
+      call(commands.assistantAvatar())
+        .then(setAvatar)
+        .catch(() => {});
     });
     return () => {
       unlisten.then((f) => f());
@@ -194,12 +201,16 @@ export default function Overlay() {
         }`}
       >
         <button
-          className="relative w-11 h-11 rounded-full bg-surface-3 flex items-center justify-center shrink-0"
+          className="relative w-11 h-11 rounded-full bg-surface-3 flex items-center justify-center shrink-0 overflow-hidden"
           onClick={() => (expanded ? void collapse() : void expand())}
           title={expanded ? "Collapse" : "Ask the assistant"}
         >
           <span className={`absolute inset-0 rounded-full opacity-30 ${dot}`} />
-          <Sparkles size={16} className="relative text-ink" />
+          {avatar ? (
+            <img src={avatar} alt="" className="relative w-full h-full object-cover" />
+          ) : (
+            <Sparkles size={16} className="relative text-ink" />
+          )}
         </button>
         {expanded && (
           <>

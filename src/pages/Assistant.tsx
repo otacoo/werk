@@ -8,6 +8,7 @@ import {
   Check,
   FileWarning,
   FolderOpen,
+  ImagePlus,
   Paperclip,
   RefreshCw,
   RotateCcw,
@@ -103,6 +104,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<"loading" | "thinking" | null>(null);
   const [assistantName, setAssistantName] = useState("Werk");
+  const [avatar, setAvatar] = useState<string | null>(null);
   const [externalMode, setExternalMode] = useState(false);
   const [externalTarget, setExternalTarget] = useState("");
   const [persona, setPersona] = useState<AssistantConfig | null>(null);
@@ -142,6 +144,12 @@ export default function Assistant({ active = true }: { active?: boolean }) {
     call(commands.getConfig())
       .then(applyConfig)
       .catch(() => {});
+  };
+
+  const loadAvatar = () => {
+    call(commands.assistantAvatar())
+      .then(setAvatar)
+      .catch(() => setAvatar(null));
   };
 
   const applyConfig = (c: AppConfig) => {
@@ -196,6 +204,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
   // Mount: config, transcript, context stats, and the live stream.
   useEffect(() => {
     refreshConfig();
+    loadAvatar();
     void restore();
     call(commands.assistantSystemPromptDefault())
       .then(setBuiltInPrompt)
@@ -207,7 +216,10 @@ export default function Assistant({ active = true }: { active?: boolean }) {
     poll();
     const id = setInterval(poll, 2000);
     const unsubStatus = subscribeServerStatus(setStatus);
-    const unsubConfig = subscribeConfigChanged(refreshConfig);
+    const unsubConfig = subscribeConfigChanged(() => {
+      refreshConfig();
+      loadAvatar();
+    });
     return () => {
       clearInterval(id);
       unsubStatus();
@@ -220,6 +232,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
     activeRef.current = active;
     if (active) {
       void restore();
+      loadAvatar();
       call(commands.assistantContextStats()).then(setSlotCtx).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -632,6 +645,34 @@ export default function Assistant({ active = true }: { active?: boolean }) {
     }
   };
 
+  const pickAvatar = async () => {
+    let picked: string | string[] | null = null;
+    try {
+      picked = await openDialog({
+        multiple: false,
+        filters: [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+      });
+    } catch {
+      return;
+    }
+    if (!picked || typeof picked !== "string") return;
+    try {
+      await call(commands.assistantSetAvatar(picked));
+      loadAvatar();
+    } catch (e) {
+      setPersonaError(String(e));
+    }
+  };
+
+  const clearAvatar = async () => {
+    try {
+      await call(commands.assistantSetAvatar(null));
+      loadAvatar();
+    } catch (e) {
+      setPersonaError(String(e));
+    }
+  };
+
   const savePersona = async () => {
     if (!persona) return;
     setPersonaError(null);
@@ -697,7 +738,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
       {tab === "chat" && (
         <>
           <div className="flex items-center gap-3 px-4 py-2 border-b border-border shrink-0">
-            <Avatar name={assistantName} size={36} />
+            <Avatar src={avatar} name={assistantName} size={36} />
             <div className="min-w-0">
               <p className="text-sm font-medium text-ink truncate">{assistantName}</p>
               <div className="flex items-center gap-1.5 text-[0.625rem] text-faint min-w-0">
@@ -792,7 +833,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                 const isUser = it.role === "user";
                 return (
                   <div key={i} className={`flex gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}>
-                    {!isUser && <Avatar name={assistantName} />}
+                    {!isUser && <Avatar src={avatar} name={assistantName} />}
                     <div className="max-w-[75%] xl:max-w-[70%] min-w-0">
                       {showReasoning && it.reasoning && <ReasoningBlock text={it.reasoning} />}
                       <div
@@ -900,7 +941,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
             })}
             {showReasoning && reasoningText !== null && (
               <div className="flex gap-2.5 justify-start">
-                <Avatar name={assistantName} />
+                <Avatar src={avatar} name={assistantName} />
                 <div className="max-w-[75%] w-full">
                   <ReasoningBlock
                     text={reasoningText}
@@ -913,7 +954,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
             )}
             {streamText !== null && (
               <div className="flex gap-2.5 justify-start">
-                <Avatar name={assistantName} />
+                <Avatar src={avatar} name={assistantName} />
                 <div className="max-w-[75%] rounded-2xl px-3.5 py-2.5 bg-surface-2 text-ink select-text">
                   <Markdown content={streamText} />
                   {streaming && (
@@ -926,7 +967,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
               streamText === null &&
               (reasoningText === null || !showReasoning) && (
                 <div className="flex gap-2.5 justify-start items-center">
-                  <Avatar name={assistantName} />
+                  <Avatar src={avatar} name={assistantName} />
                   {starting || runStatus === "loading" ? (
                     <RefreshCw size={13} className="animate-spin text-dim" />
                   ) : (
@@ -1095,8 +1136,25 @@ export default function Assistant({ active = true }: { active?: boolean }) {
               <div>
                 <h2 className="section-title mb-0">Identity</h2>
                 <p className="section-desc">
-                  The assistant's name, personality, and optional core prompt override.
+                  The assistant's name, profile image, personality, and optional core prompt
+                  override.
                 </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <Avatar src={avatar} name={persona.name || assistantName} size={48} />
+                <div className="flex items-center gap-1.5">
+                  <button className="btn-ghost text-[0.625rem] py-0.5 px-1.5" onClick={pickAvatar}>
+                    <ImagePlus size={11} /> Choose image
+                  </button>
+                  {avatar && (
+                    <button
+                      className="btn-ghost text-[0.625rem] py-0.5 px-1.5 text-accent-red"
+                      onClick={clearAvatar}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
               </div>
               <label className="block">
                 <span className="text-[0.6875rem] text-dim">Name</span>
@@ -1717,8 +1775,26 @@ function BehaviorCard() {
   );
 }
 
-function Avatar({ name, size = 32 }: { name: string; size?: number }) {
+function Avatar({
+  src,
+  name,
+  size = 32,
+}: {
+  src?: string | null;
+  name: string;
+  size?: number;
+}) {
   const cls = "rounded-full border border-border shrink-0";
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={name}
+        className={`${cls} object-cover`}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   const initials = name.trim().slice(0, 1).toUpperCase() || "?";
   return (
     <div

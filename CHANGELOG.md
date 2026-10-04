@@ -4,6 +4,8 @@
 
 ### Added
 
+- The assistant gets a profile image (Persona tab), shown in the header, message avatars, and the overlay circle.
+- A native `web_search` tool (DuckDuckGo HTML, no API key) is available to the assistant and the agent.
 - The assistant gets a user-picked home folder for persistent files plus an always-granted temp workspace for scratch scripts, downloads, and screenshots.
 - Tool results carry images when the local model has vision, so the assistant can see screenshots and image files it reads.
 - Assistant system control is opt-in from the Access tab: file tools over chosen folders plus clipboard, window, and screen-capture tools, each approval-gated.

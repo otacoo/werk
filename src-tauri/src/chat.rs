@@ -1635,6 +1635,7 @@ async fn agent_send_impl(
                 .add(Arc::new(harness::memory::RememberTool::for_file(memory)))
                 .add(Arc::new(harness::tools::AskUserTool))
                 .add(Arc::new(harness::tools::TimeTool))
+                .add(Arc::new(harness::tools::WebSearchTool))
                 .add(Arc::new(crate::scheduler::ReminderTool));
             let skills = crate::assistant::skills();
             if !skills.is_empty() {

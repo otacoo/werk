@@ -276,6 +276,9 @@ pub struct AssistantConfig {
     /// Display name and self-reference.
     #[serde(default = "default_assistant_name")]
     pub name: String,
+    /// Avatar image path inside the data dir; None = initials.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
     /// Personality/voice text layered into the system prompt.
     #[serde(default = "default_assistant_persona")]
     pub persona: String,
@@ -323,6 +326,7 @@ impl Default for AssistantConfig {
     fn default() -> Self {
         Self {
             name: default_assistant_name(),
+            avatar: None,
             persona: default_assistant_persona(),
             system_prompt: None,
             temperature: None,

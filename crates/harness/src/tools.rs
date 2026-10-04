@@ -347,6 +347,179 @@ impl Tool for TimeTool {
     }
 }
 
+// ── web_search ────────────────────────────────────────────────────────────
+
+const USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) werk/0.6";
+
+/// DuckDuckGo HTML search: no API key, cross-platform, snippets only.
+pub struct WebSearchTool;
+
+impl Tool for WebSearchTool {
+    fn name(&self) -> String {
+        "web_search".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Search the web and return the top results (title, URL, snippet). Use it for current \
+         facts, releases, docs, and anything the model may not know."
+            .to_string()
+    }
+
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string" },
+                "max_results": { "type": "integer", "description": "1-10, default 5." }
+            },
+            "required": ["query"]
+        })
+    }
+
+    fn approval_key(&self, _args: &Value) -> Option<ApprovalKey> {
+        None
+    }
+
+    fn execute(&self, args: &Value) -> Result<String> {
+        let query = str_arg(args, "query")?;
+        let max = args
+            .get("max_results")
+            .and_then(Value::as_u64)
+            .unwrap_or(5)
+            .clamp(1, 10) as usize;
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .user_agent(USER_AGENT)
+            .build()
+            .context("Cannot build the search client")?;
+        let body = client
+            .get("https://html.duckduckgo.com/html/")
+            .query(&[("q", query.as_str())])
+            .send()
+            .context("Search request failed")?
+            .error_for_status()
+            .context("Search was rejected")?
+            .text()
+            .context("Cannot read the search response")?;
+        let results = parse_ddg(&body, max);
+        if results.is_empty() {
+            bail!("No results for '{query}' (the search page may be rate-limiting or changed)");
+        }
+        let mut out = format!("Results for \"{query}\":");
+        for (i, (title, url, snippet)) in results.iter().enumerate() {
+            out.push_str(&format!("\n\n{}. {title}\n{url}", i + 1));
+            if !snippet.is_empty() {
+                out.push_str(&format!("\n{snippet}"));
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Parse DDG HTML result blocks: `result__a` links plus the snippet inside
+/// the same result block.
+fn parse_ddg(html: &str, max: usize) -> Vec<(String, String, String)> {
+    let mut out = Vec::new();
+    let mut rest = html;
+    while out.len() < max {
+        let Some(pos) = rest.find("class=\"result__a\"") else {
+            break;
+        };
+        rest = &rest[pos..];
+        let Some(tag_end) = rest.find('>') else {
+            break;
+        };
+        let tag = &rest[..tag_end];
+        let href = tag
+            .find("href=\"")
+            .and_then(|h| {
+                let after = &tag[h + 6..];
+                after.find('"').map(|end| &after[..end])
+            })
+            .unwrap_or("");
+        let after_tag = &rest[tag_end + 1..];
+        let Some(close) = after_tag.find("</a>") else {
+            break;
+        };
+        let title = clean_text(&after_tag[..close]);
+        rest = &after_tag[close..];
+        // The snippet belongs to this block only when it appears before the
+        // next result link.
+        let window_end = rest.find("class=\"result__a\"").unwrap_or(rest.len());
+        let window = &rest[..window_end];
+        let snippet = window
+            .find("class=\"result__snippet\"")
+            .and_then(|sp| {
+                let s = &window[sp..];
+                s.find('>').map(|e| &s[e + 1..])
+            })
+            .and_then(|s| s.split("</a>").next())
+            .map(clean_text)
+            .unwrap_or_default();
+        if !title.is_empty() && !href.is_empty() {
+            out.push((title, decode_ddg_url(href), snippet));
+        }
+    }
+    out
+}
+
+/// Strip tags and decode the few entities DDG emits.
+fn clean_text(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#x27;", "'")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&nbsp;", " ")
+        .trim()
+        .to_string()
+}
+
+/// DDG wraps links as `//duckduckgo.com/l/?uddg=<encoded>&rut=…`; unwrap it.
+fn decode_ddg_url(href: &str) -> String {
+    let href = match href.strip_prefix("//") {
+        Some(rest) => format!("https://{rest}"),
+        None => href.to_string(),
+    };
+    if let Some(pos) = href.find("uddg=") {
+        let raw = &href[pos + 5..];
+        let encoded = raw.split('&').next().unwrap_or(raw);
+        return percent_decode(encoded);
+    }
+    href
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = |b: u8| (b as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
 // ── find_files ────────────────────────────────────────────────────────────
 
 fn ignored_dir(name: &str) -> bool {
@@ -993,6 +1166,7 @@ impl ToolRegistry {
                 Arc::new(SearchContentTool { jail: jail.clone() }),
                 Arc::new(ExecTool { jail: jail.clone() }),
                 Arc::new(TimeTool),
+                Arc::new(WebSearchTool),
                 Arc::new(SpawnSubagentTool),
                 Arc::new(AskUserTool),
             ],
@@ -1124,6 +1298,7 @@ impl ToolRegistry {
             BuiltinToolInfo { name: "search_content", summary: "Regex content search.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "exec", summary: "Shell commands; read-only runs free.", approval: "conditional", note: "" },
             BuiltinToolInfo { name: "get_time", summary: "Current UTC date and time.", approval: "auto", note: "" },
+            BuiltinToolInfo { name: "web_search", summary: "Search the web (DuckDuckGo) for current facts.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "todo", summary: "Keep a short task list for the run.", approval: "auto", note: "Orchestrator only." },
             BuiltinToolInfo { name: "spawn_subagent", summary: "Delegate to an ephemeral specialist.", approval: "auto", note: "Orchestrator only." },
             BuiltinToolInfo { name: "ask_user", summary: "Ask the user a multiple-choice question.", approval: "auto", note: "Orchestrator only." },
@@ -1167,6 +1342,25 @@ mod tests {
         let text = tool.execute(&json!({"path": "a.txt"})).unwrap();
         assert!(tool.result_images(&json!({"path": "a.txt"}), &text).is_empty());
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn parses_ddg_results() {
+        let html = r#"
+          <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa&amp;rut=1">Example &amp; Co</a>
+          <a class="result__snippet" href="x">A <b>snippet</b> here.</a>
+          <a rel="nofollow" class="result__a" href="https://direct.example/b">Direct</a>
+          <div class="result__snippet">Second snippet.</div>
+        "#;
+        let results = parse_ddg(html, 5);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].0, "Example & Co");
+        assert_eq!(results[0].1, "https://example.com/a");
+        assert!(results[0].2.contains("snippet here"), "{}", results[0].2);
+        assert_eq!(results[1].1, "https://direct.example/b");
+        assert_eq!(results[1].2, "Second snippet.");
+        // The limit is honored.
+        assert_eq!(parse_ddg(html, 1).len(), 1);
     }
 
     #[test]

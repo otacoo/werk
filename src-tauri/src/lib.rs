@@ -260,6 +260,8 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         assistant::set_assistant_behavior,
         assistant::assistant_system_prompt_default,
         assistant::set_assistant_access,
+        assistant::assistant_set_avatar,
+        assistant::assistant_avatar,
         scheduler::assistant_reminders_list,
         scheduler::assistant_reminder_add,
         scheduler::assistant_reminder_complete,

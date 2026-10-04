@@ -142,6 +142,10 @@ export const commands = {
 	 *  tool toggles). The temp workspace is always granted on top.
 	 */
 	setAssistantAccess: (systemControl: boolean, workspace: string | null, files: boolean, clipboard: boolean, windows: boolean, screen: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, workspace, files, clipboard, windows, screen })),
+	/**  Import (or clear) the assistant's profile image. */
+	assistantSetAvatar: (path: string | null) => typedError<null, string>(__TAURI_INVOKE("assistant_set_avatar", { path })),
+	/**  The assistant's avatar as a data URL, when one is set. */
+	assistantAvatar: () => typedError<string | null, string>(__TAURI_INVOKE("assistant_avatar")),
 	/**  List reminders for the UI. */
 	assistantRemindersList: () => typedError<Reminder_Serialize[], string>(__TAURI_INVOKE("assistant_reminders_list")),
 	/**  Add a reminder from the UI (unix `due`). */
@@ -526,6 +530,8 @@ export type AssistantConfig = AssistantConfig_Serialize | AssistantConfig_Deseri
 export type AssistantConfig_Deserialize = {
 	/**  Display name and self-reference. */
 	name?: string,
+	/**  Avatar image path inside the data dir; None = initials. */
+	avatar?: string | null,
 	/**  Personality/voice text layered into the system prompt. */
 	persona?: string,
 	/**  Custom core prompt; None means the built-in assistant prompt. */
@@ -559,6 +565,8 @@ export type AssistantConfig_Deserialize = {
 export type AssistantConfig_Serialize = {
 	/**  Display name and self-reference. */
 	name: string,
+	/**  Avatar image path inside the data dir; None = initials. */
+	avatar?: string | null,
 	/**  Personality/voice text layered into the system prompt. */
 	persona: string,
 	/**  Custom core prompt; None means the built-in assistant prompt. */

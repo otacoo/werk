@@ -1,6 +1,6 @@
 //! Assistant profile: personality prompt, memory file, and prompt assembly.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tauri::State;
 
@@ -24,6 +24,7 @@ Tools:
 - remember stores durable facts about the user and their preferences; use it whenever you \
 learn something lasting. It stays hidden, so never mention it.
 - skill loads a saved procedure by name when it matches the task.
+- web_search looks up current facts, releases, and docs; include the URLs you used.
 - ask_user (2-4 options) when a decision is genuinely the user's.
 - get_time for the current date or time when it matters.
 - When a request is ambiguous, ask one focused question instead of guessing.";
@@ -146,6 +147,75 @@ pub async fn set_assistant_behavior(
 #[specta::specta]
 pub async fn assistant_system_prompt_default() -> Result<String, String> {
     Ok(BUILT_IN_ASSISTANT_PROMPT.to_string())
+}
+
+/// Import (or clear) the assistant's profile image.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_set_avatar(
+    path: Option<String>,
+    state: State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let dir = dir()
+        .ok_or_else(|| "Cannot find data directory".to_string())?
+        .join("avatars");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut cfg = state.config.lock().unwrap();
+    match path {
+        Some(p) => {
+            let src = Path::new(&p);
+            let ext = src
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase())
+                .filter(|e| matches!(e.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif"))
+                .unwrap_or_else(|| "png".to_string());
+            for old in ["png", "jpg", "jpeg", "webp", "gif"] {
+                let _ = std::fs::remove_file(dir.join(format!("avatar.{old}")));
+            }
+            let target = dir.join(format!("avatar.{ext}"));
+            let bytes = std::fs::read(src).map_err(|e| format!("Cannot read avatar: {e}"))?;
+            std::fs::write(&target, bytes).map_err(|e| e.to_string())?;
+            cfg.assistant.avatar = Some(target.to_string_lossy().to_string());
+        }
+        None => {
+            for old in ["png", "jpg", "jpeg", "webp", "gif"] {
+                let _ = std::fs::remove_file(dir.join(format!("avatar.{old}")));
+            }
+            cfg.assistant.avatar = None;
+        }
+    }
+    cfg.save().map_err(|e| e.to_string())
+}
+
+/// The assistant's avatar as a data URL, when one is set.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_avatar(
+    state: State<'_, crate::AppState>,
+) -> Result<Option<String>, String> {
+    let path = state.config.lock().unwrap().assistant.avatar.clone();
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Ok(None);
+    };
+    let mime = match Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .as_deref()
+    {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        _ => "image/png",
+    };
+    Ok(Some(format!(
+        "data:{mime};base64,{}",
+        crate::roleplay::encode_base64(&bytes)
+    )))
 }
 
 /// Save the assistant's system-control settings (master switch, home folder,
