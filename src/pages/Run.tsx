@@ -548,7 +548,8 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
           )}
         </div>
         {path && (
-          <div className="flex flex-wrap items-center gap-3">
+          <>
+            <div className="flex items-center gap-3">
             {model && (model.is_vision || model.is_reasoning || roleAttachments.length > 0) && (
               <div className="flex items-center gap-2 shrink-0">
                 {(model.is_vision || model.is_reasoning) && (
@@ -575,13 +576,29 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                 )}
               </div>
             )}
-            {external ? (
+            {external && (
               <span className="text-[0.625rem] text-faint">
                 Runs on {external.id} — nothing loads locally; the launch options apply to the
                 other role.
               </span>
-            ) : (
-              <>
+            )}
+            <label
+              className="flex items-center gap-1.5 text-[0.6875rem] text-faint ml-auto"
+              title="Max agent turns for this role: the orchestrator's main loop, or a subagent run."
+            >
+              <span>Turns</span>
+              <input
+                type="number"
+                min={1}
+                max={500}
+                className="input w-16 py-0.5 px-1.5 text-[0.6875rem]"
+                value={turns}
+                onChange={(e) => setTurns(role, Math.max(1, parseInt(e.target.value || "1", 10)))}
+              />
+            </label>
+            </div>
+            {!external && (
+              <div className="flex flex-wrap items-center gap-3">
                 <label
                   className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
                   title="Context size for this role's model in tokens. Empty uses the launch context size, then the model default."
@@ -699,23 +716,9 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                     </label>
                   </>
                 )}
-              </>
+              </div>
             )}
-            <label
-              className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
-              title="Max agent turns for this role: the orchestrator's main loop, or a subagent run."
-            >
-              <span>Turns</span>
-              <input
-                type="number"
-                min={1}
-                max={500}
-                className="input w-16 py-0.5 px-1.5 text-[0.6875rem]"
-                value={turns}
-                onChange={(e) => setTurns(role, Math.max(1, parseInt(e.target.value || "1", 10)))}
-              />
-            </label>
-          </div>
+          </>
         )}
       </div>
     );
