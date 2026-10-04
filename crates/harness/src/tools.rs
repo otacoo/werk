@@ -1155,6 +1155,32 @@ pub struct ToolRegistry {
     jail: Option<Arc<PathJail>>,
 }
 
+/// Delegates to an inner tool but never requests approval.
+struct FreeTool {
+    inner: Arc<dyn Tool>,
+}
+
+impl Tool for FreeTool {
+    fn name(&self) -> String {
+        self.inner.name()
+    }
+    fn description(&self) -> String {
+        self.inner.description()
+    }
+    fn parameters(&self) -> Value {
+        self.inner.parameters()
+    }
+    fn approval_key(&self, _args: &Value) -> Option<ApprovalKey> {
+        None
+    }
+    fn execute(&self, args: &Value) -> Result<String> {
+        self.inner.execute(args)
+    }
+    fn result_images(&self, args: &Value, output: &str) -> Vec<(String, Vec<u8>)> {
+        self.inner.result_images(args, output)
+    }
+}
+
 impl ToolRegistry {
     pub fn project_tools(jail: Arc<PathJail>) -> Self {
         Self {
@@ -1209,6 +1235,19 @@ impl ToolRegistry {
     pub fn merge(mut self, other: ToolRegistry) -> Self {
         self.tools.extend(other.tools);
         self
+    }
+
+    /// Wrap every tool so it never asks for approval (the assistant profile:
+    /// the jail and its configured roots are the boundary instead).
+    pub fn free_approvals(self) -> Self {
+        Self {
+            tools: self
+                .tools
+                .into_iter()
+                .map(|t| Arc::new(FreeTool { inner: t }) as Arc<dyn Tool>)
+                .collect(),
+            jail: self.jail,
+        }
     }
 
     pub fn without(self, names: &[&str]) -> Self {
@@ -1323,6 +1362,25 @@ mod tests {
     fn registry_for(root: &std::path::Path) -> ToolRegistry {
         let jail = Arc::new(PathJail::new(root, &[]).unwrap());
         ToolRegistry::project_tools(jail)
+    }
+
+    #[test]
+    fn free_approvals_drop_gating() {
+        let root = temp_dir("free-approvals");
+        let args = json!({"path": "a.txt", "content": "x"});
+        let gated = registry_for(&root);
+        assert!(gated.get("write_file").unwrap().approval_key(&args).is_some());
+        let free = registry_for(&root).free_approvals();
+        assert!(free.get("write_file").unwrap().approval_key(&args).is_none());
+        // The wrapped tool still executes.
+        let text = free
+            .get("write_file")
+            .unwrap()
+            .execute(&args)
+            .expect("write");
+        assert!(!text.is_empty());
+        assert!(root.join("a.txt").exists());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

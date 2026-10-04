@@ -4,6 +4,7 @@
 
 ### Added
 
+- The Assistant Access tab gains a File system card: the assistant folder, a temp-working-folder toggle, and extra accessible folders; everything outside that list is completely blocked.
 - The Assistant Behavior tab has an Overlay card: show/hide the overlay, set its summon hotkey, and preview it on demand.
 - Assistant input control: an `input` tool (mouse move/click/drag/scroll, keyboard typing and key chords) with per-action approvals and an Access toggle.
 - Settings → Profiles can disable the WebUI profile (off by default), removing its Mode card, header tab, launch options, the Tools Server pane, and the Live Tools server card; the Mode page reflows automatically, and the API availability dot sits on the API sub-tab.
@@ -22,6 +23,7 @@
 
 ### Changed
 
+- Assistant system tools no longer ask for approval — the File system roots are the boundary — and the system-control switch carries a warning icon.
 - Assistant settings apply immediately (on blur or toggle) like Roleplay's, with no Save buttons.
 - The Assistant Access tab splits into System control and Built-in tools cards, and Reminders spans the full width.
 - The Assistant profile mirrors Roleplay: the Assistant tab holds settings (Persona, Reminders, Memory, Access, Behavior) with the same page title, tabs, and two-column card layout, and the conversation moved to its own Chat tab, with the Assistant tab placed before Run.

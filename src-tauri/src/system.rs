@@ -30,12 +30,8 @@ pub fn tools(config: &AssistantConfig) -> Vec<Arc<dyn Tool>> {
     out
 }
 
-fn key(tool: &'static str, command: Option<&str>) -> Option<ApprovalKey> {
-    Some(ApprovalKey {
-        tool: tool.to_string(),
-        command: command.map(str::to_string),
-    })
-}
+// System tools never ask for approval: the jail and the File system roots
+// bound what they can reach instead.
 
 // ── Clipboard ─────────────────────────────────────────────────────────────
 
@@ -63,11 +59,8 @@ impl Tool for ClipboardTool {
         })
     }
 
-    fn approval_key(&self, args: &Value) -> Option<ApprovalKey> {
-        match args.get("action").and_then(Value::as_str) {
-            Some("write") => key("clipboard", Some("write")),
-            _ => None,
-        }
+    fn approval_key(&self, _args: &Value) -> Option<ApprovalKey> {
+        None
     }
 
     fn execute(&self, args: &Value) -> Result<String> {
@@ -126,11 +119,8 @@ impl Tool for WindowTool {
         })
     }
 
-    fn approval_key(&self, args: &Value) -> Option<ApprovalKey> {
-        match args.get("action").and_then(Value::as_str) {
-            Some("list") | None => None,
-            Some(action) => key("window", Some(action)),
-        }
+    fn approval_key(&self, _args: &Value) -> Option<ApprovalKey> {
+        None
     }
 
     fn execute(&self, args: &Value) -> Result<String> {
@@ -310,8 +300,8 @@ impl Tool for InputTool {
         })
     }
 
-    fn approval_key(&self, args: &Value) -> Option<ApprovalKey> {
-        key("input", args.get("action").and_then(Value::as_str))
+    fn approval_key(&self, _args: &Value) -> Option<ApprovalKey> {
+        None
     }
 
     fn execute(&self, args: &Value) -> Result<String> {
@@ -500,7 +490,7 @@ impl Tool for ScreenTool {
     }
 
     fn approval_key(&self, _args: &Value) -> Option<ApprovalKey> {
-        key("screen", Some("capture"))
+        None
     }
 
     fn execute(&self, args: &Value) -> Result<String> {
@@ -616,15 +606,24 @@ pub fn home(config: &AssistantConfig) -> Option<PathBuf> {
 }
 
 /// File-tool roots: the assistant home first (relative paths land there),
-/// then the always-granted temp workspace.
+/// then the temp workspace when enabled, then the extra folders. Everything
+/// outside this list is barred by the jail.
 pub fn roots(config: &AssistantConfig) -> Vec<PathBuf> {
-    let temp = temp_workspace();
-    let _ = std::fs::create_dir_all(&temp);
     let mut roots = Vec::new();
     if let Some(home) = home(config) {
         roots.push(home);
     }
-    roots.push(temp);
+    if config.temp_enabled {
+        let temp = temp_workspace();
+        let _ = std::fs::create_dir_all(&temp);
+        roots.push(temp);
+    }
+    for folder in &config.folders {
+        let path = PathBuf::from(folder);
+        if path.is_dir() && !roots.iter().any(|r| r == &path) {
+            roots.push(path);
+        }
+    }
     roots
 }
 
@@ -643,5 +642,22 @@ mod tests {
         assert!(matches!(parse_button(Some("right")).unwrap(), enigo::Button::Right));
         assert!(matches!(parse_button(None).unwrap(), enigo::Button::Left));
         assert!(parse_button(Some("weird")).is_err());
+    }
+
+    #[test]
+    fn roots_follow_the_file_system_settings() {
+        let mut config = AssistantConfig::default();
+        config.temp_enabled = false;
+        assert!(roots(&config).is_empty());
+        config.temp_enabled = true;
+        let with_temp = roots(&config);
+        assert_eq!(with_temp.len(), 1);
+        assert!(with_temp[0].ends_with("werk-assistant"));
+        // Missing folders are skipped; existing ones append.
+        config.folders = vec!["Z:\\definitely-missing".to_string(), std::env::temp_dir().to_string_lossy().to_string()];
+        let with_folder = roots(&config);
+        assert_eq!(with_folder.len(), 2);
+        assert_eq!(with_folder[0], std::env::temp_dir().join("werk-assistant"));
+        assert_eq!(with_folder[1], std::env::temp_dir());
     }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { FolderOpen, ImagePlus, RefreshCw } from "lucide-react";
+import { AlertTriangle, FolderOpen, ImagePlus, RefreshCw, X } from "lucide-react";
 import { commands } from "../bindings";
 import type { AssistantConfig, MemoryFileDto, Reminder } from "../bindings";
 import { call } from "../utils/ipc";
@@ -313,7 +313,10 @@ export default function Assistant({ active = true }: { active?: boolean }) {
         {tab === "access" && (
           <div className="grid grid-cols-2 gap-4 items-start">
             <SystemControlCard />
-            <BuiltInToolsCard />
+            <div className="space-y-4">
+              <BuiltInToolsCard />
+              <FileSystemCard />
+            </div>
           </div>
         )}
 
@@ -540,12 +543,11 @@ function RemindersCard() {
   );
 }
 
-/// Opt-in system control: master switch, home folder, and per-tool toggles.
-/// Changes apply immediately.
+/// Opt-in system control: master switch and per-tool toggles. Tools act
+/// immediately; the File system card is the boundary. Changes apply at once.
 function SystemControlCard() {
   const [access, setAccess] = useState<{
     system_control: boolean;
-    workspace: string | null;
     files: boolean;
     clipboard: boolean;
     windows: boolean;
@@ -559,7 +561,6 @@ function SystemControlCard() {
       .then((c) =>
         setAccess({
           system_control: c.assistant?.system_control ?? false,
-          workspace: c.assistant?.workspace ?? null,
           files: c.assistant?.tool_files ?? true,
           clipboard: c.assistant?.tool_clipboard ?? true,
           windows: c.assistant?.tool_windows ?? true,
@@ -578,7 +579,6 @@ function SystemControlCard() {
       await call(
         commands.setAssistantAccess(
           next.system_control,
-          next.workspace,
           next.files,
           next.clipboard,
           next.windows,
@@ -592,65 +592,37 @@ function SystemControlCard() {
     }
   };
 
-  const pickFolder = async () => {
-    if (!access) return;
-    let picked: string | string[] | null = null;
-    try {
-      picked = await openDialog({ directory: true, multiple: false });
-    } catch {
-      return;
-    }
-    if (!picked || typeof picked !== "string") return;
-    apply({ ...access, workspace: picked });
-  };
-
   if (!access) return null;
   return (
     <div className="card space-y-3">
       <div>
         <h2 className="section-title mb-0">System control</h2>
         <p className="section-desc">
-          Off by default. Each enabled tool still asks for approval per action, and the
-          sensitive-file policy stays in force.
+          Off by default. Enabled tools act immediately without asking, so the File system card is
+          the hard boundary for what they can reach.
         </p>
       </div>
-      <Toggle
-        label="Allow system control"
-        hint="Master switch for every tool on this card."
-        checked={access.system_control}
-        onChange={(v) => apply({ ...access, system_control: v })}
-      />
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <Toggle
+            label="Allow system control"
+            hint="Master switch for every tool on this card."
+            checked={access.system_control}
+            onChange={(v) => apply({ ...access, system_control: v })}
+          />
+        </div>
+        <span
+          title="System tools can read your screen, control the mouse and keyboard, and change files. Everything outside the File system list is blocked."
+          className="shrink-0"
+        >
+          <AlertTriangle size={14} className="text-accent-yellow mt-0.5" />
+        </span>
+      </div>
       {access.system_control && (
         <>
-          <div className="space-y-2 border border-border rounded px-3 py-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-ink">Assistant folder</p>
-              <div className="flex items-center gap-1">
-                <button className="btn-ghost text-[0.625rem] py-0.5 px-1.5" onClick={pickFolder}>
-                  <FolderOpen size={11} /> Choose…
-                </button>
-                {access.workspace && (
-                  <button
-                    className="btn-ghost text-[0.625rem] py-0.5 px-1.5 text-accent-red"
-                    onClick={() => apply({ ...access, workspace: null })}
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-            <p className="font-mono text-[0.6875rem] text-dim break-all">
-              {access.workspace ?? "Not set — the temp workspace is used for everything."}
-            </p>
-            <p className="text-[0.625rem] text-faint">
-              The assistant's persistent files (documents it wants to keep) live here. A temp
-              workspace under the system temp folder is always granted for scratch files, scripts,
-              and screenshots.
-            </p>
-          </div>
           <Toggle
             label="File tools"
-            hint="Read, write, edit, find, and search in the assistant folder and temp workspace."
+            hint="Read, write, edit, find, and search in the folders from the File system card."
             checked={access.files}
             onChange={(v) => apply({ ...access, files: v })}
           />
@@ -674,7 +646,7 @@ function SystemControlCard() {
           />
           <Toggle
             label="Input control"
-            hint="Move the mouse, click, scroll, type, and press keys. The most sensitive tool — keep approvals scoped."
+            hint="Move the mouse, click, scroll, type, and press keys. The most sensitive tool."
             checked={access.input}
             onChange={(v) => apply({ ...access, input: v })}
           />
@@ -713,6 +685,147 @@ function BuiltInToolsCard() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/// Where the assistant may read and write; everything else is barred.
+function FileSystemCard() {
+  const [fs, setFs] = useState<{
+    workspace: string | null;
+    temp_enabled: boolean;
+    folders: string[];
+    tempPath: string;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => {
+    Promise.all([call(commands.getConfig()), call(commands.assistantTempDir())])
+      .then(([c, tempPath]) =>
+        setFs({
+          workspace: c.assistant?.workspace ?? null,
+          temp_enabled: c.assistant?.temp_enabled ?? true,
+          folders: c.assistant?.folders ?? [],
+          tempPath,
+        }),
+      )
+      .catch(() => {});
+  };
+  useEffect(load, []);
+
+  const apply = async (next: NonNullable<typeof fs>) => {
+    setFs(next);
+    setError(null);
+    try {
+      await call(commands.setAssistantFs(next.workspace, next.temp_enabled, next.folders));
+    } catch (e) {
+      setError(String(e));
+      load();
+    }
+  };
+
+  const pickWorkspace = async () => {
+    if (!fs) return;
+    let picked: string | string[] | null = null;
+    try {
+      picked = await openDialog({ directory: true, multiple: false });
+    } catch {
+      return;
+    }
+    if (!picked || typeof picked !== "string") return;
+    apply({ ...fs, workspace: picked });
+  };
+
+  const addFolders = async () => {
+    if (!fs) return;
+    let picked: string | string[] | null = null;
+    try {
+      picked = await openDialog({ directory: true, multiple: true });
+    } catch {
+      return;
+    }
+    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    if (paths.length === 0) return;
+    const next = [...fs.folders];
+    for (const path of paths) {
+      if (path === fs.workspace || next.includes(path)) continue;
+      next.push(path);
+      if (next.length >= 16) break;
+    }
+    apply({ ...fs, folders: next });
+  };
+
+  if (!fs) return null;
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h2 className="section-title mb-0">File system</h2>
+        <p className="section-desc">
+          Where the assistant may read and write. Everything outside these locations is completely
+          blocked.
+        </p>
+      </div>
+      <div className="space-y-2 border border-border rounded px-3 py-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-ink">Assistant folder</p>
+          <div className="flex items-center gap-1">
+            <button className="btn-ghost text-[0.625rem] py-0.5 px-1.5" onClick={pickWorkspace}>
+              <FolderOpen size={11} /> Choose…
+            </button>
+            {fs.workspace && (
+              <button
+                className="btn-ghost text-[0.625rem] py-0.5 px-1.5 text-accent-red"
+                onClick={() => apply({ ...fs, workspace: null })}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+        <p className="font-mono text-[0.6875rem] text-dim break-all">
+          {fs.workspace ?? "Not set — the assistant has nowhere persistent to keep files."}
+        </p>
+        <p className="text-[0.625rem] text-faint">
+          The assistant's own files live here; it decides what to save. Relative paths resolve
+          here.
+        </p>
+      </div>
+      <Toggle
+        label="Temp working folder"
+        hint={`Scratch files, scripts, and screenshots under ${fs.tempPath}.`}
+        checked={fs.temp_enabled}
+        onChange={(v) => apply({ ...fs, temp_enabled: v })}
+      />
+      <div className="space-y-2 border border-border rounded px-3 py-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-ink">Accessible folders</p>
+          <button className="btn-ghost text-[0.625rem] py-0.5 px-1.5" onClick={addFolders}>
+            <FolderOpen size={11} /> Add folder
+          </button>
+        </div>
+        {fs.folders.length === 0 && (
+          <p className="text-[0.6875rem] text-dim">None yet.</p>
+        )}
+        {fs.folders.map((folder) => (
+          <div key={folder} className="flex items-center gap-2">
+            <span
+              className="flex-1 min-w-0 truncate font-mono text-[0.6875rem] text-dim"
+              title={folder}
+            >
+              {folder}
+            </span>
+            <button
+              className="text-faint hover:text-accent-red shrink-0"
+              onClick={() => apply({ ...fs, folders: fs.folders.filter((f) => f !== folder) })}
+              title="Remove"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        ))}
+        <p className="text-[0.625rem] text-faint">Read and write access for the assistant.</p>
+      </div>
+      {error && <p className="text-xs text-accent-red">{error}</p>}
     </div>
   );
 }

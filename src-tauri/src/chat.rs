@@ -1671,7 +1671,9 @@ async fn agent_send_impl(
                     registry = registry.add(tool);
                 }
             }
-            registry
+            // The assistant never asks for approval: the file jail and the
+            // configured File system roots are the boundary.
+            registry.free_approvals()
         }
         RunMode::Agent => build_registry(
             jail.clone(),

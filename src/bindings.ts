@@ -138,10 +138,14 @@ export const commands = {
 	/**  Built-in assistant prompt for the Persona editor. */
 	assistantSystemPromptDefault: () => typedError<string, string>(__TAURI_INVOKE("assistant_system_prompt_default")),
 	/**
-	 *  Save the assistant's system-control settings (master switch, home folder,
-	 *  tool toggles). The temp workspace is always granted on top.
+	 *  Save the assistant's system-control settings (master switch + tool
+	 *  toggles). File locations live in `set_assistant_fs`.
 	 */
-	setAssistantAccess: (systemControl: boolean, workspace: string | null, files: boolean, clipboard: boolean, windows: boolean, screen: boolean, input: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, workspace, files, clipboard, windows, screen, input })),
+	setAssistantAccess: (systemControl: boolean, files: boolean, clipboard: boolean, windows: boolean, screen: boolean, input: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, files, clipboard, windows, screen, input })),
+	/**  Save the assistant's file locations. Everything outside these is barred. */
+	setAssistantFs: (workspace: string | null, tempEnabled: boolean, folders: string[]) => typedError<null, string>(__TAURI_INVOKE("set_assistant_fs", { workspace, tempEnabled, folders })),
+	/**  The temp workspace path, for the File system card. */
+	assistantTempDir: () => typedError<string, string>(__TAURI_INVOKE("assistant_temp_dir")),
 	/**  Import (or clear) the assistant's profile image. */
 	assistantSetAvatar: (path: string | null) => typedError<null, string>(__TAURI_INVOKE("assistant_set_avatar", { path })),
 	/**  The assistant's avatar as a data URL, when one is set. */
@@ -567,11 +571,12 @@ export type AssistantConfig_Deserialize = {
 	overlay_enabled?: boolean,
 	/**  Master switch for the system-control tools (opt-in). */
 	system_control?: boolean,
-	/**
-	 *  The assistant's own folder for persistent files (user-picked); the
-	 *  temp workspace is always granted on top of it.
-	 */
+	/**  The assistant's own folder for persistent files (user-picked). */
 	workspace?: string | null,
+	/**  Use the temp workspace as a working folder (scratch files, screenshots). */
+	temp_enabled?: boolean,
+	/**  Extra folders the assistant may read and write; everything else is barred. */
+	folders?: string[],
 	tool_files?: boolean,
 	tool_clipboard?: boolean,
 	tool_windows?: boolean,
@@ -606,11 +611,12 @@ export type AssistantConfig_Serialize = {
 	overlay_enabled: boolean,
 	/**  Master switch for the system-control tools (opt-in). */
 	system_control: boolean,
-	/**
-	 *  The assistant's own folder for persistent files (user-picked); the
-	 *  temp workspace is always granted on top of it.
-	 */
+	/**  The assistant's own folder for persistent files (user-picked). */
 	workspace?: string | null,
+	/**  Use the temp workspace as a working folder (scratch files, screenshots). */
+	temp_enabled: boolean,
+	/**  Extra folders the assistant may read and write; everything else is barred. */
+	folders?: string[],
 	tool_files: boolean,
 	tool_clipboard: boolean,
 	tool_windows: boolean,

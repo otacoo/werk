@@ -227,13 +227,12 @@ pub async fn assistant_avatar(
     )))
 }
 
-/// Save the assistant's system-control settings (master switch, home folder,
-/// tool toggles). The temp workspace is always granted on top.
+/// Save the assistant's system-control settings (master switch + tool
+/// toggles). File locations live in `set_assistant_fs`.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_assistant_access(
     system_control: bool,
-    workspace: Option<String>,
     files: bool,
     clipboard: bool,
     windows: bool,
@@ -241,18 +240,56 @@ pub async fn set_assistant_access(
     input: bool,
     state: State<'_, crate::AppState>,
 ) -> Result<(), String> {
-    let workspace = workspace
-        .map(|w| w.trim().to_string())
-        .filter(|w| !w.is_empty() && std::path::Path::new(w).is_dir());
     let mut cfg = state.config.lock().unwrap();
     cfg.assistant.system_control = system_control;
-    cfg.assistant.workspace = workspace;
     cfg.assistant.tool_files = files;
     cfg.assistant.tool_clipboard = clipboard;
     cfg.assistant.tool_windows = windows;
     cfg.assistant.tool_screen = screen;
     cfg.assistant.tool_input = input;
     cfg.save().map_err(|e| e.to_string())
+}
+
+/// Save the assistant's file locations. Everything outside these is barred.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_assistant_fs(
+    workspace: Option<String>,
+    temp_enabled: bool,
+    folders: Vec<String>,
+    state: State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let workspace = workspace
+        .map(|w| w.trim().to_string())
+        .filter(|w| !w.is_empty() && std::path::Path::new(w).is_dir());
+    let mut cleaned: Vec<String> = Vec::new();
+    for folder in folders {
+        let folder = folder.trim();
+        if folder.is_empty()
+            || cleaned.iter().any(|f| f.eq_ignore_ascii_case(folder))
+            || workspace.as_deref().is_some_and(|w| w.eq_ignore_ascii_case(folder))
+        {
+            continue;
+        }
+        if std::path::Path::new(folder).is_dir() {
+            cleaned.push(folder.to_string());
+        }
+        if cleaned.len() >= 16 {
+            break;
+        }
+    }
+    let mut cfg = state.config.lock().unwrap();
+    cfg.assistant.workspace = workspace;
+    cfg.assistant.temp_enabled = temp_enabled;
+    cfg.assistant.folders = cleaned;
+    cfg.save().map_err(|e| e.to_string())
+}
+
+/// The temp workspace path, for the File system card.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_temp_dir() -> Result<String, String> {
+    Ok(crate::system::temp_workspace().to_string_lossy().to_string())
 }
 
 #[cfg(test)]
