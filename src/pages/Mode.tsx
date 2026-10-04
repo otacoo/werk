@@ -110,7 +110,7 @@ export default function Mode({
     };
   }, [appConfig?.roleplay?.card_id]);
 
-  const chooseProfile = async (next: "agent" | "webui" | "roleplay") => {
+  const chooseProfile = async (next: "agent" | "webui" | "roleplay" | "assistant") => {
     if (next === profile) return;
     setError(null);
     setProfileMirror(next);
@@ -325,9 +325,9 @@ export default function Mode({
       id: "assistant" as const,
       icon: Sparkles,
       title: "Assistant",
-      desc: "A different kind of helper.",
-      points: ["Coming later"],
-      soon: true,
+      desc: "A personal assistant with personality.",
+      points: ["Remembers you across conversations", "Persona, skills, and its own Assistant tab"],
+      soon: false,
     },
   ];
 

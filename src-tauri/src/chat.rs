@@ -738,6 +738,25 @@ pub(crate) fn project_root(state: &AppState) -> Result<PathBuf> {
     anyhow::bail!("No active project — add one first")
 }
 
+/// Jail root for the assistant: the server working dir, else the data dir.
+/// Phase-1 assistant tools do not touch files; the jail exists so later
+/// phases can widen it.
+fn assistant_root(app_config: &crate::config::AppConfig) -> PathBuf {
+    if let Some(dir) = app_config
+        .server_working_dir
+        .as_deref()
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+    {
+        return dir;
+    }
+    let dir = crate::config::data_dir()
+        .map(|d| d.join("werk"))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
 /// Orchestrator context: role override → launch n_ctx → GGUF length.
 fn role_context_limit(
     role_ctx: Option<u32>,
@@ -928,16 +947,28 @@ fn session_path(id: &str) -> Option<PathBuf> {
     sessions_dir().map(|d| d.join(format!("{id}.json")))
 }
 
+/// Which runtime a send belongs to: picks prompt, tools, events, and storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunMode {
+    Agent,
+    Roleplay,
+    Assistant,
+}
+
 /// Transcript path for a runtime: agent sessions live in the sessions dir,
-/// roleplay threads one per character under the roleplay data dir.
-fn transcript_path(id: &str, roleplay: bool) -> Option<PathBuf> {
+/// roleplay threads one per character, the assistant has one thread.
+fn transcript_path(id: &str, mode: RunMode) -> Option<PathBuf> {
     if id.is_empty() || id.contains(['/', '\\', '.']) {
         return None;
     }
-    if roleplay {
-        crate::roleplay::roleplay_dir().map(|d| d.join("sessions").join(format!("{id}.json")))
-    } else {
-        sessions_dir().map(|d| d.join(format!("{id}.json")))
+    match mode {
+        RunMode::Agent => sessions_dir().map(|d| d.join(format!("{id}.json"))),
+        RunMode::Roleplay => {
+            crate::roleplay::roleplay_dir().map(|d| d.join("sessions").join(format!("{id}.json")))
+        }
+        RunMode::Assistant => {
+            crate::assistant::sessions_dir().ok().map(|d| d.join(format!("{id}.json")))
+        }
     }
 }
 
@@ -954,11 +985,11 @@ fn talk_session_id(app_config: &crate::config::AppConfig) -> String {
 fn save_transcript_current(
     state: &AppState,
     runtime: &HarnessRuntime,
-    roleplay: bool,
+    mode: RunMode,
     title: Option<String>,
 ) -> Result<()> {
     let messages = runtime.history.lock().unwrap().clone();
-    save_transcript(state, runtime, &messages, title, roleplay)
+    save_transcript(state, runtime, &messages, title, mode)
 }
 
 /// Snapshot a transcript for the open session. Also called right after the
@@ -968,7 +999,7 @@ fn save_transcript(
     runtime: &HarnessRuntime,
     messages: &[ChatMessage],
     title: Option<String>,
-    roleplay: bool,
+    mode: RunMode,
 ) -> Result<()> {
     let id = {
         let sid = runtime.session_id.lock().unwrap().clone();
@@ -977,7 +1008,7 @@ fn save_transcript(
             None => return Ok(()),
         }
     };
-    let Some(path) = transcript_path(&id, roleplay) else {
+    let Some(path) = transcript_path(&id, mode) else {
         return Ok(());
     };
     if let Some(parent) = path.parent() {
@@ -1000,15 +1031,15 @@ fn save_transcript(
         .and_then(|t| serde_json::from_str::<SessionFile>(&t).ok())
         .map(|s| s.created)
         .unwrap_or(now);
-    let project = if roleplay {
-        None
-    } else {
+    let project = if mode == RunMode::Agent {
         state.config.lock().unwrap().harness_active_project.clone()
-    };
-    let todos = if roleplay {
-        Vec::new()
     } else {
+        None
+    };
+    let todos = if mode == RunMode::Agent {
         runtime.todos.lock().unwrap().clone()
+    } else {
+        Vec::new()
     };
     let file = SessionFile {
         id,
@@ -1407,7 +1438,7 @@ pub async fn harness_agent_send(
         state,
         app,
         runtime,
-        false,
+        RunMode::Agent,
         "harness_event",
         message,
         reasoning_effort,
@@ -1431,8 +1462,32 @@ pub async fn talk_send(
         state,
         app,
         runtime,
-        true,
+        RunMode::Roleplay,
         "talk_event",
+        message,
+        reasoning_effort,
+        attachments,
+    )
+    .await
+}
+
+/// Send a message to the assistant; streams over `assistant_event`.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_send(
+    message: String,
+    reasoning_effort: Option<String>,
+    attachments: Option<Vec<SendAttachment>>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<RunResult, String> {
+    let runtime = state.assistant.clone();
+    agent_send_impl(
+        state,
+        app,
+        runtime,
+        RunMode::Assistant,
+        "assistant_event",
         message,
         reasoning_effort,
         attachments,
@@ -1444,12 +1499,14 @@ async fn agent_send_impl(
     state: State<'_, AppState>,
     app: AppHandle,
     runtime: Arc<HarnessRuntime>,
-    roleplay: bool,
+    run_mode: RunMode,
     event_name: &'static str,
     message: String,
     reasoning_effort: Option<String>,
     attachments: Option<Vec<SendAttachment>>,
 ) -> Result<RunResult, String> {
+    let roleplay = run_mode == RunMode::Roleplay;
+    let assistant = run_mode == RunMode::Assistant;
     if runtime
         .running
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -1463,9 +1520,13 @@ async fn agent_send_impl(
     *runtime.last_activity.lock().unwrap() = std::time::Instant::now();
     runtime.steering.lock().unwrap().clear();
 
-    let root = project_root(&state).map_err(|e| e.to_string())?;
-    let global_base = global_base_dir();
     let app_config = state.config.lock().unwrap().clone();
+    let global_base = global_base_dir();
+    let root = if assistant {
+        assistant_root(&app_config)
+    } else {
+        project_root(&state).map_err(|e| e.to_string())?
+    };
     // The jail hides the agent's own instruction files and shields sensitive
     // paths (built-ins + .gitignore + the user list).
     let jail = PathJail::new(&root, &[])
@@ -1479,7 +1540,7 @@ async fn agent_send_impl(
     let jail = Arc::new(jail.shield(sensitive));
     let disabled = app_config.plugin_disabled.clone();
     let lsp = app_config.lsp_enabled.then(|| state.lsp.clone());
-    let (mcp_tools, mcp_errors) = if roleplay {
+    let (mcp_tools, mcp_errors) = if run_mode != RunMode::Agent {
         (Vec::new(), Vec::new())
     } else {
         // MCP tools run in the harness (all modes): spawn servers once, reuse
@@ -1492,16 +1553,31 @@ async fn agent_send_impl(
             serde_json::json!({"type": "notice", "text": text}),
         );
     }
-    let registry = if roleplay {
-        let memory = crate::roleplay::character_memory_path(app_config.roleplay.card_id.as_deref())
-            .ok_or_else(|| "Cannot find data directory".to_string())?;
-        ToolRegistry::project_tools(jail.clone())
-            .only(&[])
-            .add(Arc::new(harness::memory::RememberTool::for_file(memory)))
-            .add(Arc::new(harness::tools::AskUserTool))
-            .add(Arc::new(harness::tools::TimeTool))
-    } else {
-        build_registry(
+    let registry = match run_mode {
+        RunMode::Roleplay => {
+            let memory = crate::roleplay::character_memory_path(app_config.roleplay.card_id.as_deref())
+                .ok_or_else(|| "Cannot find data directory".to_string())?;
+            ToolRegistry::project_tools(jail.clone())
+                .only(&[])
+                .add(Arc::new(harness::memory::RememberTool::for_file(memory)))
+                .add(Arc::new(harness::tools::AskUserTool))
+                .add(Arc::new(harness::tools::TimeTool))
+        }
+        RunMode::Assistant => {
+            let memory = crate::assistant::memory_path()
+                .ok_or_else(|| "Cannot find data directory".to_string())?;
+            let mut registry = ToolRegistry::project_tools(jail.clone())
+                .only(&[])
+                .add(Arc::new(harness::memory::RememberTool::for_file(memory)))
+                .add(Arc::new(harness::tools::AskUserTool))
+                .add(Arc::new(harness::tools::TimeTool));
+            let skills = crate::assistant::skills();
+            if !skills.is_empty() {
+                registry = registry.add(Arc::new(harness::skills::SkillTool::new(skills)));
+            }
+            registry
+        }
+        RunMode::Agent => build_registry(
             jail.clone(),
             &root,
             global_base.as_deref(),
@@ -1510,7 +1586,7 @@ async fn agent_send_impl(
             &runtime.todos,
             lsp,
             mcp_tools,
-        )
+        ),
     };
 
     // Roles only apply in router mode; single mode chats with the loaded
@@ -1567,7 +1643,7 @@ async fn agent_send_impl(
     // History: resume the open session, then ensure one system prompt.
     if runtime.history.lock().unwrap().is_empty() {
         if let Some(id) = runtime.session_id.lock().unwrap().clone() {
-            if let Some(path) = transcript_path(&id, roleplay) {
+            if let Some(path) = transcript_path(&id, run_mode) {
                 if let Ok(text) = std::fs::read_to_string(&path) {
                     if let Ok(saved) = serde_json::from_str::<SessionFile>(&text) {
                         *runtime.history.lock().unwrap() = saved.messages;
@@ -1633,9 +1709,25 @@ async fn agent_send_impl(
             }
             let memory = crate::roleplay::memory_block(&app_config);
             history.insert(0, ChatMessage::system(format!("{base}{memory}")));
+        } else if assistant {
+            let skills = crate::assistant::skills();
+            history.insert(
+                0,
+                ChatMessage::system(crate::assistant::system_prompt(&app_config, &skills)),
+            );
         } else {
             let prompt_tools = PromptTools::from_disabled(&app_config.agent_tools_disabled);
             let base = agent_prompt_base(&state, &app_config, mode, &subagent_targets, prompt_tools);
+            // Skill names/descriptions must be visible for the tool to be usable.
+            let skill_roots: Vec<PathBuf> = [
+                global_base.as_ref().map(|b| b.join("skills")),
+                Some(root.join(".werk").join("skills")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            let skills = harness::skills::discover(&skill_roots);
+            let base = format!("{base}{}", harness::skills::system_prompt_listing(&skills));
             let memory = harness::memory::load_block(
                 global_base.as_deref().map(|b| b.join("MEMORY.md")).as_deref(),
                 &root,
@@ -1655,6 +1747,8 @@ async fn agent_send_impl(
     if runtime.session_id.lock().unwrap().is_none() {
         let id = if roleplay {
             talk_session_id(&app_config)
+        } else if assistant {
+            "current".to_string()
         } else {
             let base = format!("s{}", now_secs());
             let mut id = base.clone();
@@ -1669,7 +1763,7 @@ async fn agent_send_impl(
     }
     // Persist the sent transcript right away so the new chat appears in the
     // sessions list while the first reply streams (and survives a crash).
-    if let Err(e) = save_transcript(&state, &runtime, &history, None, roleplay) {
+    if let Err(e) = save_transcript(&state, &runtime, &history, None, run_mode) {
         let _ = app.emit(
             event_name,
             serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
@@ -1908,7 +2002,11 @@ async fn agent_send_impl(
     let gate = Arc::new(UiGate {
         app: app.clone(),
         runtime: runtime.clone(),
-        question_event: if roleplay { "talk_question" } else { "harness_question" },
+        question_event: match run_mode {
+            RunMode::Roleplay => "talk_question",
+            RunMode::Assistant => "assistant_question",
+            RunMode::Agent => "harness_question",
+        },
     });
     let steer_rt = runtime.clone();
     let steer: Arc<dyn Fn() -> Vec<String> + Send + Sync> =
@@ -1926,26 +2024,36 @@ async fn agent_send_impl(
         let _ = app_events.emit(event_name, serde_json::to_value(&ev).unwrap_or_default());
     };
 
-    // Roleplay sampling overrides ride the request; llama.cpp and most
+    // Profile sampling overrides ride the request; llama.cpp and most
     // OpenAI-compatible providers accept them per call.
-    let sampling = if roleplay {
-        let rp = &app_config.roleplay;
+    let sampling = {
+        let (temperature, top_p, repeat_penalty) = match run_mode {
+            RunMode::Roleplay => (
+                app_config.roleplay.temperature,
+                app_config.roleplay.top_p,
+                app_config.roleplay.repeat_penalty,
+            ),
+            RunMode::Assistant => (
+                app_config.assistant.temperature,
+                app_config.assistant.top_p,
+                app_config.assistant.repeat_penalty,
+            ),
+            RunMode::Agent => (None, None, None),
+        };
         let mut map = serde_json::Map::new();
-        if let Some(t) = rp.temperature {
+        if let Some(t) = temperature {
             map.insert("temperature".into(), serde_json::json!(t));
         }
-        if let Some(p) = rp.top_p {
+        if let Some(p) = top_p {
             map.insert("top_p".into(), serde_json::json!(p));
         }
         // llama.cpp extension; strict providers may reject unknown fields.
         if mode != crate::config::ServerMode::External {
-            if let Some(r) = rp.repeat_penalty {
+            if let Some(r) = repeat_penalty {
                 map.insert("repeat_penalty".into(), serde_json::json!(r));
             }
         }
         (!map.is_empty()).then_some(serde_json::Value::Object(map))
-    } else {
-        None
     };
 
     let run = AgentRun {
@@ -1954,16 +2062,20 @@ async fn agent_send_impl(
         engine: runtime.engine.clone(),
         model: model.clone(),
         project: state.config.lock().unwrap().harness_active_project.clone(),
-        // Roleplay keeps its effort in the profile config; the agent picks it
+        // Profile effort lives in the profile config; the agent picks it
         // per send in the UI.
-        reasoning_effort: if roleplay {
-            app_config
+        reasoning_effort: match run_mode {
+            RunMode::Roleplay => app_config
                 .roleplay
                 .reasoning_effort
                 .clone()
-                .filter(|e| !e.trim().is_empty())
-        } else {
-            reasoning_effort.filter(|e| !e.is_empty())
+                .filter(|e| !e.trim().is_empty()),
+            RunMode::Assistant => app_config
+                .assistant
+                .reasoning_effort
+                .clone()
+                .filter(|e| !e.trim().is_empty()),
+            RunMode::Agent => reasoning_effort.filter(|e| !e.is_empty()),
         },
         sampling,
         max_turns,
@@ -1986,7 +2098,7 @@ async fn agent_send_impl(
 
     let should_stop = runtime.abort.clone();
     let run_started = std::time::Instant::now();
-    let base_head = if roleplay { None } else { git_head(&root) };
+    let base_head = if run_mode == RunMode::Agent { git_head(&root) } else { None };
     let result = run
         .run(
             &mut history,
@@ -2005,7 +2117,7 @@ async fn agent_send_impl(
     let outcome = match result {
         Ok(outcome) => outcome,
         Err(e) => {
-            if let Err(e) = save_transcript_current(&state, &runtime, roleplay, None) {
+            if let Err(e) = save_transcript_current(&state, &runtime, run_mode, None) {
                 let _ = app.emit(
                     event_name,
                     serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
@@ -2036,10 +2148,10 @@ async fn agent_send_impl(
         .unwrap()
         .iter()
         .rposition(|m| m.role == "assistant");
-    let changes = if roleplay {
-        None
-    } else {
+    let changes = if run_mode == RunMode::Agent {
         last_run_changes(&state, &root, base_head.as_deref())
+    } else {
+        None
     };
     if let Some(index) = footer_index {
         // Elapsed covers the whole run (prompt, every turn, tool calls), not
@@ -2058,7 +2170,7 @@ async fn agent_send_impl(
             },
         );
         // One save with the final transcript and footer metadata.
-        if let Err(e) = save_transcript_current(&state, &runtime, roleplay, None) {
+        if let Err(e) = save_transcript_current(&state, &runtime, run_mode, None) {
             let _ = app.emit(
                 event_name,
                 serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
@@ -2090,6 +2202,14 @@ pub async fn harness_agent_abort(state: State<'_, AppState>) -> Result<(), Strin
 #[specta::specta]
 pub async fn talk_abort(state: State<'_, AppState>) -> Result<(), String> {
     abort_runtime(&state.talk);
+    Ok(())
+}
+
+/// Stop the running assistant loop.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_abort(state: State<'_, AppState>) -> Result<(), String> {
+    abort_runtime(&state.assistant);
     Ok(())
 }
 
@@ -2140,21 +2260,31 @@ const DISTILL_COALESCE_SYSTEM: &str =
 #[tauri::command]
 #[specta::specta]
 pub async fn harness_distill(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
-    distill_impl(&state, app, &state.harness, false, "harness_event").await
+    distill_impl(&state, app, &state.harness, RunMode::Agent, "harness_event").await
 }
 
 /// Distill the talk thread into the character's memory, then start fresh.
 #[tauri::command]
 #[specta::specta]
 pub async fn talk_distill(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
-    distill_impl(&state, app, &state.talk, true, "talk_event").await
+    distill_impl(&state, app, &state.talk, RunMode::Roleplay, "talk_event").await
+}
+
+/// Distill the assistant thread into assistant memory.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_distill(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    distill_impl(&state, app, &state.assistant, RunMode::Assistant, "assistant_event").await
 }
 
 async fn distill_impl(
     state: &AppState,
     app: AppHandle,
     runtime: &HarnessRuntime,
-    roleplay: bool,
+    run_mode: RunMode,
     event_name: &'static str,
 ) -> Result<String, String> {
     if runtime.running.load(Ordering::SeqCst) {
@@ -2250,22 +2380,28 @@ async fn distill_impl(
     }
 
     emit("Distilling: updating memory…");
-    let (target, place) = if roleplay {
-        (
+    let (target, place) = match run_mode {
+        RunMode::Roleplay => (
             crate::roleplay::character_memory_path(
                 state.config.lock().unwrap().roleplay.card_id.as_deref(),
             )
             .ok_or_else(|| "No memory location available".to_string())?,
             "character",
-        )
-    } else {
-        let root = project_root(state).ok();
-        let target = root
-            .as_deref()
-            .map(harness::memory::project_memory_path)
-            .or_else(|| crate::config::data_dir().map(|d| d.join("werk").join("MEMORY.md")))
-            .ok_or_else(|| "No memory location available".to_string())?;
-        (target, if root.is_some() { "project" } else { "global" })
+        ),
+        RunMode::Assistant => (
+            crate::assistant::memory_path()
+                .ok_or_else(|| "No memory location available".to_string())?,
+            "assistant",
+        ),
+        RunMode::Agent => {
+            let root = project_root(state).ok();
+            let target = root
+                .as_deref()
+                .map(harness::memory::project_memory_path)
+                .or_else(|| crate::config::data_dir().map(|d| d.join("werk").join("MEMORY.md")))
+                .ok_or_else(|| "No memory location available".to_string())?;
+            (target, if root.is_some() { "project" } else { "global" })
+        }
     };
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -2343,6 +2479,14 @@ pub async fn harness_agent_reset(state: State<'_, AppState>) -> Result<(), Strin
     Ok(())
 }
 
+/// Clear the assistant thread (a fresh conversation).
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_reset(state: State<'_, AppState>) -> Result<(), String> {
+    reset_runtime(&state.assistant);
+    Ok(())
+}
+
 fn reset_runtime(runtime: &HarnessRuntime) {
     runtime.history.lock().unwrap().clear();
     runtime.todos.lock().unwrap().clear();
@@ -2397,7 +2541,7 @@ pub async fn roleplay_start_chat(
     *state.talk.session_id.lock().unwrap() = Some(talk_session_id(&app_config));
     let history = state.talk.history.lock().unwrap().clone();
     let title = card.map(|c| c.name);
-    save_transcript(&state, &state.talk, &history, title, true)
+    save_transcript(&state, &state.talk, &history, title, RunMode::Roleplay)
         .map_err(|e| format!("Session save failed: {e}"))?;
     Ok(Some(greeting))
 }
@@ -2406,20 +2550,27 @@ pub async fn roleplay_start_chat(
 #[tauri::command]
 #[specta::specta]
 pub async fn harness_agent_rewind(state: State<'_, AppState>) -> Result<(), String> {
-    rewind_runtime(&state, &state.harness, false)
+    rewind_runtime(&state, &state.harness, RunMode::Agent)
 }
 
 /// Drop the last exchange from the talk thread.
 #[tauri::command]
 #[specta::specta]
 pub async fn talk_rewind(state: State<'_, AppState>) -> Result<(), String> {
-    rewind_runtime(&state, &state.talk, true)
+    rewind_runtime(&state, &state.talk, RunMode::Roleplay)
+}
+
+/// Drop the last assistant exchange in the assistant thread.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_rewind(state: State<'_, AppState>) -> Result<(), String> {
+    rewind_runtime(&state, &state.assistant, RunMode::Assistant)
 }
 
 fn rewind_runtime(
     state: &AppState,
     runtime: &HarnessRuntime,
-    roleplay: bool,
+    run_mode: RunMode,
 ) -> Result<(), String> {
     if runtime.running.load(Ordering::SeqCst) {
         return Err("Stop the running agent first".to_string());
@@ -2433,7 +2584,7 @@ fn rewind_runtime(
         idx
     };
     truncate_meta(runtime, idx);
-    save_transcript_current(state, runtime, roleplay, None).map_err(|e| e.to_string())
+    save_transcript_current(state, runtime, run_mode, None).map_err(|e| e.to_string())
 }
 
 /// Force-summarize older turns now; returns the folded message count.
@@ -2443,7 +2594,7 @@ pub async fn harness_agent_compact(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<u32, String> {
-    compact_runtime(&state, app, &state.harness, false, "harness_event").await
+    compact_runtime(&state, app, &state.harness, RunMode::Agent, "harness_event").await
 }
 
 /// Force-summarize older turns in the talk thread.
@@ -2453,14 +2604,24 @@ pub async fn talk_compact(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<u32, String> {
-    compact_runtime(&state, app, &state.talk, true, "talk_event").await
+    compact_runtime(&state, app, &state.talk, RunMode::Roleplay, "talk_event").await
+}
+
+/// Force-summarize older turns in the assistant thread.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_compact(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<u32, String> {
+    compact_runtime(&state, app, &state.assistant, RunMode::Assistant, "assistant_event").await
 }
 
 async fn compact_runtime(
     state: &AppState,
     app: AppHandle,
     runtime: &HarnessRuntime,
-    roleplay: bool,
+    run_mode: RunMode,
     event_name: &'static str,
 ) -> Result<u32, String> {
     if runtime.running.load(Ordering::SeqCst) {
@@ -2515,7 +2676,7 @@ async fn compact_runtime(
     if let Some(cut) = info.cut {
         shift_meta_for_compaction(runtime, &[cut]);
     }
-    save_transcript_current(state, runtime, roleplay, None).map_err(|e| e.to_string())?;
+    save_transcript_current(state, runtime, run_mode, None).map_err(|e| e.to_string())?;
     Ok(info.removed as u32)
 }
 
@@ -2682,6 +2843,15 @@ pub async fn talk_context_stats(
     context_stats(&state.talk, &state).await
 }
 
+/// Context usage for the assistant transcript.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_context_stats(
+    state: State<'_, AppState>,
+) -> Result<ContextStats, String> {
+    context_stats(&state.assistant, &state).await
+}
+
 async fn context_stats(
     runtime: &HarnessRuntime,
     state: &AppState,
@@ -2746,7 +2916,7 @@ pub async fn talk_history(state: State<'_, AppState>) -> Result<HistoryView, Str
         && state.talk.session_id.lock().unwrap().is_none();
     if empty {
         let id = talk_session_id(&app_config);
-        if let Some(path) = transcript_path(&id, true) {
+        if let Some(path) = transcript_path(&id, RunMode::Roleplay) {
             if let Ok(text) = std::fs::read_to_string(&path) {
                 if let Ok(saved) = serde_json::from_str::<SessionFile>(&text) {
                     *state.talk.history.lock().unwrap() = saved.messages;
@@ -2757,6 +2927,26 @@ pub async fn talk_history(state: State<'_, AppState>) -> Result<HistoryView, Str
         }
     }
     history_view(&state.talk)
+}
+
+/// Current assistant transcript; lazily loads the saved thread.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_history(state: State<'_, AppState>) -> Result<HistoryView, String> {
+    let empty = state.assistant.history.lock().unwrap().is_empty()
+        && state.assistant.session_id.lock().unwrap().is_none();
+    if empty {
+        if let Some(path) = transcript_path("current", RunMode::Assistant) {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                if let Ok(saved) = serde_json::from_str::<SessionFile>(&text) {
+                    *state.assistant.history.lock().unwrap() = saved.messages;
+                    *state.assistant.meta.lock().unwrap() = saved.meta;
+                    *state.assistant.session_id.lock().unwrap() = Some(saved.id);
+                }
+            }
+        }
+    }
+    history_view(&state.assistant)
 }
 
 fn history_view(runtime: &HarnessRuntime) -> Result<HistoryView, String> {
@@ -2784,7 +2974,7 @@ pub fn flush_talk(state: &AppState) {
         reset_runtime(&state.talk);
         return;
     }
-    let _ = save_transcript_current(state, &state.talk, true, None);
+    let _ = save_transcript_current(state, &state.talk, RunMode::Roleplay, None);
     reset_runtime(&state.talk);
 }
 
@@ -3073,6 +3263,17 @@ pub async fn talk_question_answer(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     question_answer_impl(&state.talk, answer);
+    Ok(())
+}
+
+/// Answer the assistant's parked ask_user question.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_question_answer(
+    answer: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    question_answer_impl(&state.assistant, answer);
     Ok(())
 }
 
@@ -4033,6 +4234,8 @@ fn memory_file(scope: &str, state: &AppState) -> Result<MemoryFileDto, String> {
             state.config.lock().unwrap().roleplay.card_id.as_deref(),
         )
         .ok_or_else(|| "Cannot find data directory".to_string())?,
+        "assistant" => crate::assistant::memory_path()
+            .ok_or_else(|| "Cannot find data directory".to_string())?,
         _ => return Err("Unknown memory scope".to_string()),
     };
     let text = std::fs::read_to_string(&path).unwrap_or_default();

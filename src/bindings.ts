@@ -35,6 +35,24 @@ export const commands = {
 	talkContextStats: () => typedError<ContextStats_Serialize, string>(__TAURI_INVOKE("talk_context_stats")),
 	/**  Answer an ask_user question parked by the talk run. */
 	talkQuestionAnswer: (answer: string) => typedError<null, string>(__TAURI_INVOKE("talk_question_answer", { answer })),
+	/**  Send a message to the assistant; streams over `assistant_event`. */
+	assistantSend: (message: string, reasoningEffort: string | null, attachments: SendAttachment_Deserialize[] | null) => typedError<RunResult_Serialize, string>(__TAURI_INVOKE("assistant_send", { message, reasoningEffort, attachments })),
+	/**  Stop the running assistant loop. */
+	assistantAbort: () => typedError<null, string>(__TAURI_INVOKE("assistant_abort")),
+	/**  Current assistant transcript; lazily loads the saved thread. */
+	assistantHistory: () => typedError<HistoryView_Serialize, string>(__TAURI_INVOKE("assistant_history")),
+	/**  Drop the last assistant exchange in the assistant thread. */
+	assistantRewind: () => typedError<null, string>(__TAURI_INVOKE("assistant_rewind")),
+	/**  Force-summarize older turns in the assistant thread. */
+	assistantCompact: () => typedError<number, string>(__TAURI_INVOKE("assistant_compact")),
+	/**  Distill the assistant thread into assistant memory. */
+	assistantDistill: () => typedError<string, string>(__TAURI_INVOKE("assistant_distill")),
+	/**  Context usage for the assistant transcript. */
+	assistantContextStats: () => typedError<ContextStats_Serialize, string>(__TAURI_INVOKE("assistant_context_stats")),
+	/**  Answer the assistant's parked ask_user question. */
+	assistantQuestionAnswer: (answer: string) => typedError<null, string>(__TAURI_INVOKE("assistant_question_answer", { answer })),
+	/**  Clear the assistant thread (a fresh conversation). */
+	assistantReset: () => typedError<null, string>(__TAURI_INVOKE("assistant_reset")),
 	/**  Every saved discussion for the active character, newest first. */
 	roleplayListDiscussions: () => typedError<DiscussionSummary[], string>(__TAURI_INVOKE("roleplay_list_discussions")),
 	/**  Make a saved discussion the active one; the current active is archived. */
@@ -96,6 +114,8 @@ export const commands = {
 	setSystemPrompt: (prompt: string) => typedError<null, string>(__TAURI_INVOKE("set_system_prompt", { prompt })),
 	/**  Replace the named system prompt presets (max 5, names trimmed). */
 	setSystemPromptPresets: (presets: SystemPromptPreset[]) => typedError<null, string>(__TAURI_INVOKE("set_system_prompt_presets", { presets })),
+	/**  Save assistant identity, persona, prompt override, and sampling. */
+	setAssistantConfig: (config: AssistantConfig_Deserialize) => typedError<null, string>(__TAURI_INVOKE("set_assistant_config", { config })),
 	roleplayListCards: () => typedError<CardSummary[], string>(__TAURI_INVOKE("roleplay_list_cards")),
 	roleplayImportCard: (path: string) => typedError<CardSummary, string>(__TAURI_INVOKE("roleplay_import_card", { path })),
 	roleplayGetCard: (id: string) => typedError<CharacterCard, string>(__TAURI_INVOKE("roleplay_get_card", { id })),
@@ -313,6 +333,8 @@ export type AppConfig_Deserialize = {
 	chat_profile?: ChatProfile,
 	/**  Roleplay: active card, persona, greeting, sampling overrides. */
 	roleplay?: RoleplayConfig_Deserialize,
+	/**  Assistant profile: identity, persona, prompt override, sampling. */
+	assistant?: AssistantConfig_Deserialize,
 	/**
 	 *  Housekeeping model for compaction and distillation: a `provider:model`
 	 *  target or a local role (`orchestrator`/`worker`). None = main model.
@@ -396,6 +418,8 @@ export type AppConfig_Serialize = {
 	chat_profile: ChatProfile,
 	/**  Roleplay: active card, persona, greeting, sampling overrides. */
 	roleplay: RoleplayConfig_Serialize,
+	/**  Assistant profile: identity, persona, prompt override, sampling. */
+	assistant: AssistantConfig_Serialize,
 	/**
 	 *  Housekeeping model for compaction and distillation: a `provider:model`
 	 *  target or a local role (`orchestrator`/`worker`). None = main model.
@@ -459,6 +483,37 @@ export type AssetDto = {
 	backend_label: string,
 	size_mb: number | null,
 	score: number,
+};
+
+/**  Assistant profile: identity, persona, prompt override, and sampling. */
+export type AssistantConfig = AssistantConfig_Serialize | AssistantConfig_Deserialize;
+
+/**  Assistant profile: identity, persona, prompt override, and sampling. */
+export type AssistantConfig_Deserialize = {
+	/**  Display name and self-reference. */
+	name?: string,
+	/**  Personality/voice text layered into the system prompt. */
+	persona?: string,
+	/**  Custom core prompt; None means the built-in assistant prompt. */
+	system_prompt?: string | null,
+	temperature?: number | null,
+	top_p?: number | null,
+	repeat_penalty?: number | null,
+	reasoning_effort?: string | null,
+};
+
+/**  Assistant profile: identity, persona, prompt override, and sampling. */
+export type AssistantConfig_Serialize = {
+	/**  Display name and self-reference. */
+	name: string,
+	/**  Personality/voice text layered into the system prompt. */
+	persona: string,
+	/**  Custom core prompt; None means the built-in assistant prompt. */
+	system_prompt?: string | null,
+	temperature?: number | null,
+	top_p?: number | null,
+	repeat_penalty?: number | null,
+	reasoning_effort?: string | null,
 };
 
 /**  Auto-attached companion file; `auto` ones can be toggled off. */
@@ -566,8 +621,11 @@ export type CharacterCard = {
 	lorebook: LorebookEntry[],
 };
 
-/**  Chat profile: the coding agent, the llama.cpp Web UI, or roleplay. */
-export type ChatProfile = "agent" | "webui" | "roleplay";
+/**
+ *  Chat profile: the coding agent, the llama.cpp Web UI, roleplay, or the
+ *  personal assistant.
+ */
+export type ChatProfile = "agent" | "webui" | "roleplay" | "assistant";
 
 /**  Live context gauge: slot usage first, GGUF length as fallback. */
 export type ContextStats = ContextStats_Serialize | ContextStats_Deserialize;

@@ -62,7 +62,8 @@ pub struct SystemPromptPreset {
     pub prompt: String,
 }
 
-/// Chat profile: the coding agent, the llama.cpp Web UI, or roleplay.
+/// Chat profile: the coding agent, the llama.cpp Web UI, roleplay, or the
+/// personal assistant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatProfile {
@@ -70,6 +71,7 @@ pub enum ChatProfile {
     Agent,
     Webui,
     Roleplay,
+    Assistant,
 }
 
 /// Roleplay profile state: active card, user persona, greeting index, and
@@ -268,6 +270,42 @@ pub fn default_lsp_servers() -> Vec<LspServerConfig> {
     ]
 }
 
+/// Assistant profile: identity, persona, prompt override, and sampling.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
+pub struct AssistantConfig {
+    /// Display name and self-reference.
+    #[serde(default = "default_assistant_name")]
+    pub name: String,
+    /// Personality/voice text layered into the system prompt.
+    #[serde(default = "default_assistant_persona")]
+    pub persona: String,
+    /// Custom core prompt; None means the built-in assistant prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat_penalty: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+}
+
+impl Default for AssistantConfig {
+    fn default() -> Self {
+        Self {
+            name: default_assistant_name(),
+            persona: default_assistant_persona(),
+            system_prompt: None,
+            temperature: None,
+            top_p: None,
+            repeat_penalty: None,
+            reasoning_effort: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct AppConfig {
     #[serde(default = "config_version_default")]
@@ -312,6 +350,9 @@ pub struct AppConfig {
     /// Roleplay: active card, persona, greeting, sampling overrides.
     #[serde(default)]
     pub roleplay: RoleplayConfig,
+    /// Assistant profile: identity, persona, prompt override, sampling.
+    #[serde(default)]
+    pub assistant: AssistantConfig,
     /// Housekeeping model for compaction and distillation: a `provider:model`
     /// target or a local role (`orchestrator`/`worker`). None = main model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -415,6 +456,17 @@ fn default_idle_unload() -> u32 {
     5
 }
 
+fn default_assistant_name() -> String {
+    "Werk".to_string()
+}
+
+fn default_assistant_persona() -> String {
+    "Warm, direct, and a little playful. Has opinions and shares them, teases gently, \
+     and cares about the user's projects and preferences. Honest when unsure, never \
+     pretends to know something."
+        .to_string()
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -435,6 +487,7 @@ impl Default for AppConfig {
             system_prompt_presets: Vec::new(),
             chat_profile: ChatProfile::Agent,
             roleplay: RoleplayConfig::default(),
+            assistant: AssistantConfig::default(),
             utility_target: None,
             lsp_enabled: true,
             lsp_servers: Some(default_lsp_servers()),

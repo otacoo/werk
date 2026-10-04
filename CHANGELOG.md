@@ -4,6 +4,7 @@
 
 ### Added
 
+- The Assistant profile is live: a Talk-style tab with a persona, its own persistent memory, skills, and the remember/ask_user/get_time tools, running on the same server as the other profiles.
 - Router roles can override the draft model, spec type (including EAGLE3 and DFlash), and draft token limits.
 - Sibling draft files are detected from GGUF metadata (EAGLE3 target layers, DFlash arch, MTP nextn tensors), so drafts without telling filenames auto-attach.
 

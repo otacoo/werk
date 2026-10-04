@@ -1,6 +1,7 @@
 //! Werk backend: drivers plus a thin command layer. Commands validate,
 //! call plain functions, and map errors — no business logic lives here.
 
+pub mod assistant;
 pub mod bench;
 pub mod chat;
 pub mod commands;
@@ -60,6 +61,8 @@ pub struct AppState {
     /// Roleplay/Talk transcript and run state; separate from `harness` so the
     /// two chats never mix.
     pub talk: Arc<chat::HarnessRuntime>,
+    /// Assistant transcript and run state; same separation as `talk`.
+    pub assistant: Arc<chat::HarnessRuntime>,
     /// Language servers for diagnostics and the `lsp` tool.
     pub lsp: Arc<harness::lsp::LspManager>,
     /// Harness-side MCP servers (spawned lazily, reused across runs).
@@ -120,6 +123,15 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::talk_distill,
         chat::talk_context_stats,
         chat::talk_question_answer,
+        chat::assistant_send,
+        chat::assistant_abort,
+        chat::assistant_history,
+        chat::assistant_rewind,
+        chat::assistant_compact,
+        chat::assistant_distill,
+        chat::assistant_context_stats,
+        chat::assistant_question_answer,
+        chat::assistant_reset,
         chat::roleplay_list_discussions,
         chat::roleplay_load_discussion,
         chat::roleplay_delete_discussion,
@@ -154,6 +166,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::set_verify_mode,
         chat::set_system_prompt,
         chat::set_system_prompt_presets,
+        assistant::set_assistant_config,
         roleplay::roleplay_list_cards,
         roleplay::roleplay_import_card,
         roleplay::roleplay_get_card,
@@ -398,6 +411,7 @@ pub fn run() {
                     if minutes == 0
                         || state.harness.running.load(Ordering::SeqCst)
                         || state.talk.running.load(Ordering::SeqCst)
+                        || state.assistant.running.load(Ordering::SeqCst)
                     {
                         continue;
                     }
@@ -421,7 +435,8 @@ pub fn run() {
                     let idle = {
                         let agent = state.harness.last_activity.lock().unwrap().elapsed();
                         let talk = state.talk.last_activity.lock().unwrap().elapsed();
-                        agent.min(talk)
+                        let assistant = state.assistant.last_activity.lock().unwrap().elapsed();
+                        agent.min(talk).min(assistant)
                     };
                     if idle < std::time::Duration::from_secs(minutes as u64 * 60) {
                         continue;
@@ -456,6 +471,7 @@ pub fn run() {
             dl_client,
             harness: Arc::new(chat::HarnessRuntime::new()),
             talk: Arc::new(chat::HarnessRuntime::new()),
+            assistant: Arc::new(chat::HarnessRuntime::new()),
             lsp,
             mcp_agent: mcp::McpAgent::default(),
             terminal: terminal::TerminalRuntime::new(),
@@ -495,6 +511,7 @@ mod tests {
             dl_client: reqwest::Client::new(),
             harness: Arc::new(chat::HarnessRuntime::new()),
             talk: Arc::new(chat::HarnessRuntime::new()),
+            assistant: Arc::new(chat::HarnessRuntime::new()),
             lsp: Arc::new(harness::lsp::LspManager::new()),
             mcp_agent: mcp::McpAgent::default(),
             terminal: terminal::TerminalRuntime::new(),
