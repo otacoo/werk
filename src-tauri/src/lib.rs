@@ -46,6 +46,11 @@ pub fn show_main(app: &tauri::AppHandle) {
 /// Show and focus the assistant overlay, asking it to open its input.
 pub fn show_overlay(app: &tauri::AppHandle) {
     use tauri::{Emitter, Manager};
+    if let Some(state) = app.try_state::<AppState>() {
+        if !state.config.lock().unwrap().assistant.overlay_enabled {
+            return;
+        }
+    }
     if let Some(win) = app.get_webview_window("overlay") {
         // Re-assert topmost: the taskbar is topmost too and can win z-order.
         let _ = win.set_always_on_top(true);
@@ -529,7 +534,7 @@ pub fn run() {
                 use tauri_plugin_autostart::ManagerExt;
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
                 let assistant = app.state::<AppState>().config.lock().unwrap().assistant.clone();
-                if !assistant.hotkey.trim().is_empty() {
+                if assistant.overlay_enabled && !assistant.hotkey.trim().is_empty() {
                     let _ = app.global_shortcut().register(assistant.hotkey.as_str());
                 }
                 let _ = if assistant.autostart {

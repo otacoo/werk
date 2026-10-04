@@ -131,17 +131,17 @@ export const commands = {
 	/**  Save assistant identity, persona, prompt override, and sampling. */
 	setAssistantConfig: (config: AssistantConfig_Deserialize) => typedError<null, string>(__TAURI_INVOKE("set_assistant_config", { config })),
 	/**
-	 *  Always-on behavior: alerts, proactive turns, autostart, hotkey. Tray
-	 *  behavior follows the shared `close_to_tray` setting.
+	 *  Always-on behavior: alerts, proactive turns, autostart, overlay, hotkey.
+	 *  Tray behavior follows the shared `close_to_tray` setting.
 	 */
-	setAssistantBehavior: (notify: boolean, proactive: boolean, autostart: boolean, hotkey: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_behavior", { notify, proactive, autostart, hotkey })),
+	setAssistantBehavior: (notify: boolean, proactive: boolean, autostart: boolean, overlayEnabled: boolean, hotkey: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_behavior", { notify, proactive, autostart, overlayEnabled, hotkey })),
 	/**  Built-in assistant prompt for the Persona editor. */
 	assistantSystemPromptDefault: () => typedError<string, string>(__TAURI_INVOKE("assistant_system_prompt_default")),
 	/**
 	 *  Save the assistant's system-control settings (master switch, home folder,
 	 *  tool toggles). The temp workspace is always granted on top.
 	 */
-	setAssistantAccess: (systemControl: boolean, workspace: string | null, files: boolean, clipboard: boolean, windows: boolean, screen: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, workspace, files, clipboard, windows, screen })),
+	setAssistantAccess: (systemControl: boolean, workspace: string | null, files: boolean, clipboard: boolean, windows: boolean, screen: boolean, input: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, workspace, files, clipboard, windows, screen, input })),
 	/**  Import (or clear) the assistant's profile image. */
 	assistantSetAvatar: (path: string | null) => typedError<null, string>(__TAURI_INVOKE("assistant_set_avatar", { path })),
 	/**  The assistant's avatar as a data URL, when one is set. */
@@ -563,6 +563,8 @@ export type AssistantConfig_Deserialize = {
 	autostart?: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
 	hotkey?: string,
+	/**  Show the always-on-top overlay while the assistant profile is active. */
+	overlay_enabled?: boolean,
 	/**  Master switch for the system-control tools (opt-in). */
 	system_control?: boolean,
 	/**
@@ -574,6 +576,8 @@ export type AssistantConfig_Deserialize = {
 	tool_clipboard?: boolean,
 	tool_windows?: boolean,
 	tool_screen?: boolean,
+	/**  Mouse and keyboard control (the most sensitive system tool). */
+	tool_input?: boolean,
 };
 
 /**  Assistant profile: identity, persona, prompt override, and sampling. */
@@ -598,6 +602,8 @@ export type AssistantConfig_Serialize = {
 	autostart: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
 	hotkey: string,
+	/**  Show the always-on-top overlay while the assistant profile is active. */
+	overlay_enabled: boolean,
 	/**  Master switch for the system-control tools (opt-in). */
 	system_control: boolean,
 	/**
@@ -609,6 +615,8 @@ export type AssistantConfig_Serialize = {
 	tool_clipboard: boolean,
 	tool_windows: boolean,
 	tool_screen: boolean,
+	/**  Mouse and keyboard control (the most sensitive system tool). */
+	tool_input: boolean,
 };
 
 /**  Auto-attached companion file; `auto` ones can be toggled off. */

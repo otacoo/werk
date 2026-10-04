@@ -324,6 +324,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
         {tab === "behavior" && (
           <div className="grid grid-cols-2 gap-4 items-start">
             <BehaviorCard />
+            <OverlayCard />
           </div>
         )}
       </div>
@@ -552,6 +553,7 @@ function AccessCard() {
     clipboard: boolean;
     windows: boolean;
     screen: boolean;
+    input: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -566,6 +568,7 @@ function AccessCard() {
           clipboard: c.assistant?.tool_clipboard ?? true,
           windows: c.assistant?.tool_windows ?? true,
           screen: c.assistant?.tool_screen ?? true,
+          input: c.assistant?.tool_input ?? true,
         }),
       )
       .catch(() => {});
@@ -595,6 +598,7 @@ function AccessCard() {
           access.clipboard,
           access.windows,
           access.screen,
+          access.input,
         ),
       );
       setSaved(true);
@@ -693,6 +697,12 @@ function AccessCard() {
             checked={access.screen}
             onChange={(v) => setAccess({ ...access, screen: v })}
           />
+          <Toggle
+            label="Input control"
+            hint="Move the mouse, click, scroll, type, and press keys. The most sensitive tool — keep approvals scoped."
+            checked={access.input}
+            onChange={(v) => setAccess({ ...access, input: v })}
+          />
         </>
       )}
       <div className="flex items-center justify-end gap-2">
@@ -705,12 +715,13 @@ function AccessCard() {
   );
 }
 
-/// Always-on behavior: notifications, proactive turns, autostart, hotkey.
+/// Always-on behavior: notifications, proactive turns, autostart.
 function BehaviorCard() {
   const [behavior, setBehavior] = useState<{
     notify: boolean;
     proactive: boolean;
     autostart: boolean;
+    overlay_enabled: boolean;
     hotkey: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -723,6 +734,7 @@ function BehaviorCard() {
           notify: c.assistant?.notify ?? true,
           proactive: c.assistant?.proactive ?? true,
           autostart: c.assistant?.autostart ?? false,
+          overlay_enabled: c.assistant?.overlay_enabled ?? true,
           hotkey: c.assistant?.hotkey ?? "",
         }),
       )
@@ -739,6 +751,7 @@ function BehaviorCard() {
           behavior.notify,
           behavior.proactive,
           behavior.autostart,
+          behavior.overlay_enabled,
           behavior.hotkey,
         ),
       );
@@ -777,15 +790,102 @@ function BehaviorCard() {
         checked={behavior.autostart}
         onChange={(v) => setBehavior({ ...behavior, autostart: v })}
       />
+      <div className="flex items-center justify-end gap-2">
+        {error && <p className="text-xs text-accent-red mr-auto">{error}</p>}
+        <button className="btn-primary text-xs py-1 px-2" onClick={save}>
+          {saved ? "Saved" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/// The always-on-top overlay: visibility, summon hotkey, and a preview.
+function OverlayCard() {
+  const [overlay, setOverlay] = useState<{
+    enabled: boolean;
+    hotkey: string;
+    notify: boolean;
+    proactive: boolean;
+    autostart: boolean;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const load = () => {
+    call(commands.getConfig())
+      .then((c) =>
+        setOverlay({
+          enabled: c.assistant?.overlay_enabled ?? true,
+          hotkey: c.assistant?.hotkey ?? "",
+          notify: c.assistant?.notify ?? true,
+          proactive: c.assistant?.proactive ?? true,
+          autostart: c.assistant?.autostart ?? false,
+        }),
+      )
+      .catch(() => {});
+  };
+  useEffect(load, []);
+
+  const save = async () => {
+    if (!overlay) return;
+    setError(null);
+    try {
+      await call(
+        commands.setAssistantBehavior(
+          overlay.notify,
+          overlay.proactive,
+          overlay.autostart,
+          overlay.enabled,
+          overlay.hotkey,
+        ),
+      );
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  if (!overlay) return null;
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h2 className="section-title mb-0">Overlay</h2>
+        <p className="section-desc">
+          The pulsating circle that floats above the desktop while the assistant profile is
+          active; click it (or press the hotkey) to type an instruction.
+        </p>
+      </div>
+      <Toggle
+        label="Show the overlay"
+        hint="Off hides the circle, the hotkey, and reminder flashes on it."
+        checked={overlay.enabled}
+        onChange={(v) => setOverlay({ ...overlay, enabled: v })}
+      />
       <label className="block">
-        <span className="text-[0.6875rem] text-dim">Global hotkey (empty disables)</span>
+        <span className="text-[0.6875rem] text-dim">Summon hotkey (empty disables)</span>
         <input
           className="input w-full mt-1 font-mono text-xs"
           placeholder="Ctrl+Alt+Space"
-          value={behavior.hotkey}
-          onChange={(e) => setBehavior({ ...behavior, hotkey: e.target.value })}
+          value={overlay.hotkey}
+          disabled={!overlay.enabled}
+          onChange={(e) => setOverlay({ ...overlay, hotkey: e.target.value })}
         />
       </label>
+      <div className="flex items-center gap-2">
+        <button
+          className="btn-secondary text-xs py-1 px-2"
+          disabled={!overlay.enabled}
+          onClick={() => call(commands.setOverlayVisible(true)).catch(() => {})}
+          title="Show the overlay now (the assistant profile must be active)"
+        >
+          Show now
+        </button>
+        <span className="text-[0.625rem] text-faint">
+          The overlay only appears in the assistant profile.
+        </span>
+      </div>
       <div className="flex items-center justify-end gap-2">
         {error && <p className="text-xs text-accent-red mr-auto">{error}</p>}
         <button className="btn-primary text-xs py-1 px-2" onClick={save}>

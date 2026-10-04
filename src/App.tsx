@@ -104,6 +104,8 @@ export default function App() {
   const [profile, setProfile] = useState<Profile>("agent");
   /// WebUI profile availability (Settings → Profiles).
   const [webuiEnabled, setWebuiEnabled] = useState(false);
+  /// Assistant overlay visibility (Assistant → Behavior).
+  const [overlayEnabled, setOverlayEnabled] = useState(true);
 
   const closeSettings = () => setSettingsOpen(false);
 
@@ -128,6 +130,7 @@ export default function App() {
         setProfileMirror((c.chat_profile ?? "agent") as Profile);
         setCloseToTray(c.close_to_tray ?? false);
         setWebuiEnabled(c.webui_enabled ?? false);
+        setOverlayEnabled(c.assistant?.overlay_enabled ?? true);
       })
       .catch(() => setWizard(false));
     call(commands.getPlatformStyle())
@@ -144,8 +147,8 @@ export default function App() {
   const [closeToTray, setCloseToTray] = useState(false);
   const minimizedRef = useRef(false);
   useEffect(() => {
-    call(commands.setOverlayVisible(profile === "assistant")).catch(() => {});
-  }, [profile]);
+    call(commands.setOverlayVisible(profile === "assistant" && overlayEnabled)).catch(() => {});
+  }, [profile, overlayEnabled]);
   useEffect(() => {
     if (profile !== "assistant" || !serverRunning || !closeToTray) return;
     if (minimizedRef.current) return;
@@ -184,6 +187,7 @@ export default function App() {
             setProfileMirror((c.chat_profile ?? "agent") as Profile);
             setCloseToTray(c.close_to_tray ?? false);
             setWebuiEnabled(c.webui_enabled ?? false);
+            setOverlayEnabled(c.assistant?.overlay_enabled ?? true);
             if (external) setTab((t) => (t === "run" ? "chat" : t));
           })
           .catch(() => {});

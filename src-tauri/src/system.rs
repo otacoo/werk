@@ -24,6 +24,9 @@ pub fn tools(config: &AssistantConfig) -> Vec<Arc<dyn Tool>> {
     if config.tool_screen {
         out.push(Arc::new(ScreenTool));
     }
+    if config.tool_input {
+        out.push(Arc::new(InputTool));
+    }
     out
 }
 
@@ -264,8 +267,213 @@ fn windows_action(action: &str, title: &str, args: &Value) -> Result<String> {
     }
 }
 
-// ── Screen capture ────────────────────────────────────────────────────────
+// ── Input (mouse + keyboard) ──────────────────────────────────────────────
 
+pub struct InputTool;
+
+impl Tool for InputTool {
+    fn name(&self) -> String {
+        "input".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Control the mouse and keyboard. `move` (x, y), `click` (button, optional x/y, `double`), \
+         `drag` (from_x/from_y/to_x/to_y, button), `scroll` (amount; positive = down, optional \
+         horizontal), `type` (text), `key` (keys: modifiers then the key, e.g. [\"ctrl\",\"c\"]). \
+         Coordinates are absolute screen pixels. Every action needs approval."
+            .to_string()
+    }
+
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "action": { "type": "string", "enum": ["move", "click", "drag", "scroll", "type", "key"] },
+                "x": { "type": "integer" },
+                "y": { "type": "integer" },
+                "from_x": { "type": "integer" },
+                "from_y": { "type": "integer" },
+                "to_x": { "type": "integer" },
+                "to_y": { "type": "integer" },
+                "button": { "type": "string", "enum": ["left", "right", "middle"] },
+                "double": { "type": "boolean" },
+                "amount": { "type": "integer", "description": "Scroll clicks; positive = down." },
+                "horizontal": { "type": "integer", "description": "Optional horizontal scroll." },
+                "text": { "type": "string" },
+                "keys": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Modifiers then the key, e.g. [\"ctrl\", \"c\"]."
+                }
+            },
+            "required": ["action"]
+        })
+    }
+
+    fn approval_key(&self, args: &Value) -> Option<ApprovalKey> {
+        key("input", args.get("action").and_then(Value::as_str))
+    }
+
+    fn execute(&self, args: &Value) -> Result<String> {
+        use enigo::{Axis, Coordinate, Direction, Enigo, Keyboard, Mouse, Settings};
+        let action = args.get("action").and_then(Value::as_str).unwrap_or("");
+        let mut enigo = Enigo::new(&Settings::default()).map_err(|e| anyhow!("Cannot control input: {e}"))?;
+        let err = |e: enigo::InputError| anyhow!(e.to_string());
+        match action {
+            "move" => {
+                let (x, y) = (int_arg(args, "x")?, int_arg(args, "y")?);
+                enigo.move_mouse(x, y, Coordinate::Abs).map_err(err)?;
+                Ok(format!("Moved the pointer to {x},{y}."))
+            }
+            "click" => {
+                if let (Some(x), Some(y)) = (opt_int(args, "x"), opt_int(args, "y")) {
+                    enigo.move_mouse(x, y, Coordinate::Abs).map_err(err)?;
+                }
+                let button = parse_button(args.get("button").and_then(Value::as_str))?;
+                let double = args.get("double").and_then(Value::as_bool).unwrap_or(false);
+                enigo.button(button, Direction::Click).map_err(err)?;
+                if double {
+                    enigo.button(button, Direction::Click).map_err(err)?;
+                }
+                Ok(format!(
+                    "{} {button:?} click.",
+                    if double { "Double" } else { "Single" }
+                ))
+            }
+            "drag" => {
+                let (fx, fy) = (int_arg(args, "from_x")?, int_arg(args, "from_y")?);
+                let (tx, ty) = (int_arg(args, "to_x")?, int_arg(args, "to_y")?);
+                let button = parse_button(args.get("button").and_then(Value::as_str))?;
+                enigo.move_mouse(fx, fy, Coordinate::Abs).map_err(err)?;
+                enigo.button(button, Direction::Press).map_err(err)?;
+                enigo.move_mouse(tx, ty, Coordinate::Abs).map_err(err)?;
+                enigo.button(button, Direction::Release).map_err(err)?;
+                Ok(format!("Dragged from {fx},{fy} to {tx},{ty}."))
+            }
+            "scroll" => {
+                let amount = int_arg(args, "amount")?;
+                enigo.scroll(amount, Axis::Vertical).map_err(err)?;
+                if let Some(horizontal) = opt_int(args, "horizontal") {
+                    enigo.scroll(horizontal, Axis::Horizontal).map_err(err)?;
+                }
+                Ok(format!("Scrolled {amount}."))
+            }
+            "type" => {
+                let text = args
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .filter(|t| !t.is_empty())
+                    .ok_or_else(|| anyhow!("'text' is required for type"))?;
+                let capped: String = text.chars().take(5_000).collect();
+                let count = capped.chars().count();
+                enigo.text(&capped).map_err(err)?;
+                Ok(format!("Typed {count} characters."))
+            }
+            "key" => {
+                let names: Vec<String> = args
+                    .get("keys")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if names.is_empty() {
+                    bail!("'keys' must list at least one key");
+                }
+                let keys: Vec<enigo::Key> =
+                    names.iter().map(|n| parse_key(n)).collect::<Result<_>>()?;
+                let (last, modifiers) = keys.split_last().expect("non-empty");
+                for m in modifiers {
+                    enigo.key(*m, Direction::Press).map_err(err)?;
+                }
+                enigo.key(*last, Direction::Click).map_err(err)?;
+                for m in modifiers.iter().rev() {
+                    enigo.key(*m, Direction::Release).map_err(err)?;
+                }
+                Ok(format!("Pressed {}.", names.join("+")))
+            }
+            _ => bail!("Unknown action '{action}'"),
+        }
+    }
+}
+
+fn int_arg(args: &Value, name: &str) -> Result<i32> {
+    args.get(name)
+        .and_then(Value::as_i64)
+        .map(|v| v as i32)
+        .ok_or_else(|| anyhow!("'{name}' is required"))
+}
+
+fn opt_int(args: &Value, name: &str) -> Option<i32> {
+    args.get(name).and_then(Value::as_i64).map(|v| v as i32)
+}
+
+fn parse_button(name: Option<&str>) -> Result<enigo::Button> {
+    match name.unwrap_or("left") {
+        "left" => Ok(enigo::Button::Left),
+        "right" => Ok(enigo::Button::Right),
+        "middle" => Ok(enigo::Button::Middle),
+        other => bail!("Unknown button '{other}'"),
+    }
+}
+
+fn parse_key(name: &str) -> Result<enigo::Key> {
+    use enigo::Key;
+    let trimmed = name.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let key = match lower.as_str() {
+        "ctrl" | "control" => Key::Control,
+        "shift" => Key::Shift,
+        "alt" => Key::Alt,
+        "meta" | "win" | "windows" | "super" | "cmd" | "command" => Key::Meta,
+        "enter" | "return" => Key::Return,
+        "esc" | "escape" => Key::Escape,
+        "tab" => Key::Tab,
+        "space" => Key::Space,
+        "backspace" => Key::Backspace,
+        "delete" | "del" => Key::Delete,
+        "insert" => Key::Insert,
+        "home" => Key::Home,
+        "end" => Key::End,
+        "pageup" | "pgup" => Key::PageUp,
+        "pagedown" | "pgdn" => Key::PageDown,
+        "up" => Key::UpArrow,
+        "down" => Key::DownArrow,
+        "left" => Key::LeftArrow,
+        "right" => Key::RightArrow,
+        _ => {
+            if let Some(n) = lower.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()) {
+                match n {
+                    1 => Key::F1,
+                    2 => Key::F2,
+                    3 => Key::F3,
+                    4 => Key::F4,
+                    5 => Key::F5,
+                    6 => Key::F6,
+                    7 => Key::F7,
+                    8 => Key::F8,
+                    9 => Key::F9,
+                    10 => Key::F10,
+                    11 => Key::F11,
+                    12 => Key::F12,
+                    _ => bail!("Unknown key '{name}'"),
+                }
+            } else {
+                let mut chars = trimmed.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) => Key::Unicode(c),
+                    _ => bail!("Unknown key '{name}'"),
+                }
+            }
+        }
+    };
+    Ok(key)
+}
+
+// ── Screen capture ────────────────────────────────────────────────────────
 pub struct ScreenTool;
 
 impl Tool for ScreenTool {
@@ -418,4 +626,22 @@ pub fn roots(config: &AssistantConfig) -> Vec<PathBuf> {
     }
     roots.push(temp);
     roots
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use enigo::Key;
+
+    #[test]
+    fn parses_common_keys_and_buttons() {
+        assert!(matches!(parse_key("ctrl").unwrap(), Key::Control));
+        assert!(matches!(parse_key("F5").unwrap(), Key::F5));
+        assert!(matches!(parse_key("enter").unwrap(), Key::Return));
+        assert!(matches!(parse_key("c").unwrap(), Key::Unicode('c')));
+        assert!(parse_key("nope!").is_err());
+        assert!(matches!(parse_button(Some("right")).unwrap(), enigo::Button::Right));
+        assert!(matches!(parse_button(None).unwrap(), enigo::Button::Left));
+        assert!(parse_button(Some("weird")).is_err());
+    }
 }

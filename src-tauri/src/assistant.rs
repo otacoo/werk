@@ -107,8 +107,8 @@ pub async fn set_assistant_config(
     cfg.save().map_err(|e| e.to_string())
 }
 
-/// Always-on behavior: alerts, proactive turns, autostart, hotkey. Tray
-/// behavior follows the shared `close_to_tray` setting.
+/// Always-on behavior: alerts, proactive turns, autostart, overlay, hotkey.
+/// Tray behavior follows the shared `close_to_tray` setting.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_assistant_behavior(
@@ -116,9 +116,11 @@ pub async fn set_assistant_behavior(
     notify: bool,
     proactive: bool,
     autostart: bool,
+    overlay_enabled: bool,
     hotkey: String,
     state: State<'_, crate::AppState>,
 ) -> Result<(), String> {
+    use tauri::Manager;
     use tauri_plugin_autostart::ManagerExt;
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     let hotkey: String = hotkey.trim().chars().take(64).collect();
@@ -127,6 +129,7 @@ pub async fn set_assistant_behavior(
         cfg.assistant.notify = notify;
         cfg.assistant.proactive = proactive;
         cfg.assistant.autostart = autostart;
+        cfg.assistant.overlay_enabled = overlay_enabled;
         cfg.assistant.hotkey = hotkey.clone();
         cfg.save().map_err(|e| e.to_string())?;
     }
@@ -134,10 +137,16 @@ pub async fn set_assistant_behavior(
     let _ = if autostart { launch.enable() } else { launch.disable() };
     let shortcuts = app.global_shortcut();
     let _ = shortcuts.unregister_all();
-    if !hotkey.is_empty() {
+    if overlay_enabled && !hotkey.is_empty() {
         shortcuts
             .register(hotkey.as_str())
             .map_err(|e| format!("Invalid hotkey: {e}"))?;
+    }
+    // Disabling the overlay hides it right away.
+    if !overlay_enabled {
+        if let Some(win) = app.get_webview_window("overlay") {
+            let _ = win.hide();
+        }
     }
     Ok(())
 }
@@ -229,6 +238,7 @@ pub async fn set_assistant_access(
     clipboard: bool,
     windows: bool,
     screen: bool,
+    input: bool,
     state: State<'_, crate::AppState>,
 ) -> Result<(), String> {
     let workspace = workspace
@@ -241,6 +251,7 @@ pub async fn set_assistant_access(
     cfg.assistant.tool_clipboard = clipboard;
     cfg.assistant.tool_windows = windows;
     cfg.assistant.tool_screen = screen;
+    cfg.assistant.tool_input = input;
     cfg.save().map_err(|e| e.to_string())
 }
 

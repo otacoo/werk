@@ -305,6 +305,9 @@ pub struct AssistantConfig {
     /// Global hotkey that summons the overlay; empty disables it.
     #[serde(default = "default_assistant_hotkey")]
     pub hotkey: String,
+    /// Show the always-on-top overlay while the assistant profile is active.
+    #[serde(default = "default_true")]
+    pub overlay_enabled: bool,
     /// Master switch for the system-control tools (opt-in).
     #[serde(default)]
     pub system_control: bool,
@@ -320,6 +323,9 @@ pub struct AssistantConfig {
     pub tool_windows: bool,
     #[serde(default = "default_true")]
     pub tool_screen: bool,
+    /// Mouse and keyboard control (the most sensitive system tool).
+    #[serde(default = "default_true")]
+    pub tool_input: bool,
 }
 
 impl Default for AssistantConfig {
@@ -337,12 +343,14 @@ impl Default for AssistantConfig {
             proactive: true,
             autostart: false,
             hotkey: default_assistant_hotkey(),
+            overlay_enabled: true,
             system_control: false,
             workspace: None,
             tool_files: true,
             tool_clipboard: true,
             tool_windows: true,
             tool_screen: true,
+            tool_input: true,
         }
     }
 }
