@@ -305,7 +305,6 @@ fn explicit_template(extra: &HashMap<String, String>) -> bool {
 
 // ── Arg builder ───────────────────────────────────────────────────────────
 
-/// Argv + human-readable notes (auto-attaches, overrides). Pure function.
 // ── Built-in tools ──────────────────────────────────────────────────────────
 // Only the cross-build set below may reach `--tools`; unknown names fail
 // server startup, so anything else is dropped.
@@ -582,6 +581,7 @@ pub async fn fetch_server_tools(
     Ok(out)
 }
 
+/// Argv + human-readable notes (auto-attaches, overrides). Pure function.
 pub fn build_args(config: &ServerConfig) -> (Vec<String>, Vec<String>) {
     let mut args = Vec::new();
     let mut notes = Vec::new();

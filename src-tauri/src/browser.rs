@@ -531,8 +531,8 @@ async fn firefox_session(
         "open" => {
             let url = req(args, "url")?;
             bidi_call(
-                &mut ws,
-                &mut id,
+                ws,
+                id,
                 "browsingContext.navigate",
                 json!({"context": context, "url": url, "wait": "complete"}),
             )
@@ -541,8 +541,8 @@ async fn firefox_session(
         }
         "read" => {
             let value = bidi_eval(
-                &mut ws,
-                &mut id,
+                ws,
+                id,
                 &context,
                 "document.body ? document.body.innerText : ''",
             )
@@ -551,7 +551,7 @@ async fn firefox_session(
         }
         "eval" => {
             let script = req(args, "script")?;
-            let value = bidi_eval(&mut ws, &mut id, &context, script).await?;
+            let value = bidi_eval(ws, id, &context, script).await?;
             Ok(cap(
                 serde_json::to_string_pretty(&value).unwrap_or_default(),
                 20_000,
@@ -564,7 +564,7 @@ async fn firefox_session(
                  el.scrollIntoView({{block:'center'}}); el.click(); return true; }})()",
                 sel = json_string(selector)
             );
-            let value = bidi_eval(&mut ws, &mut id, &context, &script).await?;
+            let value = bidi_eval(ws, id, &context, &script).await?;
             if value.as_bool() != Some(true) {
                 bail!("No element matches '{selector}'");
             }
@@ -581,7 +581,7 @@ async fn firefox_session(
                 sel = json_string(selector),
                 text = json_string(text)
             );
-            let value = bidi_eval(&mut ws, &mut id, &context, &script).await?;
+            let value = bidi_eval(ws, id, &context, &script).await?;
             if value.as_bool() != Some(true) {
                 bail!("No element matches '{selector}'");
             }
@@ -589,8 +589,8 @@ async fn firefox_session(
         }
         "screenshot" => {
             let shot = bidi_call(
-                &mut ws,
-                &mut id,
+                ws,
+                id,
                 "browsingContext.captureScreenshot",
                 json!({"context": context}),
             )
@@ -605,7 +605,7 @@ async fn firefox_session(
             Ok(format!("Saved screenshot to {}", path.display()))
         }
         "tabs" => {
-            let tree = bidi_call(&mut ws, &mut id, "browsingContext.getTree", json!({})).await?;
+            let tree = bidi_call(ws, id, "browsingContext.getTree", json!({})).await?;
             let mut out = String::new();
             if let Some(contexts) = tree.pointer("/result/contexts").and_then(Value::as_array) {
                 for (i, c) in contexts.iter().filter(|c| c.get("parent").is_none()).enumerate() {
