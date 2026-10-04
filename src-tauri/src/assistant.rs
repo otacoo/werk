@@ -157,6 +157,8 @@ pub async fn set_assistant_behavior(
     app: tauri::AppHandle,
     notify: bool,
     proactive: bool,
+    auto_distill: bool,
+    reflection: bool,
     autostart: bool,
     overlay_enabled: bool,
     hotkey: String,
@@ -170,6 +172,8 @@ pub async fn set_assistant_behavior(
         let mut cfg = state.config.lock().unwrap();
         cfg.assistant.notify = notify;
         cfg.assistant.proactive = proactive;
+        cfg.assistant.auto_distill = auto_distill;
+        cfg.assistant.reflection = reflection;
         cfg.assistant.autostart = autostart;
         cfg.assistant.overlay_enabled = overlay_enabled;
         cfg.assistant.hotkey = hotkey.clone();

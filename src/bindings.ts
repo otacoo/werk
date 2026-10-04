@@ -137,7 +137,7 @@ export const commands = {
 	 *  Always-on behavior: alerts, proactive turns, autostart, overlay, hotkey.
 	 *  Tray behavior follows the shared `close_to_tray` setting.
 	 */
-	setAssistantBehavior: (notify: boolean, proactive: boolean, autostart: boolean, overlayEnabled: boolean, hotkey: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_behavior", { notify, proactive, autostart, overlayEnabled, hotkey })),
+	setAssistantBehavior: (notify: boolean, proactive: boolean, autoDistill: boolean, reflection: boolean, autostart: boolean, overlayEnabled: boolean, hotkey: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_behavior", { notify, proactive, autoDistill, reflection, autostart, overlayEnabled, hotkey })),
 	/**  Built-in assistant prompt for the Persona editor. */
 	assistantSystemPromptDefault: () => typedError<string, string>(__TAURI_INVOKE("assistant_system_prompt_default")),
 	/**
@@ -566,6 +566,12 @@ export type AssistantConfig_Deserialize = {
 	notify?: boolean,
 	/**  Let due `message` reminders start a proactive assistant turn. */
 	proactive?: boolean,
+	/**  Summarize each finished session into memory with the utility model. */
+	auto_distill?: boolean,
+	/**  Periodically merge memory duplicates and extract durable facts. */
+	reflection?: boolean,
+	/**  Unix seconds of the last reflection pass (scheduler bookkeeping). */
+	reflection_last?: number,
 	/**  Start werk with the OS session (minimized to the tray). */
 	autostart?: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
@@ -613,6 +619,12 @@ export type AssistantConfig_Serialize = {
 	notify: boolean,
 	/**  Let due `message` reminders start a proactive assistant turn. */
 	proactive: boolean,
+	/**  Summarize each finished session into memory with the utility model. */
+	auto_distill: boolean,
+	/**  Periodically merge memory duplicates and extract durable facts. */
+	reflection: boolean,
+	/**  Unix seconds of the last reflection pass (scheduler bookkeeping). */
+	reflection_last: number,
 	/**  Start werk with the OS session (minimized to the tray). */
 	autostart: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */

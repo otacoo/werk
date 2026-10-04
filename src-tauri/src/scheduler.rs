@@ -255,8 +255,10 @@ pub async fn assistant_reminder_remove(id: String) -> Result<(), String> {
 /// Background tick: fires due reminders every 30 s.
 pub fn spawn(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
+        let mut last_reflect_try: Option<std::time::Instant> = None;
         loop {
             tokio::time::sleep(Duration::from_secs(30)).await;
+            reflect_tick(&app, &mut last_reflect_try).await;
             let mut store = load();
             let now = now_secs() as u32;
             let mut due = Vec::new();
@@ -282,6 +284,51 @@ pub fn spawn(app: AppHandle) {
             }
         }
     });
+}
+
+/// One opt-in reflection per day over assistant memory; retried hourly while
+/// unavailable (server stopped, provider missing).
+async fn reflect_tick(app: &AppHandle, last_try: &mut Option<std::time::Instant>) {
+    let Some(state) = app.try_state::<crate::AppState>() else {
+        return;
+    };
+    let config = state.config.lock().unwrap().clone();
+    if !config.assistant.reflection {
+        return;
+    }
+    let now = now_secs() as u32;
+    if now.saturating_sub(config.assistant.reflection_last) < 24 * 3600 {
+        return;
+    }
+    if last_try
+        .map(|t| t.elapsed() < Duration::from_secs(3600))
+        .unwrap_or(false)
+    {
+        return;
+    }
+    *last_try = Some(std::time::Instant::now());
+    if state.assistant_paused.load(Ordering::SeqCst) {
+        return;
+    }
+    match crate::chat::assistant_reflect(&state).await {
+        Ok(text) => {
+            {
+                let mut cfg = state.config.lock().unwrap();
+                cfg.assistant.reflection_last = now;
+                let _ = cfg.save();
+            }
+            let _ = app.emit("assistant_event", json!({"type": "notice", "text": text}));
+        }
+        Err(e) => {
+            // Empty memory and a stopped server are expected; stay quiet.
+            if !e.contains("empty") && !e.contains("Start the server") {
+                let _ = app.emit(
+                    "assistant_event",
+                    json!({"type": "notice", "text": format!("Reflection skipped: {e}")}),
+                );
+            }
+        }
+    }
 }
 
 async fn fire(app: AppHandle, reminder: Reminder) {

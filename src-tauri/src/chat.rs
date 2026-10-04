@@ -2378,6 +2378,101 @@ const DISTILL_COALESCE_SYSTEM: &str =
     `- [YYYY-MM-DD] topic: text` (one per line, no headings, no commentary). Keep the result \
     under 4000 characters.";
 
+const REFLECTION_SYSTEM: &str =
+    "Rewrite this memory file. Merge duplicate or overlapping entries, extract durable facts \
+    and preferences about the user, keep every distinct fact, and drop anything stale or \
+    trivial. Output only lines in the form `- [YYYY-MM-DD] topic: text` (one per line, no \
+    headings, no commentary). Keep the result under 4000 characters.";
+
+/// The client for utility work (distill, reflection): the configured utility
+/// model, the external provider, or the local server.
+fn utility_client(
+    state: &AppState,
+    app_config: &crate::config::AppConfig,
+) -> Result<(LlmClient, Option<String>), String> {
+    if let Some(resolved) = app_config
+        .utility_target
+        .as_deref()
+        .and_then(|t| utility_target_client(state, app_config, t))
+    {
+        return Ok(resolved);
+    }
+    if app_config.server_mode == crate::config::ServerMode::External {
+        let target = app_config
+            .external_target
+            .clone()
+            .filter(|t| !t.trim().is_empty())
+            .ok_or_else(|| "External API mode: no model selected".to_string())?;
+        let (p, m) = crate::config::Provider::split_target(&target, &app_config.providers)
+            .ok_or_else(|| format!("External API mode: \"{target}\" has no configured provider"))?;
+        return Ok((
+            LlmClient::with_key(p.base_url.trim_end_matches('/').to_string(), p.api_key.clone()),
+            Some(m.to_string()),
+        ));
+    }
+    let port = match state.server.lock().unwrap().status.clone() {
+        crate::server::ServerStatus::Running { port, .. } => port,
+        _ => return Err("Start the server first".to_string()),
+    };
+    let model = if app_config.server_mode == crate::config::ServerMode::Router {
+        app_config
+            .harness_roles
+            .orchestrator
+            .as_deref()
+            .filter(|p| !p.trim().is_empty())
+            .map(|p| {
+                let ids = crate::server::router_model_names(&router_role_entries(
+                    &app_config.harness_roles,
+                    &app_config.harness_role_params,
+                    &app_config.providers,
+                    None,
+                    false,
+                ));
+                ids.get(p)
+                    .cloned()
+                    .unwrap_or_else(|| crate::server::file_stem_or_self(p))
+            })
+    } else {
+        None
+    };
+    Ok((server_client(port, state), model))
+}
+
+/// One reflection pass over assistant memory: merge duplicates, extract
+/// durable facts. Opt-in; the scheduler runs it periodically.
+pub(crate) async fn assistant_reflect(state: &AppState) -> Result<String, String> {
+    let app_config = state.config.lock().unwrap().clone();
+    let path = crate::assistant::memory_path()
+        .ok_or_else(|| "No memory location available".to_string())?;
+    let current = std::fs::read_to_string(&path).unwrap_or_default();
+    if current.trim().is_empty() {
+        return Err("Memory is empty".to_string());
+    }
+    let (client, model) = utility_client(state, &app_config)?;
+    let abort = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let should_stop = move || abort.load(Ordering::SeqCst);
+    let rewritten = harness::compact::summarize(
+        &client,
+        model.as_deref(),
+        REFLECTION_SYSTEM,
+        &current,
+        &should_stop,
+        |_| {},
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let rewritten = rewritten.trim();
+    if rewritten.is_empty() {
+        return Err("Reflection produced nothing".to_string());
+    }
+    let backup = path.with_extension("md.bak");
+    let _ = std::fs::copy(&path, &backup);
+    let tmp = path.with_extension("md.tmp");
+    std::fs::write(&tmp, format!("{rewritten}\n")).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    Ok(format!("Reflected on assistant memory ({} chars).", rewritten.len()))
+}
+
 /// Distill the session into memory, coalesce the memories, then start fresh.
 #[tauri::command]
 #[specta::specta]
@@ -2429,52 +2524,7 @@ async fn distill_impl(
 
     // Prefer the utility model when configured; else the same target rules as
     // a normal run (external provider, or the local server).
-    let (client, model) = if let Some(resolved) = app_config
-        .utility_target
-        .as_deref()
-        .and_then(|t| utility_target_client(&state, &app_config, t))
-    {
-        resolved
-    } else if app_config.server_mode == crate::config::ServerMode::External {
-        let target = app_config
-            .external_target
-            .clone()
-            .filter(|t| !t.trim().is_empty())
-            .ok_or_else(|| "External API mode: no model selected".to_string())?;
-        let (p, m) = crate::config::Provider::split_target(&target, &app_config.providers)
-            .ok_or_else(|| format!("External API mode: \"{target}\" has no configured provider"))?;
-        (
-            LlmClient::with_key(p.base_url.trim_end_matches('/').to_string(), p.api_key.clone()),
-            Some(m.to_string()),
-        )
-    } else {
-        let port = match state.server.lock().unwrap().status.clone() {
-            crate::server::ServerStatus::Running { port, .. } => port,
-            _ => return Err("Start the server first".to_string()),
-        };
-        let model = if app_config.server_mode == crate::config::ServerMode::Router {
-            app_config
-                .harness_roles
-                .orchestrator
-                .as_deref()
-                .filter(|p| !p.trim().is_empty())
-                .map(|p| {
-                    let ids = crate::server::router_model_names(&router_role_entries(
-                        &app_config.harness_roles,
-                        &app_config.harness_role_params,
-                        &app_config.providers,
-                        None,
-                        false,
-                    ));
-                    ids.get(p)
-                        .cloned()
-                        .unwrap_or_else(|| crate::server::file_stem_or_self(p))
-                })
-        } else {
-            None
-        };
-        (server_client(port, &state), model)
-    };
+    let (client, model) = utility_client(state, &app_config)?;
 
     runtime.abort.store(false, Ordering::SeqCst);
     let abort = runtime.abort.clone();
@@ -2604,7 +2654,26 @@ pub async fn harness_agent_reset(state: State<'_, AppState>) -> Result<(), Strin
 /// Clear the assistant thread (a fresh conversation).
 #[tauri::command]
 #[specta::specta]
-pub async fn assistant_reset(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn assistant_reset(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    // Opt-in: learn from the session before starting fresh.
+    let auto = state.config.lock().unwrap().assistant.auto_distill;
+    let has_user = state
+        .assistant
+        .history
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|m| m.role == "user");
+    if auto && has_user && !state.assistant.running.load(Ordering::SeqCst) {
+        let _ = distill_impl(
+            &state,
+            app,
+            &state.assistant,
+            RunMode::Assistant,
+            "assistant_event",
+        )
+        .await;
+    }
     reset_runtime(&state.assistant);
     Ok(())
 }

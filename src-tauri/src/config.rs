@@ -299,6 +299,15 @@ pub struct AssistantConfig {
     /// Let due `message` reminders start a proactive assistant turn.
     #[serde(default = "default_true")]
     pub proactive: bool,
+    /// Summarize each finished session into memory with the utility model.
+    #[serde(default)]
+    pub auto_distill: bool,
+    /// Periodically merge memory duplicates and extract durable facts.
+    #[serde(default)]
+    pub reflection: bool,
+    /// Unix seconds of the last reflection pass (scheduler bookkeeping).
+    #[serde(default)]
+    pub reflection_last: u32,
     /// Start werk with the OS session (minimized to the tray).
     #[serde(default)]
     pub autostart: bool,
@@ -353,6 +362,9 @@ impl Default for AssistantConfig {
             reasoning_effort: None,
             notify: true,
             proactive: true,
+            auto_distill: false,
+            reflection: false,
+            reflection_last: 0,
             autostart: false,
             hotkey: default_assistant_hotkey(),
             overlay_enabled: true,

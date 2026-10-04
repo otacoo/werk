@@ -861,6 +861,8 @@ function BehaviorCard() {
   const [behavior, setBehavior] = useState<{
     notify: boolean;
     proactive: boolean;
+    auto_distill: boolean;
+    reflection: boolean;
     autostart: boolean;
     overlay_enabled: boolean;
     hotkey: string;
@@ -873,6 +875,8 @@ function BehaviorCard() {
         setBehavior({
           notify: c.assistant?.notify ?? true,
           proactive: c.assistant?.proactive ?? true,
+          auto_distill: c.assistant?.auto_distill ?? false,
+          reflection: c.assistant?.reflection ?? false,
           autostart: c.assistant?.autostart ?? false,
           overlay_enabled: c.assistant?.overlay_enabled ?? true,
           hotkey: c.assistant?.hotkey ?? "",
@@ -890,6 +894,8 @@ function BehaviorCard() {
         commands.setAssistantBehavior(
           next.notify,
           next.proactive,
+          next.auto_distill,
+          next.reflection,
           next.autostart,
           next.overlay_enabled,
           next.hotkey,
@@ -924,6 +930,18 @@ function BehaviorCard() {
         onChange={(v) => apply({ ...behavior, proactive: v })}
       />
       <Toggle
+        label="Auto-distill sessions"
+        hint="When a session is reset, summarize it into memory with the utility model first."
+        checked={behavior.auto_distill}
+        onChange={(v) => apply({ ...behavior, auto_distill: v })}
+      />
+      <Toggle
+        label="Periodic reflection"
+        hint="Once a day, merge duplicate memories and extract durable facts."
+        checked={behavior.reflection}
+        onChange={(v) => apply({ ...behavior, reflection: v })}
+      />
+      <Toggle
         label="Start with the system"
         hint="Launch werk at login, minimized to the tray."
         checked={behavior.autostart}
@@ -942,6 +960,8 @@ function OverlayCard() {
     hotkey: string;
     notify: boolean;
     proactive: boolean;
+    auto_distill: boolean;
+    reflection: boolean;
     autostart: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -954,6 +974,8 @@ function OverlayCard() {
           hotkey: c.assistant?.hotkey ?? "",
           notify: c.assistant?.notify ?? true,
           proactive: c.assistant?.proactive ?? true,
+          auto_distill: c.assistant?.auto_distill ?? false,
+          reflection: c.assistant?.reflection ?? false,
           autostart: c.assistant?.autostart ?? false,
         }),
       )
@@ -969,6 +991,8 @@ function OverlayCard() {
         commands.setAssistantBehavior(
           next.notify,
           next.proactive,
+          next.auto_distill,
+          next.reflection,
           next.autostart,
           next.enabled,
           next.hotkey,

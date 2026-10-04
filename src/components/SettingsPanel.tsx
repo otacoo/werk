@@ -9,7 +9,6 @@ import {
   Download,
   ExternalLink,
   Info,
-  Layers,
   Palette,
   RefreshCw,
   SlidersHorizontal,
@@ -52,7 +51,7 @@ import {
 
 const REPO_URL = "https://github.com/otacoo/werk";
 
-export type SettingsSection = "general" | "profiles" | "appearance" | "debug" | "about";
+export type SettingsSection = "general" | "appearance" | "debug" | "about";
 
 function GeneralCard({ appConfig, setAppConfig, refresh }: {
   appConfig: AppConfig | null;
@@ -517,7 +516,6 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange,
   if (!open) return null;
   const visible: { id: SettingsSection; label: string; icon: LucideIcon }[] = [
     { id: "general", label: "General", icon: SlidersHorizontal },
-    { id: "profiles", label: "Profiles", icon: Layers },
     { id: "appearance", label: "Appearance", icon: Palette },
     { id: "debug", label: "Debug", icon: Bug },
     { id: "about", label: "About", icon: Info },
@@ -557,21 +555,21 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange,
           {section === "general" && (
             <GeneralCard appConfig={appConfig} setAppConfig={setAppConfig} refresh={refreshConfig} />
           )}
-          {section === "profiles" && (
-            <ProfilesCard appConfig={appConfig} setAppConfig={setAppConfig} refresh={refreshConfig} />
-          )}
           {section === "appearance" && <AppearanceCard />}
           {section === "debug" && (
-            <div className="card">
-              <h2 className="section-title mb-1">Setup wizard</h2>
-              <p className="section-desc">
-                Run the first-launch setup again: hardware overview, runtime install, model
-                downloads, and appearance.
-              </p>
-              <button className="btn-secondary text-xs mt-3" onClick={onRestartWizard}>
-                <RefreshCw size={12} /> Start wizard again
-              </button>
-            </div>
+            <>
+              <div className="card">
+                <h2 className="section-title mb-1">Setup wizard</h2>
+                <p className="section-desc">
+                  Run the first-launch setup again: hardware overview, runtime install, model
+                  downloads, and appearance.
+                </p>
+                <button className="btn-secondary text-xs mt-3" onClick={onRestartWizard}>
+                  <RefreshCw size={12} /> Start wizard again
+                </button>
+              </div>
+              <ProfilesCard appConfig={appConfig} setAppConfig={setAppConfig} refresh={refreshConfig} />
+            </>
           )}
           {section === "about" && (
             <div className="card text-center">

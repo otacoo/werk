@@ -2,8 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- Assistant learning polish: an auto-distill toggle summarizes a session into memory with the utility model when it is reset, and an opt-in daily reflection merges duplicate memories and extracts durable facts.
+
 ### Changed
 
+- The Profiles section moved from the Settings menu to the Debug section.
 - Model downloads no longer re-read and sha256-check the finished file, so they complete as soon as the last byte arrives.
 - Both border orbits run faster (NERV 3s, Future 4.5s per lap), and NERV's selected Mode cards get a subtle green pane tint since the uniform border and pane had flattened the selection.
 
