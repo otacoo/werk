@@ -4,6 +4,7 @@
 
 ### Added
 
+- A Future theme: deep teal glass panes, a glowing mint accent with its own palette, and wide flowing green gradients.
 - Assistant browser control: a `browser` tool drives Chrome/Edge over CDP and Firefox over WebDriver BiDi (open, read, eval, click, type, screenshot, tabs) in isolated profiles, with an Access toggle.
 - The assistant's system prompt lists its file locations (own folder, temp workspace, accessible folders) and states that everything else is blocked.
 - The Assistant Access tab gains a File system card: the assistant folder, a temp-working-folder toggle, and extra accessible folders; everything outside that list is completely blocked.

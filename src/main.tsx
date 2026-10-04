@@ -10,6 +10,7 @@ import "./themes/werk.css";
 import "./themes/gemma.css";
 import "./themes/migu.css";
 import "./themes/nerv.css";
+import "./themes/future.css";
 
 const overlay = new URLSearchParams(window.location.search).get("overlay") === "1";
 

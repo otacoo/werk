@@ -19,7 +19,7 @@
           if (theme === "system") {
             theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "day" : "night";
           }
-          var backgrounds = { night: "#141414", day: "#f9fafb", werk: "#d9d0b4", gemma: "#eef4fc", migu: "#181c20" };
+          var backgrounds = { night: "#141414", day: "#f9fafb", werk: "#d9d0b4", gemma: "#eef4fc", migu: "#181c20", future: "#041416" };
           var root = document.documentElement;
           root.style.backgroundColor = backgrounds[theme] || "#141414";
           root.style.colorScheme = theme === "night" ? "dark" : "light";

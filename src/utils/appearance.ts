@@ -3,7 +3,7 @@
 
 import { emit as emitTauri } from "@tauri-apps/api/event";
 
-export type ThemeName = "system" | "day" | "night" | "werk" | "gemma" | "migu" | "nerv";
+export type ThemeName = "system" | "day" | "night" | "werk" | "gemma" | "migu" | "nerv" | "future";
 export type AccentName = "blue" | "violet" | "red" | "green" | "amber";
 export type CornersMode = "auto" | "sharp" | "round";
 export type FontSizeName = "compact" | "default" | "large" | "xlarge";
@@ -43,6 +43,16 @@ export const MIGU_ACCENTS: Record<AccentName, { label: string; rgb: string; soft
   red: { label: "Neon Pink", rgb: "244 114 182", soft: "94 221 211" },
   green: { label: "Mint", rgb: "110 226 178", soft: "244 114 182" },
   amber: { label: "Silver", rgb: "185 198 210", soft: "244 114 182" },
+};
+
+/// Character palette for the Future theme: glowing mint, cyan, and ion hues
+/// over deep teal glass.
+export const FUTURE_ACCENTS: Record<AccentName, { label: string; rgb: string; soft: string }> = {
+  blue: { label: "Cyan", rgb: "86 214 255", soft: "62 240 196" },
+  violet: { label: "Ion", rgb: "154 140 255", soft: "86 214 255" },
+  red: { label: "Coral", rgb: "255 122 122", soft: "255 178 122" },
+  green: { label: "Mint", rgb: "62 240 196", soft: "125 255 224" },
+  amber: { label: "Lime", rgb: "196 240 92", soft: "62 240 196" },
 };
 
 /// Root size for the rem-based type scale; all text scales with it.
@@ -253,6 +263,7 @@ export function accentPalette(): Record<AccentName, { label: string; rgb: string
   if (resolved === "gemma") return GEMMA_ACCENTS;
   if (resolved === "migu") return MIGU_ACCENTS;
   if (resolved === "werk") return EARTHY_ACCENTS;
+  if (resolved === "future") return FUTURE_ACCENTS;
   return ACCENTS;
 }
 
@@ -270,6 +281,9 @@ function applyAppearance(): void {
   } else if (resolved === "werk") {
     root.style.setProperty("--accent", EARTHY_ACCENTS[accent].rgb);
     root.style.setProperty("--accent-soft", EARTHY_ACCENTS[accent].soft);
+  } else if (resolved === "future") {
+    root.style.setProperty("--accent", FUTURE_ACCENTS[accent].rgb);
+    root.style.setProperty("--accent-soft", FUTURE_ACCENTS[accent].soft);
   } else {
     root.style.setProperty("--accent", ACCENTS[accent].rgb);
     root.style.removeProperty("--accent-soft");
@@ -285,7 +299,7 @@ function applyAppearance(): void {
 }
 
 export function loadAppearance(autoDetectedCorners?: "sharp" | "round"): void {
-  theme = read(THEME_KEY, "system", ["system", "day", "night", "werk", "gemma", "migu", "nerv"]);
+  theme = read(THEME_KEY, "system", ["system", "day", "night", "werk", "gemma", "migu", "nerv", "future"]);
   accent = read(ACCENT_KEY, "blue", Object.keys(ACCENTS));
   corners = read(CORNERS_KEY, "auto", ["auto", "sharp", "round"]);
   font = read(FONT_KEY, "default", Object.keys(FONT_SIZES));
