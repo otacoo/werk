@@ -88,7 +88,7 @@ export default function App() {
   /// Chat profile: which surfaces the header shows.
   const [profile, setProfile] = useState<Profile>("agent");
   /// WebUI profile availability (Settings → Profiles).
-  const [webuiEnabled, setWebuiEnabled] = useState(true);
+  const [webuiEnabled, setWebuiEnabled] = useState(false);
 
   const closeSettings = () => setSettingsOpen(false);
 
@@ -112,7 +112,7 @@ export default function App() {
         setExternalMode(c.server_mode === "external");
         setProfileMirror((c.chat_profile ?? "agent") as Profile);
         setCloseToTray(c.close_to_tray ?? false);
-        setWebuiEnabled(c.webui_enabled ?? true);
+        setWebuiEnabled(c.webui_enabled ?? false);
       })
       .catch(() => setWizard(false));
     call(commands.getPlatformStyle())
@@ -168,7 +168,7 @@ export default function App() {
             setExternalMode(external);
             setProfileMirror((c.chat_profile ?? "agent") as Profile);
             setCloseToTray(c.close_to_tray ?? false);
-            setWebuiEnabled(c.webui_enabled ?? true);
+            setWebuiEnabled(c.webui_enabled ?? false);
             if (external) setTab((t) => (t === "run" ? "chat" : t));
           })
           .catch(() => {});
@@ -271,12 +271,6 @@ export default function App() {
                   >
                     <Icon size={13} fill={filled ? "currentColor" : "none"} />
                     {label}
-                    {id === "tools" && serverRunning && (
-                      <span
-                        className="w-1.5 h-1.5 rounded-full bg-accent-green shrink-0"
-                        title="API available"
-                      />
-                    )}
                   </button>
                 );
               })}

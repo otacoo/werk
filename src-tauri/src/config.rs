@@ -389,7 +389,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub chat_profile: ChatProfile,
     /// Show the WebUI profile, tab, and launch options (Settings → Profiles).
-    #[serde(default = "default_true")]
+    /// Off by default; most users never touch llama-server's own UI.
+    #[serde(default)]
     pub webui_enabled: bool,
     /// Roleplay: active card, persona, greeting, sampling overrides.
     #[serde(default)]
@@ -534,7 +535,7 @@ impl Default for AppConfig {
             harness_system_prompt: None,
             system_prompt_presets: Vec::new(),
             chat_profile: ChatProfile::Agent,
-            webui_enabled: true,
+            webui_enabled: false,
             roleplay: RoleplayConfig::default(),
             assistant: AssistantConfig::default(),
             utility_target: None,

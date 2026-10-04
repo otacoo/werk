@@ -335,7 +335,7 @@ export default function Mode({
   const serverIndex = Math.max(0, options.findIndex((o) => o.id === mode));
 
   // Disabled profiles disappear from the picker entirely.
-  const webuiEnabled = appConfig?.webui_enabled ?? true;
+  const webuiEnabled = appConfig?.webui_enabled ?? false;
   const visibleProfiles = profiles.filter((p) => p.id !== "webui" || webuiEnabled);
   const profileColW = 100 / visibleProfiles.length;
 

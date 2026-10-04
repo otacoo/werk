@@ -338,7 +338,7 @@ function ProfilesCard({
   refresh: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const webui = appConfig?.webui_enabled ?? true;
+  const webui = appConfig?.webui_enabled ?? false;
 
   const setWebui = async (v: boolean) => {
     setError(null);

@@ -1703,7 +1703,7 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
             </Field>
           </div>
           <div className="mt-4 space-y-3">
-            {(appConfig?.webui_enabled ?? true) && (
+            {(appConfig?.webui_enabled ?? false) && (
               <>
                 <Toggle
                   label="Web UI"

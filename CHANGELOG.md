@@ -4,7 +4,7 @@
 
 ### Added
 
-- Settings → Profiles can disable the WebUI profile, removing its Mode card, header tab, and launch options; the Mode page reflows automatically.
+- Settings → Profiles can disable the WebUI profile (off by default), removing its Mode card, header tab, launch options, the Tools Server pane, and the Live Tools server card; the Mode page reflows automatically, and the API availability dot sits on the API sub-tab.
 - The assistant gets a profile image (Persona tab), shown in the header, message avatars, and the overlay circle.
 - A native `web_search` tool (DuckDuckGo HTML, no API key) is available to the assistant and the agent.
 - The assistant gets a user-picked home folder for persistent files plus an always-granted temp workspace for scratch scripts, downloads, and screenshots.

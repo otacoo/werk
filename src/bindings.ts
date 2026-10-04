@@ -374,7 +374,10 @@ export type AppConfig_Deserialize = {
 	system_prompt_presets?: SystemPromptPreset[],
 	/**  Agent (coding harness) or Roleplay (character cards). */
 	chat_profile?: ChatProfile,
-	/**  Show the WebUI profile, tab, and launch options (Settings → Profiles). */
+	/**
+	 *  Show the WebUI profile, tab, and launch options (Settings → Profiles).
+	 *  Off by default; most users never touch llama-server's own UI.
+	 */
 	webui_enabled?: boolean,
 	/**  Roleplay: active card, persona, greeting, sampling overrides. */
 	roleplay?: RoleplayConfig_Deserialize,
@@ -461,7 +464,10 @@ export type AppConfig_Serialize = {
 	system_prompt_presets?: SystemPromptPreset[],
 	/**  Agent (coding harness) or Roleplay (character cards). */
 	chat_profile: ChatProfile,
-	/**  Show the WebUI profile, tab, and launch options (Settings → Profiles). */
+	/**
+	 *  Show the WebUI profile, tab, and launch options (Settings → Profiles).
+	 *  Off by default; most users never touch llama-server's own UI.
+	 */
 	webui_enabled: boolean,
 	/**  Roleplay: active card, persona, greeting, sampling overrides. */
 	roleplay: RoleplayConfig_Serialize,

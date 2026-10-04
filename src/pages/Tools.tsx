@@ -61,6 +61,7 @@ const envToText = (env: Record<string, string> | undefined): string =>
 export default function Tools({ active = true }: { active?: boolean }) {
   const [serverStatus, setServerStatus] = useState<ServerStatus>({ type: "stopped" });
   const [appConfig, setAppConfig, , refreshConfig] = useAppConfig(true);
+  const webuiEnabled = appConfig?.webui_enabled ?? false;
   const toolsList = useToolsList();
   const [mcpPath, setMcpPath] = useState("");
   const [servers, setServers] = useState<McpServerEntry[]>([]);
@@ -116,16 +117,16 @@ export default function Tools({ active = true }: { active?: boolean }) {
   }, []);
 
   useEffect(() => {
-    if (serverStatus.type === "running" && active) {
+    if (serverStatus.type === "running" && active && webuiEnabled) {
       fetchLiveTools(serverStatus);
       const id = setInterval(() => fetchLiveTools(serverStatus), 5000);
       return () => clearInterval(id);
     }
-    if (serverStatus.type !== "running") {
+    if (serverStatus.type !== "running" || !webuiEnabled) {
       setLiveTools(null);
       setLiveToolsError(null);
     }
-  }, [serverStatus, active, fetchLiveTools]);
+  }, [serverStatus, active, fetchLiveTools, webuiEnabled]);
 
   const loadAgentMcp = useCallback(async (probe: boolean) => {
     setAgentMcpLoading(true);
@@ -287,7 +288,8 @@ export default function Tools({ active = true }: { active?: boolean }) {
   const running = serverStatus.type === "running" || serverStatus.type === "starting";
   const mode = appConfig?.server_mode ?? "single";
   const profile = appConfig?.chat_profile ?? "agent";
-  // WebUI clients don't use werk's agent tools or LSP.
+  // WebUI clients don't use werk's agent tools or LSP; the Server pane is
+  // llama-server's own tool set, so it follows the WebUI toggle.
   const panes = (
     [
       { id: "live" as const, label: "Live Tools", icon: Activity },
@@ -297,13 +299,18 @@ export default function Tools({ active = true }: { active?: boolean }) {
       { id: "mcp" as const, label: "MCP", icon: Plug },
       { id: "lsp" as const, label: "LSP", icon: FileCode },
     ] as const
-  ).filter((p) => !(profile === "webui" && (p.id === "agent" || p.id === "lsp")));
+  ).filter(
+    (p) =>
+      !(profile === "webui" && (p.id === "agent" || p.id === "lsp")) &&
+      (p.id !== "server" || webuiEnabled),
+  );
 
-  // Leave a hidden pane when the profile changes.
+  // Leave a hidden pane when the profile or WebUI setting changes.
   useEffect(() => {
     if (profile === "webui" && (pane === "agent" || pane === "lsp")) switchPane("server");
+    if (!webuiEnabled && pane === "server") switchPane("agent");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, pane]);
+  }, [profile, pane, webuiEnabled]);
 
   const formFields = (
     <>
@@ -378,7 +385,9 @@ export default function Tools({ active = true }: { active?: boolean }) {
             {pane === "agent"
               ? "Tools for werk's agent harness. Available in every mode."
               : pane === "live"
-                ? "What the running server and the agent's MCP servers currently offer."
+                ? webuiEnabled
+                  ? "What the running server and the agent's MCP servers currently offer."
+                  : "What the agent's MCP servers currently offer."
                 : pane === "api"
                   ? "API info for the running server: endpoints, capabilities, and how to authenticate."
                   : pane === "mcp"
@@ -406,6 +415,12 @@ export default function Tools({ active = true }: { active?: boolean }) {
             >
               <Icon size={13} />
               {label}
+              {id === "api" && serverStatus.type === "running" && (
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-accent-green shrink-0"
+                  title="API available"
+                />
+              )}
             </button>
           ))}
         </div>
@@ -446,6 +461,7 @@ export default function Tools({ active = true }: { active?: boolean }) {
 
         {pane === "live" && (
           <>
+            {webuiEnabled && (
             <div className="card">
               <div className="flex items-center justify-between mb-1">
                 <h2 className="section-title mb-0">Server (llama-server)</h2>
@@ -495,6 +511,7 @@ export default function Tools({ active = true }: { active?: boolean }) {
                 })()
               ) : null}
             </div>
+            )}
 
             <div className="card">
               <div className="flex items-center justify-between mb-1">
