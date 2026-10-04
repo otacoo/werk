@@ -183,6 +183,11 @@ fn list_windows() -> Result<String> {
     Ok(text)
 }
 
+#[cfg(not(target_os = "windows"))]
+fn list_windows() -> Result<String> {
+    bail!("Window control is only available on Windows for now")
+}
+
 #[cfg(target_os = "windows")]
 fn find_window(title: &str) -> Result<isize> {
     use windows::core::BOOL;
