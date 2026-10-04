@@ -62,7 +62,7 @@ fn valid_name(name: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
-fn validate(dir: &Path, scope: &str, manifest: PluginManifest) -> Result<PluginDef> {
+pub fn validate(dir: &Path, scope: &str, manifest: PluginManifest) -> Result<PluginDef> {
     if !valid_name(&manifest.name) {
         bail!(
             "invalid plugin name '{}' (lowercase, digits, _; max 64)",

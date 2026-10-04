@@ -611,15 +611,14 @@ function SystemControlCard() {
       <div>
         <h2 className="section-title mb-0">System control</h2>
         <p className="section-desc">
-          Off by default. Enabled tools act immediately without asking, so the File system card is
-          the hard boundary for what they can reach.
+          Off by default. Warning: Any tool enabled here doesn't require permissions.
         </p>
       </div>
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <Toggle
             label="Allow system control"
-            hint="Master switch for every tool on this card."
+            hint="Master switch."
             checked={access.system_control}
             onChange={(v) => apply({ ...access, system_control: v })}
           />
@@ -726,6 +725,9 @@ function BuiltInToolsCard() {
             ["get_time", "Current date and time."],
             ["ask_user", "Ask a multiple-choice question."],
             ["skill", "Load a saved skill."],
+            ["skill_write", "Save a reusable procedure as a skill."],
+            ["plugin_write", "Create a local-command plugin."],
+            ["mcp", "List, add, or remove MCP servers."],
             ["reminder", "Schedule reminders and alerts."],
           ] as const
         ).map(([name, desc]) => (

@@ -1644,7 +1644,15 @@ async fn agent_send_impl(
                 .add(Arc::new(harness::tools::AskUserTool))
                 .add(Arc::new(harness::tools::TimeTool))
                 .add(Arc::new(harness::tools::WebSearchTool))
-                .add(Arc::new(crate::scheduler::ReminderTool));
+                .add(Arc::new(crate::scheduler::ReminderTool))
+                .add(Arc::new(crate::assistant_tools::McpTool::new(app.clone())));
+            if let Ok(base) = crate::assistant_tools::werk_base() {
+                registry = registry
+                    .add(Arc::new(crate::assistant_tools::SkillWriteTool::new(
+                        base.clone(),
+                    )))
+                    .add(Arc::new(crate::assistant_tools::PluginWriteTool::new(base)));
+            }
             let skills = crate::assistant::skills();
             if !skills.is_empty() {
                 registry = registry.add(Arc::new(harness::skills::SkillTool::new(skills)));

@@ -2,6 +2,7 @@
 //! call plain functions, and map errors — no business logic lives here.
 
 pub mod assistant;
+pub mod assistant_tools;
 pub mod bench;
 pub mod browser;
 pub mod chat;

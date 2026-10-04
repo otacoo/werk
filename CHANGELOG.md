@@ -4,6 +4,7 @@
 
 ### Added
 
+- The assistant can extend its own toolset: `skill_write` saves reusable procedures as skills, `plugin_write` creates local-command plugins, and `mcp` lists/adds/removes MCP servers — all in the shared folders, so the agent profile sees them too.
 - Assistant learning polish: an auto-distill toggle summarizes a session into memory with the utility model when it is reset, and an opt-in daily reflection merges duplicate memories and extracts durable facts.
 - The assistant's `uia` tool drives app controls through the platform accessibility API — Windows UI Automation, macOS Accessibility, Linux AT-SPI — find by name or id and invoke, type, toggle, focus, or read them without moving the mouse, with an OS-labelled Access toggle.
 
