@@ -31,7 +31,7 @@
   background-color: transparent;
 }
 
-/* Glass panes: translucent surfaces with a mint rim and a soft glow. */
+/* Glass panes: translucent surfaces with a mint rim that flares inside. */
 [data-theme="future"] .card {
   background:
     linear-gradient(
@@ -42,10 +42,29 @@
     );
   border-color: rgb(92 240 205 / 0.18);
   box-shadow:
+    inset 0 0 0 1px rgb(92 240 205 / 0.14),
+    inset 0 0 20px rgb(62 240 196 / 0.10),
     inset 0 1px 0 rgb(255 255 255 / 0.06),
     0 12px 32px rgb(0 0 0 / 0.35),
     0 0 22px rgb(62 240 196 / 0.07);
   backdrop-filter: blur(10px);
+}
+
+/* Selected cards (Mode pickers): a bright mint rim with a strong inner flare
+   and an outer halo, so the active choice reads at a glance. */
+[data-theme="future"] .card.card-active {
+  border-color: rgb(62 240 196 / 0.9);
+  background:
+    linear-gradient(
+      150deg,
+      rgb(62 240 196 / 0.20),
+      rgb(62 240 196 / 0.06) 55%,
+      rgb(86 214 255 / 0.10)
+    );
+  box-shadow:
+    inset 0 0 0 1px rgb(125 255 224 / 0.55),
+    inset 0 0 32px rgb(62 240 196 / 0.22),
+    0 0 28px rgb(62 240 196 / 0.35);
 }
 
 [data-theme="future"] .input {

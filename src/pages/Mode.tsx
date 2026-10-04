@@ -371,7 +371,7 @@ export default function Mode({
                 <button
                   onClick={() => choose(id)}
                   className={`card w-full h-full text-left transition-colors ${
-                    active ? "border-accent bg-accent/5" : "hover:bg-surface-2"
+                    active ? "card-active border-accent bg-accent/5" : "hover:bg-surface-2"
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-1">
@@ -426,7 +426,7 @@ export default function Mode({
                     disabled={disabled}
                     className={`card w-full h-full text-left transition-colors ${
                       active
-                        ? "border-accent bg-accent/5"
+                        ? "card-active border-accent bg-accent/5"
                         : disabled
                           ? "opacity-50 cursor-default"
                           : "hover:bg-surface-2"
