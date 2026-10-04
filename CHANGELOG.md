@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Absolute tool paths resolve symlinks in their existing ancestors, so macOS `/var` spellings land inside the jail and symlinked escapes are rejected.
 - The NERV and Future borders orbit a square layer sized to the card's diagonal; the old 300%-wide rectangle left a moving edge line on wide or short cards because the rotated layer stopped covering them.
 - The Future theme's cards trade their translucent glass for an opaque pane so the orbiting border stays hidden inside; the rim and active glow moved to the pane.
 - The assistant overlay window is destroyed while the overlay is disabled instead of lingering hidden, so it uses no memory or CPU.

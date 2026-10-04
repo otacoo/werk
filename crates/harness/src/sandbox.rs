@@ -158,9 +158,11 @@ impl PathJail {
     }
 
     /// Absolute input: allowed when it lands inside a writable root, or a
-    /// read-only root on reads. Lexically cleaned; `..` may not climb out.
+    /// read-only root on reads. Symlinks resolve against the filesystem so
+    /// macOS `/var` vs `/private/var` spellings compare equal; `..` may not
+    /// climb out.
     fn absolute(&self, path: &Path, writable: bool) -> Result<PathBuf> {
-        let clean = strip_verbatim(clean_absolute(path)?);
+        let clean = canonical_spelling(path);
         let writable_hit =
             under(&self.root, &clean) || self.extra_write.iter().any(|r| under(r, &clean));
         if writable_hit {
@@ -171,6 +173,31 @@ impl PathJail {
         }
         bail!("Path is outside the allowed folders: {}", path.display())
     }
+}
+
+/// Resolve symlinks in the deepest existing ancestor, keeping the rest of the
+/// path lexical. macOS temp dirs live under `/var` (a symlink to
+/// `/private/var`), so a raw model path would otherwise miss the jail root.
+fn canonical_spelling(path: &Path) -> PathBuf {
+    if let Ok(resolved) = path.canonicalize() {
+        return strip_verbatim(resolved);
+    }
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut probe = path.to_path_buf();
+    while let Some(name) = probe.file_name().map(|n| n.to_os_string()) {
+        tail.push(name);
+        if !probe.pop() {
+            break;
+        }
+        if let Ok(base) = probe.canonicalize() {
+            let mut out = strip_verbatim(base);
+            for part in tail.iter().rev() {
+                out.push(part);
+            }
+            return out;
+        }
+    }
+    strip_verbatim(clean_absolute(path).unwrap_or_else(|_| path.to_path_buf()))
 }
 
 /// Drop the Windows verbatim prefix `\\?\` that `canonicalize` adds, so jail
