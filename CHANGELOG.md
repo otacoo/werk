@@ -20,6 +20,7 @@
 
 ### Changed
 
+- The Assistant profile mirrors Roleplay: the Assistant tab holds settings (Persona, Reminders, Memory, Access, Behavior) and the conversation moved to its own Chat tab, with the Assistant tab placed before Run.
 - The API page is now a sub-tab of Tools, with a green presence dot on the Tools tab while the server is running.
 
 ## [0.6.0] - 2026-10-03

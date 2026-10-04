@@ -25,6 +25,7 @@ import Tools from "./pages/Tools";
 import Agent from "./pages/Agent";
 import Roleplay from "./pages/Roleplay";
 import Assistant from "./pages/Assistant";
+import AssistantChat from "./pages/AssistantChat";
 import Talk from "./pages/Talk";
 import WebUI from "./pages/WebUI";
 import Mode from "./pages/Mode";
@@ -37,7 +38,7 @@ import { loadAppearance, setAutoCorners } from "./utils/appearance";
 import { getQuickBench, setQuickBench, subscribeQuickBench, subscribeConfigChanged, setProfileMirror, subscribeProfile } from "./utils/appSettings";
 import { startServerStatusPolling, subscribeServerStatus } from "./utils/serverStatus";
 
-export type Tab = "dashboard" | "run" | "chat" | "talk" | "assistant" | "webui" | "tools" | "agent" | "roleplay" | "bench" | "mode";
+export type Tab = "dashboard" | "run" | "chat" | "talk" | "assistant" | "assistant-chat" | "webui" | "tools" | "agent" | "roleplay" | "bench" | "mode";
 
 type Profile = "agent" | "webui" | "roleplay" | "assistant";
 
@@ -48,9 +49,10 @@ const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "agent", label: "Agent", icon: Brain },
   { id: "roleplay", label: "Roleplay", icon: Drama },
   { id: "bench", label: "Bench", icon: FlaskConical },
-  { id: "run", label: "Run", icon: Play },
   { id: "assistant", label: "Assistant", icon: Sparkles },
+  { id: "run", label: "Run", icon: Play },
   { id: "chat", label: "Chat", icon: MessageSquare },
+  { id: "assistant-chat", label: "Chat", icon: MessageSquare },
   { id: "talk", label: "Talk", icon: MessageCircleHeart },
   { id: "webui", label: "WebUI", icon: Globe },
 ];
@@ -58,21 +60,34 @@ const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
 /// A tab is only valid for the active profile; anything else falls back to the
 /// profile's own chat surface (or Dashboard) so hidden pages never paint.
 function visibleTab(t: Tab, profile: Profile, externalMode: boolean): Tab {
-  if (profile === "agent") return t === "talk" || t === "roleplay" || t === "assistant" ? "chat" : t;
+  if (profile === "agent") {
+    return t === "talk" || t === "roleplay" || t === "assistant" || t === "assistant-chat"
+      ? "chat"
+      : t;
+  }
   if (profile === "webui") {
     if (t === "webui") return externalMode ? "dashboard" : t;
-    if (t === "chat" || t === "agent" || t === "talk" || t === "roleplay" || t === "assistant") {
+    if (
+      t === "chat" ||
+      t === "agent" ||
+      t === "talk" ||
+      t === "roleplay" ||
+      t === "assistant" ||
+      t === "assistant-chat"
+    ) {
       return externalMode ? "dashboard" : "webui";
     }
     return t;
   }
   if (profile === "assistant") {
     if (t === "chat" || t === "agent" || t === "talk" || t === "roleplay" || t === "tools") {
-      return "assistant";
+      return "assistant-chat";
     }
     return t;
   }
-  return t === "chat" || t === "agent" || t === "tools" || t === "assistant" ? "talk" : t;
+  return t === "chat" || t === "agent" || t === "tools" || t === "assistant" || t === "assistant-chat"
+    ? "talk"
+    : t;
 }
 
 export default function App() {
@@ -140,7 +155,7 @@ export default function App() {
 
   // Tray "Assistant" item: open the tab in the main window.
   useEffect(() => {
-    const unlisten = listen("assistant_open", () => setTab("assistant"));
+    const unlisten = listen("assistant_open", () => setTab("assistant-chat"));
     return () => {
       unlisten.then((f) => f());
     };
@@ -244,12 +259,17 @@ export default function App() {
                 if (t.id === "tools" && (profile === "roleplay" || profile === "assistant")) return false;
                 if ((t.id === "roleplay" || t.id === "talk") && profile !== "roleplay") return false;
                 if (t.id === "assistant" && profile !== "assistant") return false;
+                if (t.id === "assistant-chat" && profile !== "assistant") return false;
                 if (t.id === "webui" && (!webuiEnabled || profile !== "webui" || externalMode)) return false;
                 return true;
               }).map(({ id, label, icon: Icon }) => {
                 // Server state colors Run (green) and the active chat tab.
                 const chatTab: Tab =
-                  profile === "roleplay" ? "talk" : profile === "assistant" ? "assistant" : "chat";
+                  profile === "roleplay"
+                    ? "talk"
+                    : profile === "assistant"
+                      ? "assistant-chat"
+                      : "chat";
                 const highlight =
                   serverRunning && id === "run"
                     ? "text-accent-green"
@@ -301,6 +321,12 @@ export default function App() {
         </div>
         <div className="h-full min-h-0" style={{ display: shownTab === "assistant" ? undefined : "none" }}>
           <Assistant active={shownTab === "assistant"} />
+        </div>
+        <div
+          className="h-full min-h-0"
+          style={{ display: shownTab === "assistant-chat" ? undefined : "none" }}
+        >
+          <AssistantChat go={setTab} active={shownTab === "assistant-chat"} />
         </div>
         <div className="h-full min-h-0" style={{ display: shownTab === "webui" ? undefined : "none" }}>
           <WebUI go={setTab} active={shownTab === "webui"} />

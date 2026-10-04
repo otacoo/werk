@@ -326,7 +326,7 @@ export default function Mode({
       icon: Sparkles,
       title: "Assistant",
       desc: "A personal assistant with personality.",
-      points: ["Remembers you across conversations", "Persona, skills, and its own Assistant tab"],
+      points: ["Remembers you across conversations", "Assistant settings plus a dedicated Chat tab"],
       soon: false,
     },
   ];
