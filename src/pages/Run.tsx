@@ -600,7 +600,7 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
             {!external && (
               <div className="flex flex-wrap items-center gap-3">
                 <label
-                  className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
+                  className="flex items-center gap-1.5 text-[0.6875rem] text-faint ml-auto"
                   title="Context size for this role's model in tokens. Empty uses the launch context size, then the model default."
                 >
                   <span>
@@ -632,39 +632,6 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
                     value={params?.n_gpu_layers ?? ""}
                     onChange={(e) => update(params?.ctx_size ?? null, numNgl(e.target.value))}
                   />
-                </label>
-                <label
-                  className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
-                  title="Draft model for speculative decoding. Empty auto-detects a sibling DSpark/MTP/EAGLE3/DFlash file."
-                >
-                  <span>
-                    Draft <span className="font-mono text-[0.625rem] opacity-60">(--spec-draft-model)</span>
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="auto (sibling)"
-                    className="input w-40 py-0.5 px-1.5 text-[0.6875rem] font-mono"
-                    value={params?.draft_model ?? ""}
-                    onChange={(e) => draftFields({ draft_model: e.target.value || null })}
-                  />
-                </label>
-                <label
-                  className="flex items-center gap-1.5 text-[0.6875rem] text-faint"
-                  title="Speculation type for this role; empty infers it from the draft file."
-                >
-                  <span>Spec</span>
-                  <select
-                    className="input py-0.5 px-1 text-[0.6875rem]"
-                    value={params?.spec_type ?? ""}
-                    onChange={(e) => draftFields({ spec_type: e.target.value || null })}
-                  >
-                    <option value="">auto</option>
-                    <option value="draft-eagle3">draft-eagle3</option>
-                    <option value="draft-mtp">draft-mtp</option>
-                    <option value="draft-dspark">draft-dspark</option>
-                    <option value="draft-dflash">draft-dflash</option>
-                    <option value="draft-simple">draft-simple</option>
-                  </select>
                 </label>
                 {hasDraft && (
                   <>
