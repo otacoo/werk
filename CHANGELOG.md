@@ -42,6 +42,8 @@
 
 ### Fixed
 
+- The launch command passes the host value before the port again, so servers start (a regression had dropped it).
+- EAGLE3/DFlash/MTP draft files are hidden from the model list by GGUF metadata, not only by filename.
 - Auto-attached drafts reserve room in the fit margin (`--fit-target` = 1 GiB + draft size + 768 MiB), so MTP/EAGLE3/DFlash drafts no longer OOM against a model that already fills VRAM.
 - Permission grants are deduplicated and refreshed instead of stacking duplicates, a live global grant subsumes matching project grants, and old `grants.json` files compact on startup.
 - Sensitive shielding now reads nested `.gitignore` files, scoped to their directory and cached, instead of only the project root's.

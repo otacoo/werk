@@ -640,6 +640,7 @@ pub fn build_args(config: &ServerConfig) -> (Vec<String>, Vec<String>) {
     }
 
     args.push("--host".to_string());
+    args.push(config.host.clone());
     args.push("--port".to_string());
     args.push(config.port.to_string());
 
@@ -1334,6 +1335,20 @@ mod tests {
         let (args, _) = build_args(&config);
         assert!(!args.iter().any(|a| a == "--spec-draft-model"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn args_keep_host_and_port_values() {
+        let config = ServerConfig {
+            host: "127.0.0.1".to_string(),
+            port: 8080,
+            ..Default::default()
+        };
+        let (args, _) = build_args(&config);
+        let host = args.iter().position(|a| a == "--host").expect("host");
+        assert_eq!(args[host + 1], "127.0.0.1");
+        let port = args.iter().position(|a| a == "--port").expect("port");
+        assert_eq!(args[port + 1], "8080");
     }
 
     #[test]

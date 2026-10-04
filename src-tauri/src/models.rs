@@ -217,9 +217,25 @@ pub struct ModelInfo {
     pub hf_repo: Option<String>,
 }
 
-/// Companion files are not loadable models.
+/// Companion files are not loadable models. Names catch the common cases;
+/// metadata catches the rest (EAGLE3/DFlash drafts, MTP heads).
 fn is_auxiliary_file(name_lower: &str) -> bool {
-    name_lower.contains("mmproj") || name_lower.contains("dspark") || name_lower.contains("imatrix")
+    if name_lower.contains("mmproj")
+        || name_lower.contains("dspark")
+        || name_lower.contains("dflash")
+        || name_lower.contains("imatrix")
+    {
+        return true;
+    }
+    let stem = name_lower.strip_suffix(".gguf").unwrap_or(name_lower);
+    stem.split(['-', '_', ' ', '.']).next() == Some("mtp")
+}
+
+/// Metadata fingerprints of a speculative draft.
+fn is_draft_metadata(meta: &ModelMetadata) -> bool {
+    matches!(meta.architecture.as_deref(), Some("eagle3") | Some("dflash"))
+        || meta.target_layers.is_some()
+        || meta.has_nextn
 }
 
 /// Quant tag from the filename stem (`Q4_K_M`, `IQ2_XXS`, `F16`, …).
@@ -388,6 +404,10 @@ struct MetaCacheEntry {
     context_length: Option<u64>,
     architecture: Option<String>,
     is_reasoning: bool,
+    /// The header fingerprints a draft (EAGLE3/DFlash/MTP); such files never
+    /// list as models.
+    #[serde(default)]
+    is_draft: bool,
 }
 
 fn meta_cache_path() -> Option<PathBuf> {
@@ -397,7 +417,7 @@ fn meta_cache_path() -> Option<PathBuf> {
         return Some(
             std::env::temp_dir()
                 .join(format!("werk-test-cache-{}", std::process::id()))
-                .join("gguf_cache.json"),
+                .join("gguf_cache2.json"),
         );
     }
     #[cfg(not(test))]
@@ -405,7 +425,7 @@ fn meta_cache_path() -> Option<PathBuf> {
         crate::config::AppConfig::config_path()
             .ok()?
             .parent()
-            .map(|p| p.join("gguf_cache.json"))
+            .map(|p| p.join("gguf_cache2.json"))
     }
 }
 
@@ -489,6 +509,7 @@ fn describe_cached(
         Some(e) if e.size_bytes == size && e.mtime_secs == mtime => e.clone(),
         _ => {
             let meta = read_model_metadata(path)?;
+            let is_draft = is_draft_metadata(&meta);
             let is_reasoning = is_reasoning_model(&meta);
             let entry = MetaCacheEntry {
                 size_bytes: size,
@@ -498,12 +519,16 @@ fn describe_cached(
                 context_length: meta.context_length,
                 architecture: meta.architecture,
                 is_reasoning,
+                is_draft,
             };
             cache.insert(key.to_string(), entry.clone());
             *dirty = true;
             entry
         }
     };
+    if entry.is_draft {
+        return None;
+    }
     let params_b = entry
         .size_label
         .or_else(|| entry.parameter_count.map(format_params))
@@ -978,6 +1003,36 @@ mod tests {
         assert!(read_model_metadata(&dir.join("missing.gguf")).is_none());
         std::fs::write(dir.join("junk.gguf"), b"not a gguf file at all!!!!").unwrap();
         assert!(read_model_metadata(&dir.join("junk.gguf")).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn model_list_hides_metadata_drafts() {
+        let dir = std::env::temp_dir().join(format!("werk-list-draft-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        write_gguf(
+            &dir.join("real.gguf"),
+            &[("general.architecture", 8, str_val("llama"))],
+        );
+        // EAGLE3 drafts rarely say so in the filename; the arch does.
+        write_gguf(
+            &dir.join("mystery.gguf"),
+            &[("general.architecture", 8, str_val("eagle3"))],
+        );
+        // Target layers alone fingerprint a draft too.
+        let mut layers = 4u32.to_le_bytes().to_vec();
+        layers.extend_from_slice(&3u64.to_le_bytes());
+        for v in [2u32, 15, 27] {
+            layers.extend_from_slice(&v.to_le_bytes());
+        }
+        write_gguf(
+            &dir.join("layers.gguf"),
+            &[("llama.target_layers", 9, layers)],
+        );
+        let models = list_installed_models(&[dir.clone()]);
+        let names: Vec<&str> = models.iter().map(|m| m.filename.as_str()).collect();
+        assert_eq!(names, vec!["real.gguf"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
