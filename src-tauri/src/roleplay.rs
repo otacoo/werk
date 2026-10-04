@@ -73,6 +73,7 @@ Style:
 - Specific, grounded prose: strong verbs, varied sentence lengths, no cliches, no melodrama, no em-dashes.
 - Answer out-of-character commands out of character.
 - Use ask_user (2-4 options) when the story genuinely needs the user's choice, never for things a character can decide.
+- Use get_time for the current date or time when the scene needs it.
 - Save durable facts about the user and the story with remember; it stays hidden from the scene, so never mention it.";
 
 // ── PNG text chunks ───────────────────────────────────────────────────────

@@ -1499,6 +1499,7 @@ async fn agent_send_impl(
             .only(&[])
             .add(Arc::new(harness::memory::RememberTool::for_file(memory)))
             .add(Arc::new(harness::tools::AskUserTool))
+            .add(Arc::new(harness::tools::TimeTool))
     } else {
         build_registry(
             jail.clone(),
