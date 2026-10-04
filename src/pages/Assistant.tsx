@@ -114,24 +114,31 @@ export default function Assistant({ active = true }: { active?: boolean }) {
   ];
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center gap-0.5 px-4 pt-3 shrink-0">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-              tab === t.id ? "bg-accent/20 text-ink" : "text-dim hover:text-ink hover:bg-accent/10"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 space-y-4 max-w-6xl mx-auto">
+        <div>
+          <h1 className="section-title">Assistant</h1>
+          <p className="section-desc">
+            Persona, memory, reminders, and everything the assistant can do.
+          </p>
+        </div>
 
-      {tab === "persona" && persona && (
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-3xl mx-auto space-y-4">
+        <div className="flex items-center gap-0.5">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                tab === t.id ? "bg-accent/20 text-ink" : "text-dim hover:text-ink hover:bg-accent/10"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "persona" && persona && (
+          <div className="grid grid-cols-2 gap-4 items-start">
             <div className="card space-y-3">
               <div>
                 <h2 className="section-title mb-0">Identity</h2>
@@ -174,156 +181,152 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                 />
               </label>
             </div>
-            <div className="card space-y-2">
-              <div>
-                <h2 className="section-title mb-0">System prompt</h2>
-                <p className="section-desc">
-                  Always sent first, before the persona, memory, and skills. Edit it here, or
-                  reset to follow the built-in default; {"{{name}}"} becomes the assistant name.
-                </p>
+            <div className="space-y-4">
+              <div className="card space-y-2">
+                <div>
+                  <h2 className="section-title mb-0">System prompt</h2>
+                  <p className="section-desc">
+                    Always sent first, before the persona, memory, and skills. Edit it here, or
+                    reset to follow the built-in default; {"{{name}}"} becomes the assistant name.
+                  </p>
+                </div>
+                <textarea
+                  className="input w-full font-mono text-[0.6875rem] leading-snug"
+                  rows={10}
+                  value={persona.system_prompt ?? builtInPrompt}
+                  onChange={(e) => setPersona({ ...persona, system_prompt: e.target.value })}
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    className="btn-ghost text-[0.625rem] py-0.5 px-1.5"
+                    onClick={() => setPersona({ ...persona, system_prompt: null })}
+                    title="Clear the custom prompt and follow the built-in default"
+                  >
+                    Reset
+                  </button>
+                  <span className="text-[0.6875rem] text-faint ml-auto text-right">
+                    {persona.system_prompt?.trim()
+                      ? "Custom system prompt active."
+                      : "Using the built-in default."}
+                  </span>
+                </div>
               </div>
-              <textarea
-                className="input w-full font-mono text-[0.6875rem] leading-snug"
-                rows={10}
-                value={persona.system_prompt ?? builtInPrompt}
-                onChange={(e) => setPersona({ ...persona, system_prompt: e.target.value })}
-              />
-              <div className="flex items-center gap-2">
-                <button
-                  className="btn-ghost text-[0.625rem] py-0.5 px-1.5"
-                  onClick={() => setPersona({ ...persona, system_prompt: null })}
-                  title="Clear the custom prompt and follow the built-in default"
-                >
-                  Reset
+              <div className="card space-y-3">
+                <div>
+                  <h2 className="section-title mb-0">Generation</h2>
+                  <p className="section-desc">
+                    Per-request overrides; empty uses the server default.
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <label className="block">
+                    <span className="text-[0.6875rem] text-dim">Temperature</span>
+                    <input
+                      type="number"
+                      step={0.05}
+                      min={0}
+                      max={2}
+                      placeholder="default"
+                      className="input w-full mt-1"
+                      value={persona.temperature ?? ""}
+                      onChange={(e) =>
+                        setPersona({
+                          ...persona,
+                          temperature: e.target.value === "" ? null : Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-[0.6875rem] text-dim">Top P</span>
+                    <input
+                      type="number"
+                      step={0.01}
+                      min={0}
+                      max={1}
+                      placeholder="default"
+                      className="input w-full mt-1"
+                      value={persona.top_p ?? ""}
+                      onChange={(e) =>
+                        setPersona({
+                          ...persona,
+                          top_p: e.target.value === "" ? null : Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-[0.6875rem] text-dim">Repeat penalty</span>
+                    <input
+                      type="number"
+                      step={0.01}
+                      min={0}
+                      max={2}
+                      placeholder="default"
+                      className="input w-full mt-1"
+                      value={persona.repeat_penalty ?? ""}
+                      onChange={(e) =>
+                        setPersona({
+                          ...persona,
+                          repeat_penalty: e.target.value === "" ? null : Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="block">
+                  <span className="text-[0.6875rem] text-dim">Reasoning effort</span>
+                  <select
+                    className="input w-full mt-1"
+                    value={persona.reasoning_effort ?? ""}
+                    onChange={(e) =>
+                      setPersona({ ...persona, reasoning_effort: e.target.value || null })
+                    }
+                  >
+                    <option value="">Default</option>
+                    {Object.entries(EFFORT_LABELS).map(([level, label]) => (
+                      <option key={level} value={level}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                {personaError && <p className="text-xs text-accent-red mr-auto">{personaError}</p>}
+                <button className="btn-primary text-xs py-1 px-2" onClick={savePersona}>
+                  {personaSaved ? "Saved" : "Save"}
                 </button>
-                <span className="text-[0.6875rem] text-faint ml-auto text-right">
-                  {persona.system_prompt?.trim()
-                    ? "Custom system prompt active."
-                    : "Using the built-in default."}
-                </span>
               </div>
-            </div>
-            <div className="card space-y-3">
-              <div>
-                <h2 className="section-title mb-0">Generation</h2>
-                <p className="section-desc">Per-request overrides; empty uses the server default.</p>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <label className="block">
-                  <span className="text-[0.6875rem] text-dim">Temperature</span>
-                  <input
-                    type="number"
-                    step={0.05}
-                    min={0}
-                    max={2}
-                    placeholder="default"
-                    className="input w-full mt-1"
-                    value={persona.temperature ?? ""}
-                    onChange={(e) =>
-                      setPersona({
-                        ...persona,
-                        temperature: e.target.value === "" ? null : Number(e.target.value),
-                      })
-                    }
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-[0.6875rem] text-dim">Top P</span>
-                  <input
-                    type="number"
-                    step={0.01}
-                    min={0}
-                    max={1}
-                    placeholder="default"
-                    className="input w-full mt-1"
-                    value={persona.top_p ?? ""}
-                    onChange={(e) =>
-                      setPersona({
-                        ...persona,
-                        top_p: e.target.value === "" ? null : Number(e.target.value),
-                      })
-                    }
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-[0.6875rem] text-dim">Repeat penalty</span>
-                  <input
-                    type="number"
-                    step={0.01}
-                    min={0}
-                    max={2}
-                    placeholder="default"
-                    className="input w-full mt-1"
-                    value={persona.repeat_penalty ?? ""}
-                    onChange={(e) =>
-                      setPersona({
-                        ...persona,
-                        repeat_penalty: e.target.value === "" ? null : Number(e.target.value),
-                      })
-                    }
-                  />
-                </label>
-              </div>
-              <label className="block">
-                <span className="text-[0.6875rem] text-dim">Reasoning effort</span>
-                <select
-                  className="input w-full mt-1"
-                  value={persona.reasoning_effort ?? ""}
-                  onChange={(e) =>
-                    setPersona({ ...persona, reasoning_effort: e.target.value || null })
-                  }
-                >
-                  <option value="">Default</option>
-                  {Object.entries(EFFORT_LABELS).map(([level, label]) => (
-                    <option key={level} value={level}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              {personaError && <p className="text-xs text-accent-red mr-auto">{personaError}</p>}
-              <button className="btn-primary text-xs py-1 px-2" onClick={savePersona}>
-                {personaSaved ? "Saved" : "Save"}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {tab === "memory" && (
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-3xl mx-auto space-y-4">
+        {tab === "memory" && (
+          <div className="grid grid-cols-2 gap-4 items-start">
             <AssistantMemoryCard />
             <SkillsCard />
           </div>
-        </div>
-      )}
+        )}
 
-      {tab === "reminders" && (
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-3xl mx-auto space-y-4">
+        {tab === "reminders" && (
+          <div className="grid grid-cols-2 gap-4 items-start">
             <RemindersCard />
           </div>
-        </div>
-      )}
+        )}
 
-      {tab === "access" && (
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-3xl mx-auto space-y-4">
+        {tab === "access" && (
+          <div className="grid grid-cols-2 gap-4 items-start">
             <AccessCard />
           </div>
-        </div>
-      )}
+        )}
 
-      {tab === "behavior" && (
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-3xl mx-auto space-y-4">
+        {tab === "behavior" && (
+          <div className="grid grid-cols-2 gap-4 items-start">
             <BehaviorCard />
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
