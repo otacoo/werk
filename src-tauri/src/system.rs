@@ -1028,15 +1028,17 @@ async fn atspi_run_async(action: &str, args: &Value) -> Result<String> {
         "tree" => {
             let mut out = String::new();
             let mut shown = 0usize;
+            let mut seen = 0usize;
             let mut stack: Vec<(AccessibleProxy<'_>, usize)> = vec![(root.clone(), 0)];
             while let Some((el, depth)) = stack.pop() {
                 if shown >= 80 {
                     out.push_str("[…more controls]\n");
                     break;
                 }
-                if depth > 12 {
+                if depth > 12 || seen > 4000 {
                     continue;
                 }
+                seen += 1;
                 let Ok(children) = el.get_children().await else {
                     continue;
                 };
