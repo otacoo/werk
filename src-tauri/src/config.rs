@@ -290,6 +290,21 @@ pub struct AssistantConfig {
     pub repeat_penalty: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    /// Fire OS notifications for due reminders.
+    #[serde(default = "default_true")]
+    pub notify: bool,
+    /// Let due `message` reminders start a proactive assistant turn.
+    #[serde(default = "default_true")]
+    pub proactive: bool,
+    /// Start werk with the OS session (minimized to the tray).
+    #[serde(default)]
+    pub autostart: bool,
+    /// Hide to the tray once the assistant's server is running.
+    #[serde(default = "default_true")]
+    pub minimize_on_start: bool,
+    /// Global hotkey that summons the overlay; empty disables it.
+    #[serde(default = "default_assistant_hotkey")]
+    pub hotkey: String,
 }
 
 impl Default for AssistantConfig {
@@ -302,6 +317,11 @@ impl Default for AssistantConfig {
             top_p: None,
             repeat_penalty: None,
             reasoning_effort: None,
+            notify: true,
+            proactive: true,
+            autostart: false,
+            minimize_on_start: true,
+            hotkey: default_assistant_hotkey(),
         }
     }
 }
@@ -465,6 +485,10 @@ fn default_assistant_persona() -> String {
      and cares about the user's projects and preferences. Honest when unsure, never \
      pretends to know something."
         .to_string()
+}
+
+fn default_assistant_hotkey() -> String {
+    "Ctrl+Alt+Space".to_string()
 }
 
 impl Default for AppConfig {

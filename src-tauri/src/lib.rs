@@ -19,6 +19,7 @@ pub mod run_context;
 pub mod recommended;
 pub mod roleplay;
 pub mod runtime;
+pub mod scheduler;
 pub mod server;
 pub mod terminal;
 pub mod worktree;
@@ -30,6 +31,26 @@ use std::sync::{Arc, Mutex};
 #[cfg(debug_assertions)]
 use specta_typescript::Typescript;
 use tauri_specta::{collect_commands, Builder};
+
+/// Show and focus the main window (tray, single instance).
+pub fn show_main(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
+/// Show and focus the assistant overlay, asking it to open its input.
+pub fn show_overlay(app: &tauri::AppHandle) {
+    use tauri::{Emitter, Manager};
+    if let Some(win) = app.get_webview_window("overlay") {
+        let _ = win.show();
+        let _ = win.set_focus();
+        let _ = app.emit_to("overlay", "assistant_focus", ());
+    }
+}
 
 /// Config rows -> spawnable specs; unusable rows are skipped.
 pub fn lsp_specs(config: &config::AppConfig) -> Vec<harness::lsp::servers::ServerSpec> {
@@ -63,6 +84,9 @@ pub struct AppState {
     pub talk: Arc<chat::HarnessRuntime>,
     /// Assistant transcript and run state; same separation as `talk`.
     pub assistant: Arc<chat::HarnessRuntime>,
+    /// Reminder scheduler paused (tray toggle); notifications and proactive
+    /// turns stop, the transcript stays.
+    pub assistant_paused: AtomicBool,
     /// Language servers for diagnostics and the `lsp` tool.
     pub lsp: Arc<harness::lsp::LspManager>,
     /// Harness-side MCP servers (spawned lazily, reused across runs).
@@ -93,6 +117,18 @@ fn get_config(state: tauri::State<'_, AppState>) -> Result<config::AppConfig, St
     Ok(state.config.lock().unwrap().clone())
 }
 
+/// Show/hide the assistant overlay (the frontend owns profile awareness).
+#[tauri::command]
+#[specta::specta]
+fn set_overlay_visible(visible: bool, app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(win) = app.get_webview_window("overlay") {
+        let result = if visible { win.show() } else { win.hide() };
+        result.map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg(debug_assertions)]
 fn export_bindings<R: tauri::Runtime>(builder: &Builder<R>) {
     // Absolute: relative paths resolve against the process CWD, which
@@ -110,6 +146,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         ping,
         app_version,
         get_config,
+        set_overlay_visible,
         chat::harness_agent_send,
         chat::harness_agent_abort,
         chat::harness_agent_steer,
@@ -167,6 +204,11 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::set_system_prompt,
         chat::set_system_prompt_presets,
         assistant::set_assistant_config,
+        assistant::set_assistant_behavior,
+        scheduler::assistant_reminders_list,
+        scheduler::assistant_reminder_add,
+        scheduler::assistant_reminder_complete,
+        scheduler::assistant_reminder_remove,
         roleplay::roleplay_list_cards,
         roleplay::roleplay_import_card,
         roleplay::roleplay_get_card,
@@ -310,7 +352,24 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        show_overlay(app);
+                    }
+                })
+                .build(),
+        )
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_denylist(&["overlay"])
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -353,23 +412,40 @@ pub fn run() {
                     }
                 });
             }
-            use tauri::menu::{Menu, MenuItem};
+            use tauri::menu::{CheckMenuItem, Menu, MenuItem};
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
             if let Some(icon) = app.default_window_icon().cloned() {
                 let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+                let assistant =
+                    MenuItem::with_id(app, "assistant", "Assistant", true, None::<&str>)?;
+                let pause = CheckMenuItem::with_id(
+                    app,
+                    "pause",
+                    "Pause reminders",
+                    true,
+                    false,
+                    None::<&str>,
+                )?;
                 let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-                let menu = Menu::with_items(app, &[&show, &quit])?;
+                let menu = Menu::with_items(app, &[&show, &assistant, &pause, &quit])?;
+                let pause_handle = pause.clone();
                 TrayIconBuilder::with_id("main")
                     .icon(icon)
                     .menu(&menu)
                     .show_menu_on_left_click(false)
-                    .on_menu_event(|app, event| match event.id.as_ref() {
-                        "show" => {
+                    .on_menu_event(move |app, event| match event.id.as_ref() {
+                        "show" => show_main(app),
+                        "assistant" => {
+                            use tauri::Emitter;
+                            show_main(app);
+                            let _ = app.emit("assistant_open", ());
+                        }
+                        "pause" => {
                             use tauri::Manager;
-                            if let Some(win) = app.get_webview_window("main") {
-                                let _ = win.unminimize();
-                                let _ = win.show();
-                                let _ = win.set_focus();
+                            if let Some(state) = app.try_state::<AppState>() {
+                                let now = !state.assistant_paused.load(Ordering::SeqCst);
+                                state.assistant_paused.store(now, Ordering::SeqCst);
+                                let _ = pause_handle.set_checked(now);
                             }
                         }
                         "quit" => app.exit(0),
@@ -382,13 +458,7 @@ pub fn run() {
                             ..
                         } = event
                         {
-                            use tauri::Manager;
-                            let app = tray.app_handle();
-                            if let Some(win) = app.get_webview_window("main") {
-                                let _ = win.unminimize();
-                                let _ = win.show();
-                                let _ = win.set_focus();
-                            }
+                            show_main(tray.app_handle());
                         }
                     })
                     .build(app)?;
@@ -396,6 +466,21 @@ pub fn run() {
             if let Some(tray) = app.tray_by_id("main") {
                 let _ = tray.set_visible(tray_on_startup);
             }
+            // Assistant always-on: hotkey, autostart sync, reminder tick.
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                let assistant = app.state::<AppState>().config.lock().unwrap().assistant.clone();
+                if !assistant.hotkey.trim().is_empty() {
+                    let _ = app.global_shortcut().register(assistant.hotkey.as_str());
+                }
+                let _ = if assistant.autostart {
+                    app.autolaunch().enable()
+                } else {
+                    app.autolaunch().disable()
+                };
+            }
+            scheduler::spawn(app.handle().clone());
             // Idle unload: stop the local server after the configured idle
             // window, unless the Web UI is enabled (it may be in use outside
             // the chat).
@@ -472,6 +557,7 @@ pub fn run() {
             harness: Arc::new(chat::HarnessRuntime::new()),
             talk: Arc::new(chat::HarnessRuntime::new()),
             assistant: Arc::new(chat::HarnessRuntime::new()),
+            assistant_paused: AtomicBool::new(false),
             lsp,
             mcp_agent: mcp::McpAgent::default(),
             terminal: terminal::TerminalRuntime::new(),
@@ -512,6 +598,7 @@ mod tests {
             harness: Arc::new(chat::HarnessRuntime::new()),
             talk: Arc::new(chat::HarnessRuntime::new()),
             assistant: Arc::new(chat::HarnessRuntime::new()),
+            assistant_paused: AtomicBool::new(false),
             lsp: Arc::new(harness::lsp::LspManager::new()),
             mcp_agent: mcp::McpAgent::default(),
             terminal: terminal::TerminalRuntime::new(),

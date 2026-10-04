@@ -1435,7 +1435,7 @@ pub async fn harness_agent_send(
 ) -> Result<RunResult, String> {
     let runtime = state.harness.clone();
     agent_send_impl(
-        state,
+        &state,
         app,
         runtime,
         RunMode::Agent,
@@ -1459,7 +1459,7 @@ pub async fn talk_send(
 ) -> Result<RunResult, String> {
     let runtime = state.talk.clone();
     agent_send_impl(
-        state,
+        &state,
         app,
         runtime,
         RunMode::Roleplay,
@@ -1483,7 +1483,7 @@ pub async fn assistant_send(
 ) -> Result<RunResult, String> {
     let runtime = state.assistant.clone();
     agent_send_impl(
-        state,
+        &state,
         app,
         runtime,
         RunMode::Assistant,
@@ -1495,8 +1495,33 @@ pub async fn assistant_send(
     .await
 }
 
+/// Run a proactive assistant turn (the reminder scheduler's `message` kind).
+pub async fn assistant_proactive(
+    app: AppHandle,
+    state: &AppState,
+    text: String,
+) -> Result<(), String> {
+    let runtime = state.assistant.clone();
+    if runtime.running.load(Ordering::SeqCst) {
+        return Err("An assistant run is already in progress".to_string());
+    }
+    crate::commands::ensure_server_inner(&app, state).await?;
+    agent_send_impl(
+        state,
+        app,
+        runtime,
+        RunMode::Assistant,
+        "assistant_event",
+        format!("[Reminder] {text}"),
+        None,
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
 async fn agent_send_impl(
-    state: State<'_, AppState>,
+    state: &AppState,
     app: AppHandle,
     runtime: Arc<HarnessRuntime>,
     run_mode: RunMode,
@@ -1570,7 +1595,8 @@ async fn agent_send_impl(
                 .only(&[])
                 .add(Arc::new(harness::memory::RememberTool::for_file(memory)))
                 .add(Arc::new(harness::tools::AskUserTool))
-                .add(Arc::new(harness::tools::TimeTool));
+                .add(Arc::new(harness::tools::TimeTool))
+                .add(Arc::new(crate::scheduler::ReminderTool));
             let skills = crate::assistant::skills();
             if !skills.is_empty() {
                 registry = registry.add(Arc::new(harness::skills::SkillTool::new(skills)));

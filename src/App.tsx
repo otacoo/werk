@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import {
@@ -48,10 +49,10 @@ const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "tools", label: "Tools", icon: Wrench },
   { id: "agent", label: "Agent", icon: Brain },
   { id: "roleplay", label: "Roleplay", icon: Drama },
-  { id: "assistant", label: "Assistant", icon: Sparkles },
   { id: "api", label: "API", icon: Plug },
   { id: "bench", label: "Bench", icon: FlaskConical },
   { id: "run", label: "Run", icon: Play },
+  { id: "assistant", label: "Assistant", icon: Sparkles },
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "talk", label: "Talk", icon: MessageCircleHeart },
   { id: "webui", label: "WebUI", icon: Globe },
@@ -111,6 +112,7 @@ export default function App() {
         setQuickBench(c.bench_visible ?? false);
         setExternalMode(c.server_mode === "external");
         setProfileMirror((c.chat_profile ?? "agent") as Profile);
+        setMinimizeOnStart(c.assistant?.minimize_on_start ?? false);
       })
       .catch(() => setWizard(false));
     call(commands.getPlatformStyle())
@@ -119,6 +121,28 @@ export default function App() {
       })
       .catch(() => {});
     getVersion().then(setAppVersion).catch(() => {});
+  }, []);
+
+  // Assistant always-on: the overlay follows the profile, and the app hides
+  // to the tray once the server is running (once per session).
+  const [minimizeOnStart, setMinimizeOnStart] = useState(false);
+  const minimizedRef = useRef(false);
+  useEffect(() => {
+    call(commands.setOverlayVisible(profile === "assistant")).catch(() => {});
+  }, [profile]);
+  useEffect(() => {
+    if (profile !== "assistant" || !serverRunning || !minimizeOnStart) return;
+    if (minimizedRef.current) return;
+    minimizedRef.current = true;
+    getCurrentWindow().hide().catch(() => {});
+  }, [profile, serverRunning, minimizeOnStart]);
+
+  // Tray "Assistant" item: open the tab in the main window.
+  useEffect(() => {
+    const unlisten = listen("assistant_open", () => setTab("assistant"));
+    return () => {
+      unlisten.then((f) => f());
+    };
   }, []);
 
   // The bench tab and Run card follow the Settings toggle live; fall back to
@@ -142,6 +166,7 @@ export default function App() {
             const external = c.server_mode === "external";
             setExternalMode(external);
             setProfileMirror((c.chat_profile ?? "agent") as Profile);
+            setMinimizeOnStart(c.assistant?.minimize_on_start ?? false);
             if (external) setTab((t) => (t === "run" || t === "api" ? "chat" : t));
           })
           .catch(() => {});

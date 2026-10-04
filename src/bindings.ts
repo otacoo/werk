@@ -9,6 +9,8 @@ export const commands = {
 	/**  Crate version for the About surface. */
 	appVersion: () => __TAURI_INVOKE<string>("app_version"),
 	getConfig: () => typedError<AppConfig_Serialize, string>(__TAURI_INVOKE("get_config")),
+	/**  Show/hide the assistant overlay (the frontend owns profile awareness). */
+	setOverlayVisible: (visible: boolean) => typedError<null, string>(__TAURI_INVOKE("set_overlay_visible", { visible })),
 	/**  Send a message to the coding agent; streams over `harness_event`. */
 	harnessAgentSend: (message: string, reasoningEffort: string | null, attachments: SendAttachment_Deserialize[] | null) => typedError<RunResult_Serialize, string>(__TAURI_INVOKE("harness_agent_send", { message, reasoningEffort, attachments })),
 	/**  Stop the running agent loop. */
@@ -116,6 +118,16 @@ export const commands = {
 	setSystemPromptPresets: (presets: SystemPromptPreset[]) => typedError<null, string>(__TAURI_INVOKE("set_system_prompt_presets", { presets })),
 	/**  Save assistant identity, persona, prompt override, and sampling. */
 	setAssistantConfig: (config: AssistantConfig_Deserialize) => typedError<null, string>(__TAURI_INVOKE("set_assistant_config", { config })),
+	/**  Always-on behavior: notifications, proactive turns, autostart, hotkey. */
+	setAssistantBehavior: (notify: boolean, proactive: boolean, autostart: boolean, minimizeOnStart: boolean, hotkey: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_behavior", { notify, proactive, autostart, minimizeOnStart, hotkey })),
+	/**  List reminders for the UI. */
+	assistantRemindersList: () => typedError<Reminder_Serialize[], string>(__TAURI_INVOKE("assistant_reminders_list")),
+	/**  Add a reminder from the UI (unix `due`). */
+	assistantReminderAdd: (text: string, due: number, repeatSecs: number | null, kind: ReminderKind) => typedError<Reminder_Serialize, string>(__TAURI_INVOKE("assistant_reminder_add", { text, due, repeatSecs, kind })),
+	/**  Mark a reminder done. */
+	assistantReminderComplete: (id: string) => typedError<null, string>(__TAURI_INVOKE("assistant_reminder_complete", { id })),
+	/**  Delete a reminder. */
+	assistantReminderRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("assistant_reminder_remove", { id })),
 	roleplayListCards: () => typedError<CardSummary[], string>(__TAURI_INVOKE("roleplay_list_cards")),
 	roleplayImportCard: (path: string) => typedError<CardSummary, string>(__TAURI_INVOKE("roleplay_import_card", { path })),
 	roleplayGetCard: (id: string) => typedError<CharacterCard, string>(__TAURI_INVOKE("roleplay_get_card", { id })),
@@ -500,6 +512,16 @@ export type AssistantConfig_Deserialize = {
 	top_p?: number | null,
 	repeat_penalty?: number | null,
 	reasoning_effort?: string | null,
+	/**  Fire OS notifications for due reminders. */
+	notify?: boolean,
+	/**  Let due `message` reminders start a proactive assistant turn. */
+	proactive?: boolean,
+	/**  Start werk with the OS session (minimized to the tray). */
+	autostart?: boolean,
+	/**  Hide to the tray once the assistant's server is running. */
+	minimize_on_start?: boolean,
+	/**  Global hotkey that summons the overlay; empty disables it. */
+	hotkey?: string,
 };
 
 /**  Assistant profile: identity, persona, prompt override, and sampling. */
@@ -514,6 +536,16 @@ export type AssistantConfig_Serialize = {
 	top_p?: number | null,
 	repeat_penalty?: number | null,
 	reasoning_effort?: string | null,
+	/**  Fire OS notifications for due reminders. */
+	notify: boolean,
+	/**  Let due `message` reminders start a proactive assistant turn. */
+	proactive: boolean,
+	/**  Start werk with the OS session (minimized to the tray). */
+	autostart: boolean,
+	/**  Hide to the tray once the assistant's server is running. */
+	minimize_on_start: boolean,
+	/**  Global hotkey that summons the overlay; empty disables it. */
+	hotkey: string,
 };
 
 /**  Auto-attached companion file; `auto` ones can be toggled off. */
@@ -1197,6 +1229,36 @@ export type ReleaseDto = {
 	tag_name: string,
 	build: number,
 	assets: AssetDto[],
+};
+
+export type Reminder = Reminder_Serialize | Reminder_Deserialize;
+
+export type ReminderKind = 
+/**  System notification only. */
+"notify" | 
+/**  Notification plus a proactive assistant turn when it fires. */
+"message";
+
+export type Reminder_Deserialize = {
+	id: string,
+	text: string,
+	/**  Unix seconds. */
+	due: number,
+	/**  Repeat interval; None = one-shot. */
+	repeat_secs?: number | null,
+	kind: ReminderKind,
+	done: boolean,
+};
+
+export type Reminder_Serialize = {
+	id: string,
+	text: string,
+	/**  Unix seconds. */
+	due: number,
+	/**  Repeat interval; None = one-shot. */
+	repeat_secs?: number | null,
+	kind: ReminderKind,
+	done: boolean,
 };
 
 /**  Per-role server overrides written into the router preset; None inherits. */

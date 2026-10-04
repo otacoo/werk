@@ -571,6 +571,11 @@ async fn start_server_inner(
 #[tauri::command]
 #[specta::specta]
 pub async fn ensure_server(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    ensure_server_inner(&app, &state).await
+}
+
+/// `ensure_server` for Rust callers (the reminder scheduler).
+pub(crate) async fn ensure_server_inner(app: &AppHandle, state: &AppState) -> Result<(), String> {
     if state.config.lock().unwrap().server_mode == crate::config::ServerMode::External {
         return Ok(());
     }
@@ -578,7 +583,7 @@ pub async fn ensure_server(app: AppHandle, state: State<'_, AppState>) -> Result
     match status {
         crate::server::ServerStatus::Running { ready: true, .. } => return Ok(()),
         crate::server::ServerStatus::Running { .. } | crate::server::ServerStatus::Starting => {
-            return wait_server_ready(&state).await;
+            return wait_server_ready(state).await;
         }
         _ => {}
     }
@@ -601,8 +606,8 @@ pub async fn ensure_server(app: AppHandle, state: State<'_, AppState>) -> Result
                 "No model selected yet — pick one on the Run page".to_string()
             })?;
     }
-    start_server_inner(&app, config, &state).await?;
-    wait_server_ready(&state).await
+    start_server_inner(app, config, state).await?;
+    wait_server_ready(state).await
 }
 
 /// Poll until the server reports ready, errors, or the timeout passes.

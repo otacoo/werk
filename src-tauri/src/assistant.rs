@@ -106,6 +106,42 @@ pub async fn set_assistant_config(
     cfg.save().map_err(|e| e.to_string())
 }
 
+/// Always-on behavior: notifications, proactive turns, autostart, hotkey.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_assistant_behavior(
+    app: tauri::AppHandle,
+    notify: bool,
+    proactive: bool,
+    autostart: bool,
+    minimize_on_start: bool,
+    hotkey: String,
+    state: State<'_, crate::AppState>,
+) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let hotkey: String = hotkey.trim().chars().take(64).collect();
+    {
+        let mut cfg = state.config.lock().unwrap();
+        cfg.assistant.notify = notify;
+        cfg.assistant.proactive = proactive;
+        cfg.assistant.autostart = autostart;
+        cfg.assistant.minimize_on_start = minimize_on_start;
+        cfg.assistant.hotkey = hotkey.clone();
+        cfg.save().map_err(|e| e.to_string())?;
+    }
+    let launch = app.autolaunch();
+    let _ = if autostart { launch.enable() } else { launch.disable() };
+    let shortcuts = app.global_shortcut();
+    let _ = shortcuts.unregister_all();
+    if !hotkey.is_empty() {
+        shortcuts
+            .register(hotkey.as_str())
+            .map_err(|e| format!("Invalid hotkey: {e}"))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

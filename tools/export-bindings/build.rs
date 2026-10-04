@@ -1,6 +1,7 @@
-//! MSVC only: embed the comctl32 v6 manifest. The tool links the Tauri app
-//! lib, whose imports need it — `tauri-build` used to add this for every bin
-//! in the app package, but this crate lives outside it.
+//! MSVC only: embed the comctl32 v6 manifest and mirror tauri-build's static
+//! vcruntime setup. The tool links the Tauri app lib, whose imports need both;
+//! `tauri-build` adds these for the app package, but this crate lives outside
+//! it.
 fn main() {
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
         return;
@@ -9,4 +10,22 @@ fn main() {
     println!("cargo:rustc-link-arg-bins=/MANIFEST:EMBED");
     println!("cargo:rustc-link-arg-bins=/MANIFESTINPUT:{}", manifest.display());
     println!("cargo:rerun-if-changed={}", manifest.display());
+    // The app lib's Windows deps emit C++ exception-handling shims; resolve
+    // them against the static C++ runtime (the app's msvcrt stub shadows the
+    // import lib through the inherited link search path).
+    for lib in [
+        "libvcruntimed.lib",
+        "vcruntime.lib",
+        "vcruntimed.lib",
+        "libcmtd.lib",
+        "msvcrt.lib",
+        "msvcrtd.lib",
+        "libucrt.lib",
+        "libucrtd.lib",
+    ] {
+        println!("cargo:rustc-link-arg-bins=/NODEFAULTLIB:{lib}");
+    }
+    for lib in ["libcmt.lib", "libvcruntime.lib", "ucrt.lib"] {
+        println!("cargo:rustc-link-arg-bins=/DEFAULTLIB:{lib}");
+    }
 }

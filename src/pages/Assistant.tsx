@@ -16,11 +16,19 @@ import {
   X,
 } from "lucide-react";
 import { commands } from "../bindings";
-import type { AppConfig, AssistantConfig, ContextStats, MemoryFileDto, ServerStatus } from "../bindings";
+import type {
+  AppConfig,
+  AssistantConfig,
+  ContextStats,
+  MemoryFileDto,
+  Reminder,
+  ServerStatus,
+} from "../bindings";
 import { call } from "../utils/ipc";
 import { subscribeConfigChanged } from "../utils/appSettings";
 import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
 import { playNotificationSound } from "../utils/sounds";
+import Toggle from "../components/Toggle";
 import { Markdown } from "./chat/markdown";
 import { ContextRing, CopyButton, ReasoningBlock, SysNotice, ToolCard } from "./chat/components";
 import { EFFORT_LABELS } from "./chat/external-controls";
@@ -65,7 +73,7 @@ const SLASH = [
   { name: "/help", hint: "List the assistant commands" },
 ];
 
-type Tab = "chat" | "persona" | "memory";
+type Tab = "chat" | "persona" | "reminders" | "memory" | "behavior";
 
 /// Assistant surface: one continuous thread with personality, memory, and
 /// the remember/ask_user/get_time/skill toolset.
@@ -143,6 +151,10 @@ export default function Assistant({ active = true }: { active?: boolean }) {
       res.messages.forEach((m, i) => {
         if (m.role === "user" && (m.content || (m.images && m.images.length > 0))) {
           if ((m.content ?? "").startsWith("[Compacted context")) {
+            restored.push({ kind: "sys", text: m.content ?? "" });
+            return;
+          }
+          if ((m.content ?? "").startsWith("[Reminder]")) {
             restored.push({ kind: "sys", text: m.content ?? "" });
             return;
           }
@@ -286,6 +298,11 @@ export default function Assistant({ active = true }: { active?: boolean }) {
         case "distilled":
           if (typeof ev.text === "string") {
             setItems([{ kind: "sys", text: ev.text }]);
+          }
+          break;
+        case "reminder":
+          if (typeof ev.text === "string") {
+            setItems((prev) => [...prev, { kind: "sys", text: `Reminder: ${ev.text}` }]);
           }
           break;
         case "notice":
@@ -604,7 +621,9 @@ export default function Assistant({ active = true }: { active?: boolean }) {
   const TABS: { id: Tab; label: string }[] = [
     { id: "chat", label: "Chat" },
     { id: "persona", label: "Persona" },
+    { id: "reminders", label: "Reminders" },
     { id: "memory", label: "Memory" },
+    { id: "behavior", label: "Behavior" },
   ];
 
   return (
@@ -1102,6 +1121,22 @@ export default function Assistant({ active = true }: { active?: boolean }) {
           </div>
         </div>
       )}
+
+      {tab === "reminders" && (
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-3xl mx-auto space-y-4">
+            <RemindersCard />
+          </div>
+        </div>
+      )}
+
+      {tab === "behavior" && (
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-3xl mx-auto space-y-4">
+            <BehaviorCard />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1174,6 +1209,243 @@ function AssistantMemoryCard() {
         }}
       />
       {error && <p className="text-xs text-accent-red mt-1">{error}</p>}
+    </div>
+  );
+}
+
+/// Reminder list + quick add; the assistant manages the same store.
+function RemindersCard() {
+  const [reminders, setReminders] = useState<Reminder[] | null>(null);
+  const [text, setText] = useState("");
+  const [due, setDue] = useState("");
+  const [repeatMin, setRepeatMin] = useState("");
+  const [kind, setKind] = useState<"notify" | "message">("message");
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => {
+    call(commands.assistantRemindersList())
+      .then(setReminders)
+      .catch(() => setReminders([]));
+  };
+  useEffect(load, []);
+
+  const add = async () => {
+    setError(null);
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const dueSecs = due
+      ? Math.floor(new Date(due).getTime() / 1000)
+      : Math.floor(Date.now() / 1000) + 60;
+    const repeatSecs =
+      repeatMin.trim() === "" ? null : Math.max(60, Math.round(Number(repeatMin) * 60));
+    try {
+      await call(commands.assistantReminderAdd(trimmed, dueSecs, repeatSecs, kind));
+      setText("");
+      setDue("");
+      setRepeatMin("");
+      load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const complete = (id: string) =>
+    call(commands.assistantReminderComplete(id)).then(load).catch((e) => setError(String(e)));
+  const remove = (id: string) =>
+    call(commands.assistantReminderRemove(id)).then(load).catch((e) => setError(String(e)));
+
+  return (
+    <div className="card">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <h2 className="section-title mb-0">Reminders</h2>
+        <button className="btn-ghost text-[0.625rem] py-0.5 px-1.5" onClick={load} title="Refresh">
+          <RefreshCw size={11} /> Refresh
+        </button>
+      </div>
+      <p className="section-desc">
+        Due reminders flash the overlay (or the taskbar/dock when it is hidden); "message"
+        reminders also start a proactive turn. The assistant manages the same list with its
+        reminder tool.
+      </p>
+      <div className="flex flex-wrap items-center gap-2 mt-3">
+        <input
+          className="input flex-1 min-w-[12rem] text-xs"
+          placeholder="Remind me to…"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void add();
+          }}
+        />
+        <input
+          type="datetime-local"
+          className="input text-xs"
+          value={due}
+          onChange={(e) => setDue(e.target.value)}
+          title="When; empty = in one minute"
+        />
+        <input
+          type="number"
+          min={1}
+          className="input w-24 text-xs"
+          placeholder="repeat m"
+          value={repeatMin}
+          onChange={(e) => setRepeatMin(e.target.value)}
+          title="Repeat every N minutes; empty = once"
+        />
+        <select
+          className="input text-xs"
+          value={kind}
+          onChange={(e) => setKind(e.target.value as "notify" | "message")}
+        >
+          <option value="message">message</option>
+          <option value="notify">notify</option>
+        </select>
+        <button className="btn-primary text-xs py-1 px-2" onClick={add} disabled={!text.trim()}>
+          Add
+        </button>
+      </div>
+      {error && <p className="text-xs text-accent-red mt-2">{error}</p>}
+      {reminders && reminders.length === 0 && (
+        <p className="text-[0.6875rem] text-dim mt-2">No reminders yet.</p>
+      )}
+      <div className="space-y-1.5 mt-3">
+        {reminders?.map((r) => (
+          <div
+            key={r.id}
+            className={`flex items-center gap-2 border border-border rounded px-2.5 py-1.5 ${
+              r.done ? "opacity-50" : ""
+            }`}
+          >
+            <span
+              className={`badge-${r.kind === "message" ? "purple" : "gray"} text-[0.5625rem] shrink-0`}
+            >
+              {r.kind}
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-ink truncate">{r.text}</p>
+              <p className="text-[0.625rem] text-faint">
+                {new Date(r.due * 1000).toLocaleString()}
+                {r.repeat_secs ? ` · every ${Math.round(r.repeat_secs / 60)} min` : ""}
+                {r.done ? " · done" : ""}
+              </p>
+            </div>
+            {!r.done && (
+              <button
+                className="btn-ghost text-[0.625rem] py-0.5 px-1.5 shrink-0"
+                onClick={() => void complete(r.id)}
+                title="Mark done"
+              >
+                Done
+              </button>
+            )}
+            <button
+              className="btn-ghost text-[0.625rem] py-0.5 px-1.5 shrink-0 text-accent-red"
+              onClick={() => void remove(r.id)}
+              title="Delete"
+            >
+              Delete
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/// Always-on behavior: notifications, proactive turns, autostart, hotkey.
+function BehaviorCard() {
+  const [behavior, setBehavior] = useState<{
+    notify: boolean;
+    proactive: boolean;
+    autostart: boolean;
+    minimize_on_start: boolean;
+    hotkey: string;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const load = () => {
+    call(commands.getConfig())
+      .then((c) =>
+        setBehavior({
+          notify: c.assistant?.notify ?? true,
+          proactive: c.assistant?.proactive ?? true,
+          autostart: c.assistant?.autostart ?? false,
+          minimize_on_start: c.assistant?.minimize_on_start ?? true,
+          hotkey: c.assistant?.hotkey ?? "",
+        }),
+      )
+      .catch(() => {});
+  };
+  useEffect(load, []);
+
+  const save = async () => {
+    if (!behavior) return;
+    setError(null);
+    try {
+      await call(
+        commands.setAssistantBehavior(
+          behavior.notify,
+          behavior.proactive,
+          behavior.autostart,
+          behavior.minimize_on_start,
+          behavior.hotkey,
+        ),
+      );
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  if (!behavior) return null;
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h2 className="section-title mb-0">Behavior</h2>
+        <p className="section-desc">How the assistant behaves when the window is closed or idle.</p>
+      </div>
+      <Toggle
+        label="Reminder alerts"
+        hint="Flash the overlay (or taskbar/dock) when a reminder fires."
+        checked={behavior.notify}
+        onChange={(v) => setBehavior({ ...behavior, notify: v })}
+      />
+      <Toggle
+        label="Proactive messages"
+        hint='"message" reminders also start an assistant turn when they fire.'
+        checked={behavior.proactive}
+        onChange={(v) => setBehavior({ ...behavior, proactive: v })}
+      />
+      <Toggle
+        label="Start with the system"
+        hint="Launch werk at login, minimized to the tray."
+        checked={behavior.autostart}
+        onChange={(v) => setBehavior({ ...behavior, autostart: v })}
+      />
+      <Toggle
+        label="Minimize to tray when running"
+        hint="Hide the window once the assistant's server is up."
+        checked={behavior.minimize_on_start}
+        onChange={(v) => setBehavior({ ...behavior, minimize_on_start: v })}
+      />
+      <label className="block">
+        <span className="text-[0.6875rem] text-dim">Global hotkey (empty disables)</span>
+        <input
+          className="input w-full mt-1 font-mono text-xs"
+          placeholder="Ctrl+Alt+Space"
+          value={behavior.hotkey}
+          onChange={(e) => setBehavior({ ...behavior, hotkey: e.target.value })}
+        />
+      </label>
+      <div className="flex items-center justify-end gap-2">
+        {error && <p className="text-xs text-accent-red mr-auto">{error}</p>}
+        <button className="btn-primary text-xs py-1 px-2" onClick={save}>
+          {saved ? "Saved" : "Save"}
+        </button>
+      </div>
     </div>
   );
 }
