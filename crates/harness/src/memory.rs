@@ -143,6 +143,122 @@ pub fn enforce_cap(entries: &mut Vec<MemoryEntry>) {
     }
 }
 
+/// Newest entries that always survive retrieval, whatever the query.
+const RECENT_KEEP: usize = 5;
+
+const STOPWORDS: [&str; 13] = [
+    "the", "and", "for", "with", "that", "this", "what", "does", "how", "are", "was", "you",
+    "your",
+];
+
+fn tokens(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() >= 3)
+        .map(|w| w.to_lowercase())
+        .filter(|w| !STOPWORDS.contains(&w.as_str()))
+        .collect()
+}
+
+fn rendered_len(e: &MemoryEntry) -> usize {
+    e.date.len() + e.topic.len() + e.text.len() + 6
+}
+
+/// Top-k retrieval: the newest `RECENT_KEEP` entries always survive, then the
+/// best query matches fill the remaining budget (token overlap plus a recency
+/// bonus). Returned in chronological order.
+pub fn retrieve_entries(entries: &[MemoryEntry], query: &str, budget: usize) -> Vec<MemoryEntry> {
+    if entries.is_empty() {
+        return Vec::new();
+    }
+    let query_tokens = tokens(query);
+    let total = entries.len();
+    // Newest first, leaving at least half the budget for query matches.
+    let mut picked: Vec<usize> = Vec::new();
+    let mut used = 0usize;
+    let recent_budget = (budget / 2).max(1);
+    for i in (0..total).rev().take(RECENT_KEEP) {
+        let len = rendered_len(&entries[i]);
+        if !picked.is_empty() && used + len > recent_budget {
+            break;
+        }
+        used += len;
+        picked.push(i);
+    }
+    let mut scored: Vec<(usize, i64, i64)> = entries
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let hay = tokens(&format!("{} {} {}", e.topic, e.text, e.date));
+            let overlap = query_tokens
+                .iter()
+                .filter(|q| hay.iter().any(|h| h == *q))
+                .count() as i64;
+            // Later lines are newer; a capped recency bonus never beats a match.
+            (i, overlap, overlap * 30 + (i as i64 * 2).min(20))
+        })
+        .collect();
+    scored.sort_by_key(|s| std::cmp::Reverse(s.2));
+    for (i, overlap, _) in scored {
+        // Only real matches fill the rest; recency alone is not a reason.
+        if overlap == 0 || picked.contains(&i) {
+            continue;
+        }
+        let len = rendered_len(&entries[i]);
+        if used + len > budget {
+            continue;
+        }
+        used += len;
+        picked.push(i);
+    }
+    picked.sort_unstable();
+    picked.into_iter().map(|i| entries[i].clone()).collect()
+}
+
+/// Query-aware block for one memory file, under `label`.
+pub fn load_file_query(path: &Path, label: &str, query: &str) -> String {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return String::new();
+    };
+    let entries = parse_entries(&text);
+    if entries.is_empty() {
+        return String::new();
+    }
+    let picked = retrieve_entries(&entries, query, MEMORY_BLOCK_CAP);
+    if picked.is_empty() {
+        return String::new();
+    }
+    format!("\n\n{label}:\n{}", render_entries(&picked).trim_end())
+}
+
+/// Query-aware `load_block`: relevant entries instead of the file head.
+pub fn load_block_query(global: Option<&Path>, root: &Path, query: &str) -> String {
+    let mut parts = Vec::new();
+    let read = |path: &Path| -> Option<String> {
+        let text = std::fs::read_to_string(path).ok()?;
+        let entries = parse_entries(&text);
+        if entries.is_empty() {
+            return None;
+        }
+        let picked = retrieve_entries(&entries, query, MEMORY_BLOCK_CAP);
+        if picked.is_empty() {
+            return None;
+        }
+        Some(render_entries(&picked).trim_end().to_string())
+    };
+    if let Some(path) = global {
+        if let Some(text) = read(path) {
+            parts.push(format!("User memory:\n{text}"));
+        }
+    }
+    if let Some(text) = read(&project_memory_path(root)) {
+        parts.push(format!("Project memory:\n{text}"));
+    }
+    if parts.is_empty() {
+        return String::new();
+    }
+    format!("\n\n{}", parts.join("\n\n"))
+}
+
 pub fn load_block(global: Option<&Path>, root: &Path) -> String {
     let mut parts = Vec::new();
     let read_capped = |path: &Path| -> Option<String> {
@@ -388,6 +504,54 @@ mod tests {
         assert!(out.contains("[2026-01-02] build: use ninja"), "{out}");
         assert!(out.contains("preferences: dark mode"), "{out}");
         assert_eq!(parse_entries(&out).len(), 3);
+    }
+
+    #[test]
+    fn retrieval_keeps_recent_and_relevant_entries() {
+        let mut entries = vec![MemoryEntry {
+            date: "2026-01-01".into(),
+            topic: "prefs".into(),
+            text: "alpha unique thing".into(),
+        }];
+        for i in 0..40 {
+            entries.push(MemoryEntry {
+                date: "2026-01-01".into(),
+                topic: "log".into(),
+                text: format!("entry {i} {}", "filler ".repeat(20)),
+            });
+        }
+        // The oldest entry matches; the newest few always survive too.
+        let picked = retrieve_entries(&entries, "alpha thing", 800);
+        assert!(
+            picked.iter().any(|e| e.text.contains("alpha unique")),
+            "{} entries",
+            picked.len()
+        );
+        assert!(picked.iter().any(|e| e.text.contains("entry 39")));
+        assert!(picked.len() < 15, "{}", picked.len());
+        // Nothing matches: the newest entries still come back.
+        let picked = retrieve_entries(&entries, "zzz", 400);
+        assert!(!picked.is_empty());
+        assert!(picked.iter().all(|e| e.text.starts_with("entry")));
+    }
+
+    #[test]
+    fn query_block_prefers_matching_entries() {
+        let (root, global) = roots("topk");
+        let path = global.join("MEMORY.md");
+        let mut text = String::from("- [2026-01-01] prefs: alpha unique thing\n");
+        for i in 0..10 {
+            text.push_str(&format!(
+                "- [2026-01-{:02}] log: filler {i} {}\n",
+                i + 2,
+                "pad ".repeat(30)
+            ));
+        }
+        std::fs::write(&path, text).unwrap();
+        let block = load_file_query(&path, "User memory", "alpha thing");
+        assert!(block.contains("alpha unique thing"), "{block}");
+        assert!(block.contains("User memory:"), "{block}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

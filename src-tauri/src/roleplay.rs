@@ -888,24 +888,15 @@ pub fn greeting(card: &CharacterCard, index: usize, user_name: &str) -> Option<S
 
 /// Injected memory block for the active character.
 pub fn memory_block(config: &AppConfig) -> String {
+    memory_block_for(config, "")
+}
+
+/// Query-aware variant: newest plus most relevant entries, not the file head.
+pub fn memory_block_for(config: &AppConfig, query: &str) -> String {
     let Some(path) = character_memory_path(config.roleplay.card_id.as_deref()) else {
         return String::new();
     };
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return String::new();
-    };
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    let capped = if trimmed.chars().count() > harness::memory::MEMORY_BLOCK_CAP {
-        let mut short: String = trimmed.chars().take(harness::memory::MEMORY_BLOCK_CAP).collect();
-        short.push_str("\n[…]");
-        short
-    } else {
-        trimmed.to_string()
-    };
-    format!("\n\nMemory:\n{capped}")
+    harness::memory::load_file_query(&path, "Memory", query)
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────

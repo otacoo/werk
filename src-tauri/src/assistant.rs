@@ -46,6 +46,15 @@ pub fn sessions_dir() -> Result<PathBuf, String> {
 
 /// System prompt: base (built-in or custom), persona, date, memory, skills.
 pub fn system_prompt(config: &AppConfig, skills: &[harness::skills::Skill]) -> String {
+    system_prompt_for(config, skills, "")
+}
+
+/// Query-aware variant: memory injects the entries most relevant to `query`.
+pub fn system_prompt_for(
+    config: &AppConfig,
+    skills: &[harness::skills::Skill],
+    query: &str,
+) -> String {
     let custom = config
         .assistant
         .system_prompt
@@ -67,7 +76,11 @@ pub fn system_prompt(config: &AppConfig, skills: &[harness::skills::Skill]) -> S
     base.push_str(&harness::tools::TimeTool::now_utc());
     base.push_str(&files_block(config));
     if let Some(dir) = dir() {
-        base.push_str(&harness::memory::load_block(memory_path().as_deref(), &dir));
+        base.push_str(&harness::memory::load_block_query(
+            memory_path().as_deref(),
+            &dir,
+            query,
+        ));
     }
     base.push_str(&harness::skills::system_prompt_listing(skills));
     base

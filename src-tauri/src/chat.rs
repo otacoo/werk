@@ -1813,13 +1813,17 @@ async fn agent_send_impl(
                     base.push_str(&world);
                 }
             }
-            let memory = crate::roleplay::memory_block(&app_config);
+            let memory = crate::roleplay::memory_block_for(&app_config, &message);
             history.insert(0, ChatMessage::system(format!("{base}{memory}")));
         } else if assistant {
             let skills = crate::assistant::skills();
             history.insert(
                 0,
-                ChatMessage::system(crate::assistant::system_prompt(&app_config, &skills)),
+                ChatMessage::system(crate::assistant::system_prompt_for(
+                    &app_config,
+                    &skills,
+                    &message,
+                )),
             );
         } else {
             let prompt_tools = PromptTools::from_disabled(&app_config.agent_tools_disabled);
@@ -1834,9 +1838,10 @@ async fn agent_send_impl(
             .collect();
             let skills = harness::skills::discover(&skill_roots);
             let base = format!("{base}{}", harness::skills::system_prompt_listing(&skills));
-            let memory = harness::memory::load_block(
+            let memory = harness::memory::load_block_query(
                 global_base.as_deref().map(|b| b.join("MEMORY.md")).as_deref(),
                 &root,
+                &message,
             );
             let run_context = crate::run_context::run_context_block(&root);
             history.insert(

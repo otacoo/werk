@@ -9,6 +9,7 @@
 
 ### Changed
 
+- Prompts retrieve the memory entries most relevant to the current message (the newest entries always survive) instead of truncating the file head, so assistant, roleplay, and agent memory can grow past the old 16 KiB fold.
 - The Profiles section moved from the Settings menu to the Debug section.
 - Model downloads no longer re-read and sha256-check the finished file, so they complete as soon as the last byte arrives.
 - Both border orbits run faster (NERV 3s, Future 4.5s per lap), and NERV's selected Mode cards get a subtle green pane tint since the uniform border and pane had flattened the selection.
