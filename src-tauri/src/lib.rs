@@ -595,6 +595,12 @@ pub fn run() {
         .on_window_event(|win, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 use tauri::Manager;
+                // The overlay is a helper window: closing it just hides it.
+                if win.label() == "overlay" {
+                    api.prevent_close();
+                    let _ = win.hide();
+                    return;
+                }
                 let tray = win
                     .app_handle()
                     .try_state::<AppState>()
@@ -603,6 +609,9 @@ pub fn run() {
                 if tray {
                     api.prevent_close();
                     let _ = win.hide();
+                } else {
+                    // The hidden overlay would otherwise keep the app alive.
+                    win.app_handle().exit(0);
                 }
             }
         })

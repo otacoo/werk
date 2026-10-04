@@ -12,7 +12,6 @@ import {
   MessageSquare,
   Network,
   Play,
-  Plug,
   Settings as SettingsIcon,
   Sparkles,
   Wrench,
@@ -29,7 +28,6 @@ import Assistant from "./pages/Assistant";
 import Talk from "./pages/Talk";
 import WebUI from "./pages/WebUI";
 import Mode from "./pages/Mode";
-import Api from "./pages/Api";
 import Wizard from "./pages/Wizard";
 import WindowControls from "./components/WindowControls";
 import SettingsPanel, { type SettingsSection } from "./components/SettingsPanel";
@@ -39,7 +37,7 @@ import { loadAppearance, setAutoCorners } from "./utils/appearance";
 import { getQuickBench, setQuickBench, subscribeQuickBench, subscribeConfigChanged, setProfileMirror, subscribeProfile } from "./utils/appSettings";
 import { startServerStatusPolling, subscribeServerStatus } from "./utils/serverStatus";
 
-export type Tab = "dashboard" | "run" | "chat" | "talk" | "assistant" | "webui" | "tools" | "agent" | "roleplay" | "bench" | "mode" | "api";
+export type Tab = "dashboard" | "run" | "chat" | "talk" | "assistant" | "webui" | "tools" | "agent" | "roleplay" | "bench" | "mode";
 
 type Profile = "agent" | "webui" | "roleplay" | "assistant";
 
@@ -49,7 +47,6 @@ const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "tools", label: "Tools", icon: Wrench },
   { id: "agent", label: "Agent", icon: Brain },
   { id: "roleplay", label: "Roleplay", icon: Drama },
-  { id: "api", label: "API", icon: Plug },
   { id: "bench", label: "Bench", icon: FlaskConical },
   { id: "run", label: "Run", icon: Play },
   { id: "assistant", label: "Assistant", icon: Sparkles },
@@ -168,7 +165,7 @@ export default function App() {
             setExternalMode(external);
             setProfileMirror((c.chat_profile ?? "agent") as Profile);
         setCloseToTray(c.close_to_tray ?? false);
-            if (external) setTab((t) => (t === "run" || t === "api" ? "chat" : t));
+            if (external) setTab((t) => (t === "run" ? "chat" : t));
           })
           .catch(() => {});
       }),
@@ -230,7 +227,7 @@ export default function App() {
             <nav className="flex items-center gap-0.5 min-w-0 overflow-x-auto">
               {TABS.filter((t) => {
                 if (t.id === "bench" && !showBench) return false;
-                if ((t.id === "api" || t.id === "run") && externalMode) return false;
+                if (t.id === "run" && externalMode) return false;
                 if ((t.id === "chat" || t.id === "agent") && profile !== "agent") return false;
                 if (t.id === "tools" && (profile === "roleplay" || profile === "assistant")) return false;
                 if ((t.id === "roleplay" || t.id === "talk") && profile !== "roleplay") return false;
@@ -262,6 +259,12 @@ export default function App() {
                   >
                     <Icon size={13} fill={filled ? "currentColor" : "none"} />
                     {label}
+                    {id === "tools" && serverRunning && (
+                      <span
+                        className="w-1.5 h-1.5 rounded-full bg-accent-green shrink-0"
+                        title="API available"
+                      />
+                    )}
                   </button>
                 );
               })}
@@ -315,7 +318,6 @@ export default function App() {
         <div className="h-full min-h-0" style={{ display: shownTab === "mode" ? undefined : "none" }}>
           <Mode go={(t) => setTab(t)} />
         </div>
-        {shownTab === "api" && <Api />}
         <SettingsPanel
           open={settingsOpen}
           onClose={closeSettings}

@@ -1614,6 +1614,25 @@ function AccessCard() {
           action still asks for approval, and the sensitive-file policy stays in force.
         </p>
       </div>
+      <div className="space-y-1.5 border border-border rounded px-3 py-2">
+        <p className="text-xs font-medium text-ink">Built-in tools</p>
+        <p className="text-[0.625rem] text-faint">Always available to the assistant.</p>
+        {(
+          [
+            ["remember", "Curate the assistant's memory."],
+            ["web_search", "Search the web (DuckDuckGo)."],
+            ["get_time", "Current date and time."],
+            ["ask_user", "Ask a multiple-choice question."],
+            ["skill", "Load a saved skill."],
+            ["reminder", "Schedule reminders and alerts."],
+          ] as const
+        ).map(([name, desc]) => (
+          <div key={name} className="flex items-baseline gap-2 min-w-0">
+            <span className="font-mono text-[0.6875rem] text-ink shrink-0">{name}</span>
+            <span className="text-[0.625rem] text-faint truncate">{desc}</span>
+          </div>
+        ))}
+      </div>
       <Toggle
         label="Allow system control"
         hint="Master switch for everything on this tab."

@@ -1298,7 +1298,7 @@ impl ToolRegistry {
             BuiltinToolInfo { name: "search_content", summary: "Regex content search.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "exec", summary: "Shell commands; read-only runs free.", approval: "conditional", note: "" },
             BuiltinToolInfo { name: "get_time", summary: "Current UTC date and time.", approval: "auto", note: "" },
-            BuiltinToolInfo { name: "web_search", summary: "Search the web (DuckDuckGo) for current facts.", approval: "auto", note: "" },
+            BuiltinToolInfo { name: "web_search", summary: "Search the web using DuckDuckGo.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "todo", summary: "Keep a short task list for the run.", approval: "auto", note: "Orchestrator only." },
             BuiltinToolInfo { name: "spawn_subagent", summary: "Delegate to an ephemeral specialist.", approval: "auto", note: "Orchestrator only." },
             BuiltinToolInfo { name: "ask_user", summary: "Ask the user a multiple-choice question.", approval: "auto", note: "Orchestrator only." },

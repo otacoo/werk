@@ -13,6 +13,7 @@ import {
   Plus,
   RefreshCw,
   Server,
+  Terminal,
   Trash2,
   Wrench,
   X,
@@ -26,6 +27,7 @@ import { useAppConfig } from "../utils/useAppConfig";
 import Toggle from "../components/Toggle";
 import { AgentToolsCard, LspCard, PluginToolsCard, useToolsList } from "../components/ToolSettings";
 import { KNOWN_TOOLS, toolsArgValue } from "../utils/tools";
+import { ApiPane } from "./Api";
 
 const emptyEntry = (): McpServerEntry => ({
   name: "",
@@ -74,13 +76,13 @@ export default function Tools({ active = true }: { active?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   // Live = what the running server and agent MCP servers currently offer;
   // Agent = run by werk; Server = run by llama-server for WebUI/API clients.
-  const [pane, setPane] = useState<"live" | "agent" | "server" | "mcp" | "lsp">(() => {
+  const [pane, setPane] = useState<"live" | "agent" | "server" | "mcp" | "lsp" | "api">(() => {
     const saved = localStorage.getItem("werk.tools.pane");
-    return saved === "live" || saved === "server" || saved === "mcp" || saved === "lsp"
+    return saved === "live" || saved === "server" || saved === "mcp" || saved === "lsp" || saved === "api"
       ? saved
       : "agent";
   });
-  const switchPane = (p: "live" | "agent" | "server" | "mcp" | "lsp") => {
+  const switchPane = (p: "live" | "agent" | "server" | "mcp" | "lsp" | "api") => {
     setPane(p);
     localStorage.setItem("werk.tools.pane", p);
   };
@@ -291,6 +293,7 @@ export default function Tools({ active = true }: { active?: boolean }) {
       { id: "live" as const, label: "Live Tools", icon: Activity },
       { id: "agent" as const, label: "Agent", icon: Bot },
       { id: "server" as const, label: "Server", icon: Server },
+      { id: "api" as const, label: "API", icon: Terminal },
       { id: "mcp" as const, label: "MCP", icon: Plug },
       { id: "lsp" as const, label: "LSP", icon: FileCode },
     ] as const
@@ -376,11 +379,13 @@ export default function Tools({ active = true }: { active?: boolean }) {
               ? "Tools for werk's agent harness. Available in every mode."
               : pane === "live"
                 ? "What the running server and the agent's MCP servers currently offer."
-                : pane === "mcp"
-                  ? "MCP servers are shared — llama-server exposes them to its Web UI/API clients, and werk starts them for the chat agent."
-                  : pane === "lsp"
-                    ? "Language-server navigation for the agent: definitions, references, symbols, and post-edit diagnostics."
-                    : "Tools that llama-server executes for its own API and Web UI clients."}
+                : pane === "api"
+                  ? "API info for the running server: endpoints, capabilities, and how to authenticate."
+                  : pane === "mcp"
+                    ? "MCP servers are shared — llama-server exposes them to its Web UI/API clients, and werk starts them for the chat agent."
+                    : pane === "lsp"
+                      ? "Language-server navigation for the agent: definitions, references, symbols, and post-edit diagnostics."
+                      : "Tools that llama-server executes for its own API and Web UI clients."}
           </p>
         </div>
 
@@ -417,6 +422,8 @@ export default function Tools({ active = true }: { active?: boolean }) {
             />
           </>
         )}
+
+        {pane === "api" && <ApiPane />}
 
         {pane === "lsp" && (
           <LspCard
