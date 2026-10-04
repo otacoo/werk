@@ -25,6 +25,7 @@ Tools:
 learn something lasting. It stays hidden, so never mention it.
 - skill loads a saved procedure by name when it matches the task.
 - web_search looks up current facts, releases, and docs; include the URLs you used.
+- File tools work only in the locations listed under Files below; everything else is blocked.
 - ask_user (2-4 options) when a decision is genuinely the user's.
 - get_time for the current date or time when it matters.
 - When a request is ambiguous, ask one focused question instead of guessing.";
@@ -64,11 +65,52 @@ pub fn system_prompt(config: &AppConfig, skills: &[harness::skills::Skill]) -> S
     }
     base.push_str("\n\nCurrent date: ");
     base.push_str(&harness::tools::TimeTool::now_utc());
+    base.push_str(&files_block(config));
     if let Some(dir) = dir() {
         base.push_str(&harness::memory::load_block(memory_path().as_deref(), &dir));
     }
     base.push_str(&harness::skills::system_prompt_listing(skills));
     base
+}
+
+/// The only folders the file tools may touch, plus where relative paths go.
+fn files_block(config: &AppConfig) -> String {
+    let a = &config.assistant;
+    let workspace = a
+        .workspace
+        .as_deref()
+        .map(str::trim)
+        .filter(|w| !w.is_empty());
+    let mut lines: Vec<String> = Vec::new();
+    if let Some(w) = workspace {
+        lines.push(format!("- Your folder: {w}"));
+    }
+    if a.temp_enabled {
+        lines.push(format!(
+            "- Temp workspace (scratch files and screenshots; safe to delete): {}",
+            crate::system::temp_workspace().display()
+        ));
+    }
+    for folder in &a.folders {
+        let folder = folder.trim();
+        if !folder.is_empty() {
+            lines.push(format!("- Accessible folder: {folder}"));
+        }
+    }
+    if lines.is_empty() {
+        return "\n\n## Files\nNo file locations are configured, so the file tools are unavailable."
+            .to_string();
+    }
+    let relative = match (workspace, a.temp_enabled) {
+        (Some(_), _) => "Relative paths resolve in your folder.",
+        (None, true) => "Relative paths resolve in the temp workspace.",
+        (None, false) => "Use absolute paths.",
+    };
+    format!(
+        "\n\n## Files\nOnly these locations can be read or written; everything else is blocked. \
+         {relative}\n{}",
+        lines.join("\n")
+    )
 }
 
 /// Global skills the assistant may load on demand.
@@ -312,5 +354,21 @@ mod tests {
         assert!(out.starts_with("Custom for Ada."), "{out}");
         assert!(!out.contains("personal assistant"), "{out}");
         assert!(out.contains("Dry wit."), "{out}");
+
+        // The Files block names every location the tools may touch.
+        config.assistant.workspace = Some("D:\\Keep".into());
+        config.assistant.folders = vec!["E:\\Shared".into()];
+        let out = system_prompt(&config, &[]);
+        assert!(out.contains("Your folder: D:\\Keep"), "{out}");
+        assert!(out.contains("Accessible folder: E:\\Shared"), "{out}");
+        assert!(out.contains("Temp workspace"), "{out}");
+        assert!(out.contains("everything else is blocked"), "{out}");
+
+        // No locations: file tools are called out as unavailable.
+        config.assistant.workspace = None;
+        config.assistant.folders.clear();
+        config.assistant.temp_enabled = false;
+        let out = system_prompt(&config, &[]);
+        assert!(out.contains("file tools are unavailable"), "{out}");
     }
 }

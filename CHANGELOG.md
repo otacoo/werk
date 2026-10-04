@@ -4,6 +4,7 @@
 
 ### Added
 
+- The assistant's system prompt lists its file locations (own folder, temp workspace, accessible folders) and states that everything else is blocked.
 - The Assistant Access tab gains a File system card: the assistant folder, a temp-working-folder toggle, and extra accessible folders; everything outside that list is completely blocked.
 - The Assistant Behavior tab has an Overlay card: show/hide the overlay, set its summon hotkey, and preview it on demand.
 - Assistant input control: an `input` tool (mouse move/click/drag/scroll, keyboard typing and key chords) with per-action approvals and an Access toggle.
@@ -23,6 +24,7 @@
 
 ### Changed
 
+- The Assistant File system card puts the temp toggle above the assistant folder, and the system tool toggles sit in a bordered group connected to the master switch.
 - Assistant system tools no longer ask for approval — the File system roots are the boundary — and the system-control switch carries a warning icon.
 - Assistant settings apply immediately (on blur or toggle) like Roleplay's, with no Save buttons.
 - The Assistant Access tab splits into System control and Built-in tools cards, and Reminders spans the full width.

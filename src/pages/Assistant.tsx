@@ -619,7 +619,9 @@ function SystemControlCard() {
         </span>
       </div>
       {access.system_control && (
-        <>
+        <div className="flex flex-col">
+          <div className="h-2.5 w-px bg-border ml-4" />
+          <div className="w-full space-y-3 border border-border rounded px-3 py-2">
           <Toggle
             label="File tools"
             hint="Read, write, edit, find, and search in the folders from the File system card."
@@ -650,7 +652,8 @@ function SystemControlCard() {
             checked={access.input}
             onChange={(v) => apply({ ...access, input: v })}
           />
-        </>
+          </div>
+        </div>
       )}
       {error && <p className="text-xs text-accent-red">{error}</p>}
     </div>
@@ -765,6 +768,12 @@ function FileSystemCard() {
           blocked.
         </p>
       </div>
+      <Toggle
+        label="Temp working folder"
+        hint={`Scratch files, scripts, and screenshots under ${fs.tempPath}.`}
+        checked={fs.temp_enabled}
+        onChange={(v) => apply({ ...fs, temp_enabled: v })}
+      />
       <div className="space-y-2 border border-border rounded px-3 py-2">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-ink">Assistant folder</p>
@@ -790,12 +799,6 @@ function FileSystemCard() {
           here.
         </p>
       </div>
-      <Toggle
-        label="Temp working folder"
-        hint={`Scratch files, scripts, and screenshots under ${fs.tempPath}.`}
-        checked={fs.temp_enabled}
-        onChange={(v) => apply({ ...fs, temp_enabled: v })}
-      />
       <div className="space-y-2 border border-border rounded px-3 py-2">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-ink">Accessible folders</p>
