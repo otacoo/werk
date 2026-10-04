@@ -44,6 +44,55 @@ pub fn show_main(app: &tauri::AppHandle) {
     }
 }
 
+/// The overlay window, built on demand. While the overlay is off no window
+/// (and no WebView) exists, so it costs nothing; enabling it rebuilds this.
+fn ensure_overlay(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+    if let Some(win) = app.get_webview_window("overlay") {
+        return Ok(win);
+    }
+    let built = WebviewWindowBuilder::new(
+        app,
+        "overlay",
+        WebviewUrl::App("index.html?overlay=1".into()),
+    )
+    .title("Werk Assistant")
+    .inner_size(84.0, 84.0)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(false)
+    .focused(false)
+    .build();
+    let win = match built {
+        Ok(win) => win,
+        // A concurrent caller may have built it first.
+        Err(e) => return app.get_webview_window("overlay").ok_or(e),
+    };
+    // Anchor bottom-right of the main window's work area before the first
+    // show, so it never flashes at the default position.
+    #[cfg(target_os = "windows")]
+    if let Some(area) = app
+        .get_webview_window("main")
+        .and_then(|w| w.hwnd().ok())
+        .and_then(|h| monitor_work_area(windows::Win32::Foundation::HWND(h.0 as _)))
+    {
+        let scale = win.scale_factor().unwrap_or(1.0);
+        let side = (84.0 * scale).round() as i32;
+        let margin = (16.0 * scale).round() as i32;
+        let raise = (16.0 * scale).round() as i32;
+        let _ = win.set_size(tauri::PhysicalSize::new(side as u32, side as u32));
+        let _ = win.set_position(tauri::PhysicalPosition::new(
+            area.right - side - margin,
+            area.bottom - side - margin - raise,
+        ));
+    }
+    Ok(win)
+}
+
 /// Show and focus the assistant overlay, asking it to open its input.
 pub fn show_overlay(app: &tauri::AppHandle) {
     use tauri::{Emitter, Manager};
@@ -52,12 +101,18 @@ pub fn show_overlay(app: &tauri::AppHandle) {
             return;
         }
     }
-    if let Some(win) = app.get_webview_window("overlay") {
+    if let Ok(win) = ensure_overlay(app) {
         // Re-assert topmost: the taskbar is topmost too and can win z-order.
         let _ = win.set_always_on_top(true);
         let _ = win.show();
         let _ = win.set_focus();
         let _ = app.emit_to("overlay", "assistant_focus", ());
+        // A freshly built window may not have its listeners yet.
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let _ = handle.emit_to("overlay", "assistant_focus", ());
+        });
     }
 }
 
@@ -70,6 +125,31 @@ pub struct WorkArea {
     pub bottom: i32,
 }
 
+/// Work area (excludes the taskbar) of the monitor nearest `hwnd`.
+#[cfg(target_os = "windows")]
+fn monitor_work_area(hwnd: windows::Win32::Foundation::HWND) -> Option<WorkArea> {
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    unsafe {
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return None;
+        }
+        let r = info.rcWork;
+        Some(WorkArea {
+            left: r.left,
+            top: r.top,
+            right: r.right,
+            bottom: r.bottom,
+        })
+    }
+}
+
 /// The overlay's work area; None outside Windows (the frontend falls back to
 /// the full monitor rect).
 #[tauri::command]
@@ -79,28 +159,8 @@ fn overlay_work_area(app: tauri::AppHandle) -> Option<WorkArea> {
     {
         use tauri::Manager;
         use windows::Win32::Foundation::HWND;
-        use windows::Win32::Graphics::Gdi::{
-            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-        };
         let win = app.get_webview_window("overlay")?;
-        let hwnd = HWND(win.hwnd().ok()?.0 as _);
-        unsafe {
-            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-            let mut info = MONITORINFO {
-                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                ..Default::default()
-            };
-            if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-                return None;
-            }
-            let r = info.rcWork;
-            Some(WorkArea {
-                left: r.left,
-                top: r.top,
-                right: r.right,
-                bottom: r.bottom,
-            })
-        }
+        monitor_work_area(HWND(win.hwnd().ok()?.0 as _))
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -174,14 +234,17 @@ fn get_config(state: tauri::State<'_, AppState>) -> Result<config::AppConfig, St
     Ok(state.config.lock().unwrap().clone())
 }
 
-/// Show/hide the assistant overlay (the frontend owns profile awareness).
+/// Show or fully tear down the assistant overlay (the frontend owns profile
+/// awareness). Destroying frees the WebView; it is rebuilt on demand.
 #[tauri::command]
 #[specta::specta]
 fn set_overlay_visible(visible: bool, app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Manager;
-    if let Some(win) = app.get_webview_window("overlay") {
-        let result = if visible { win.show() } else { win.hide() };
-        result.map_err(|e| e.to_string())?;
+    if visible {
+        let win = ensure_overlay(&app).map_err(|e| e.to_string())?;
+        win.show().map_err(|e| e.to_string())?;
+    } else if let Some(win) = app.get_webview_window("overlay") {
+        win.destroy().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -604,10 +667,11 @@ pub fn run() {
         .on_window_event(|win, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 use tauri::Manager;
-                // The overlay is a helper window: closing it just hides it.
+                // The overlay is rebuilt on demand: closing it destroys the
+                // WebView instead of keeping a hidden one alive.
                 if win.label() == "overlay" {
                     api.prevent_close();
-                    let _ = win.hide();
+                    let _ = win.destroy();
                     return;
                 }
                 let tray = win

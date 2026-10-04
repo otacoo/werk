@@ -1,4 +1,4 @@
-/* NERV: black terminal, orange ink, red alerts, and a green sweep along
+/* NERV: black terminal, orange ink, red alerts, and a green glow along
    card borders — old computer graphics. */
 [data-theme="nerv"] {
   color-scheme: dark;
@@ -17,34 +17,58 @@
   --scrollbar-thumb-hover: 190 112 28;
 }
 
-/* Cards: a green gradient sweeps along the border. */
+/* Cards: a green ring with a bright arc orbiting it. The rotating layer is
+   an oversized conic gradient moved with `transform` (compositor-only); the
+   inner cover leaves a 1px ring. A masked ring can't be animated cheaply. */
 [data-theme="nerv"] .card {
   position: relative;
+  isolation: isolate;
+  overflow: hidden;
   border-color: rgb(0 255 136 / 0.22);
   box-shadow: 0 0 14px rgb(0 255 136 / 0.07);
+}
+[data-theme="nerv"] .card::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  /* A square at least the card's diagonal, so the rotating layer always
+     covers it; a 300%-wide rectangle left a moving edge line on wide cards. */
+  width: 160%;
+  aspect-ratio: 1 / 1;
+  z-index: -2;
+  background: conic-gradient(
+    rgb(0 255 136 / 0.2),
+    rgb(0 255 136 / 0.85),
+    rgb(0 255 136 / 0.2)
+  );
+  will-change: transform;
+  animation: nerv-orbit 3s linear infinite;
+}
+@keyframes nerv-orbit {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
 }
 [data-theme="nerv"] .card::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: 1px;
+  z-index: -1;
   border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgb(0 255 136 / 0.6) 50%, transparent 100%);
-  background-size: 250% 100%;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
+  background: rgb(var(--surface-1));
   pointer-events: none;
-  animation: nerv-sweep 7s linear infinite;
 }
-@keyframes nerv-sweep {
-  from {
-    background-position: 250% 0;
-  }
-  to {
-    background-position: -250% 0;
-  }
+
+/* Selected cards (Mode pickers): a subtle pane tint, since the theme's
+   uniform border and pane had flattened the card-active styling. */
+[data-theme="nerv"] .card.card-active::after {
+  background:
+    linear-gradient(rgb(0 255 136 / 0.08), rgb(0 255 136 / 0.08)),
+    rgb(var(--surface-1));
 }
 
 /* Focus rings read green; warnings keep the shared reds. */

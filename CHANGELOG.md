@@ -5,9 +5,13 @@
 ### Changed
 
 - Model downloads no longer re-read and sha256-check the finished file, so they complete as soon as the last byte arrives.
+- Both border orbits run faster (NERV 3s, Future 4.5s per lap), and NERV's selected Mode cards get a subtle green pane tint since the uniform border and pane had flattened the selection.
 
 ### Fixed
 
+- The NERV and Future borders orbit a square layer sized to the card's diagonal; the old 300%-wide rectangle left a moving edge line on wide or short cards because the rotated layer stopped covering them.
+- The Future theme's cards trade their translucent glass for an opaque pane so the orbiting border stays hidden inside; the rim and active glow moved to the pane.
+- The assistant overlay window is destroyed while the overlay is disabled instead of lingering hidden, so it uses no memory or CPU.
 - Download progress events are throttled to ~10/s instead of one per chunk, so large downloads stop flooding the webview with IPC and the bar reaches 100%.
 
 ## [0.7.0] - 2026-10-04
