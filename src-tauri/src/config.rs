@@ -340,6 +340,9 @@ pub struct AssistantConfig {
     /// Mouse and keyboard control (the most sensitive system tool).
     #[serde(default = "default_true")]
     pub tool_input: bool,
+    /// Control apps through Windows UI Automation (no mouse movement).
+    #[serde(default = "default_true")]
+    pub tool_uia: bool,
     /// Browser control (Chrome/Edge over CDP, Firefox over WebDriver BiDi).
     #[serde(default = "default_true")]
     pub tool_browser: bool,
@@ -377,6 +380,7 @@ impl Default for AssistantConfig {
             tool_windows: true,
             tool_screen: true,
             tool_input: true,
+            tool_uia: true,
             tool_browser: true,
             browser_user_profile: false,
         }

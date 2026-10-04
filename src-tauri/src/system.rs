@@ -27,6 +27,9 @@ pub fn tools(config: &AssistantConfig) -> Vec<Arc<dyn Tool>> {
     if config.tool_input {
         out.push(Arc::new(InputTool));
     }
+    if config.tool_uia {
+        out.push(Arc::new(UiaTool));
+    }
     if config.tool_browser {
         out.push(Arc::new(crate::browser::BrowserTool::new(
             config.browser_user_profile,
@@ -472,6 +475,295 @@ fn parse_key(name: &str) -> Result<enigo::Key> {
         }
     };
     Ok(key)
+}
+
+// ── Accessibility (Windows UI Automation) ─────────────────────────────────
+
+/// Interact with controls through UI Automation: no mouse movement, and
+/// invoke/value/toggle do not steal focus.
+pub struct UiaTool;
+
+impl Tool for UiaTool {
+    fn name(&self) -> String {
+        "uia".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Interact with app controls through Windows UI Automation: find controls by name or \
+         automation id and invoke, type into, toggle, focus, or read them without moving the \
+         mouse. Actions: tree (list the foreground window's controls), click, type, toggle, \
+         focus, read. Prefer this over `input` for standard controls."
+            .to_string()
+    }
+
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "action": { "type": "string", "enum": ["tree", "click", "type", "toggle", "focus", "read"] },
+                "name": { "type": "string", "description": "Control name (case-insensitive substring)." },
+                "automation_id": { "type": "string", "description": "Exact automation id." },
+                "text": { "type": "string", "description": "Text to set for type." }
+            },
+            "required": ["action"]
+        })
+    }
+
+    fn approval_key(&self, _args: &Value) -> Option<ApprovalKey> {
+        None
+    }
+
+    fn execute(&self, args: &Value) -> Result<String> {
+        let action = args.get("action").and_then(Value::as_str).unwrap_or("");
+        #[cfg(target_os = "windows")]
+        {
+            return uia_run(action, args);
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = action;
+            bail!("UI Automation is only available on Windows")
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn control_type_name(id: i32) -> &'static str {
+    match id {
+        50000 => "button",
+        50001 => "calendar",
+        50002 => "checkbox",
+        50003 => "combobox",
+        50004 => "edit",
+        50005 => "hyperlink",
+        50006 => "image",
+        50007 => "listitem",
+        50008 => "list",
+        50009 => "menu",
+        50010 => "menubar",
+        50011 => "menuitem",
+        50012 => "progressbar",
+        50013 => "radiobutton",
+        50014 => "scrollbar",
+        50015 => "slider",
+        50016 => "spinner",
+        50017 => "statusbar",
+        50018 => "tab",
+        50019 => "tabitem",
+        50020 => "text",
+        50021 => "toolbar",
+        50022 => "tooltip",
+        50023 => "tree",
+        50024 => "treeitem",
+        50025 => "custom",
+        50026 => "group",
+        50027 => "thumb",
+        50028 => "datagrid",
+        50029 => "dataitem",
+        50030 => "document",
+        50031 => "splitbutton",
+        50032 => "window",
+        50033 => "pane",
+        50034 => "header",
+        50035 => "headeritem",
+        50036 => "table",
+        50037 => "titlebar",
+        50038 => "separator",
+        50039 => "semanticzoom",
+        50040 => "appbar",
+        _ => "other",
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn uia_run(action: &str, args: &Value) -> Result<String> {
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+    };
+    use windows::Win32::UI::Accessibility::{
+        CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationInvokePattern,
+        IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern, IUIAutomationValuePattern,
+        TreeScope_Descendants, UIA_InvokePatternId, UIA_SelectionItemPatternId,
+        UIA_TogglePatternId, UIA_ValuePatternId,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
+    let automation: IUIAutomation =
+        unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
+            .map_err(|e| anyhow!("UI Automation unavailable: {e}"))?;
+    let root: IUIAutomationElement = unsafe { automation.ElementFromHandle(GetForegroundWindow()) }
+        .map_err(|e| anyhow!("No foreground window: {e}"))?;
+
+    let name = args
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let id = args
+        .get("automation_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    match action {
+        "tree" => {
+            let cond = unsafe { automation.CreateTrueCondition() }?;
+            let all = unsafe { root.FindAll(TreeScope_Descendants, &cond) }
+                .map_err(|e| anyhow!("Cannot list controls: {e}"))?;
+            let len = unsafe { all.Length() }.unwrap_or(0);
+            let mut out = String::new();
+            let mut shown = 0;
+            for i in 0..len.min(4000) {
+                if shown >= 80 {
+                    out.push_str("[…more controls]\n");
+                    break;
+                }
+                let Ok(el) = (unsafe { all.GetElement(i) }) else {
+                    continue;
+                };
+                let text = unsafe { el.CurrentName() }
+                    .map(|b| b.to_string())
+                    .unwrap_or_default();
+                if text.trim().is_empty() {
+                    continue;
+                }
+                let ct = unsafe { el.CurrentControlType() }.map(|c| c.0).unwrap_or(0);
+                let aid = unsafe { el.CurrentAutomationId() }
+                    .map(|b| b.to_string())
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "{} \"{}\"{}\n",
+                    control_type_name(ct),
+                    text.trim(),
+                    if aid.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({aid})")
+                    }
+                ));
+                shown += 1;
+            }
+            if out.is_empty() {
+                out.push_str("No named controls in the foreground window.");
+            }
+            Ok(out)
+        }
+        "read" => {
+            let el = unsafe { uia_find(&automation, &root, name, id) }?;
+            let text = unsafe { el.CurrentName() }
+                .map(|b| b.to_string())
+                .unwrap_or_default();
+            let ct = unsafe { el.CurrentControlType() }.map(|c| c.0).unwrap_or(0);
+            let aid = unsafe { el.CurrentAutomationId() }
+                .map(|b| b.to_string())
+                .unwrap_or_default();
+            let value = unsafe {
+                el.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+            }
+            .ok()
+            .and_then(|p| unsafe { p.CurrentValue() }.ok())
+            .map(|b| b.to_string())
+            .unwrap_or_default();
+            Ok(format!(
+                "{} \"{}\"{} enabled={}{}",
+                control_type_name(ct),
+                text,
+                if aid.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({aid})")
+                },
+                unsafe { el.CurrentIsEnabled() }
+                    .map(|b| b.as_bool())
+                    .unwrap_or(true),
+                if value.is_empty() {
+                    String::new()
+                } else {
+                    format!(" value=\"{value}\"")
+                },
+            ))
+        }
+        "click" => {
+            let el = unsafe { uia_find(&automation, &root, name, id) }?;
+            if let Ok(p) =
+                unsafe { el.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) }
+            {
+                unsafe { p.Invoke() }.map_err(|e| anyhow!("Invoke failed: {e}"))?;
+                return Ok("Invoked the control.".to_string());
+            }
+            if let Ok(p) = unsafe {
+                el.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
+            } {
+                unsafe { p.Select() }.map_err(|e| anyhow!("Select failed: {e}"))?;
+                return Ok("Selected the control.".to_string());
+            }
+            bail!("This control supports neither invoke nor select; use the input tool")
+        }
+        "type" => {
+            let text = args
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("'text' is required for type"))?;
+            let el = unsafe { uia_find(&automation, &root, name, id) }?;
+            let p = unsafe {
+                el.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+            }
+            .map_err(|_| anyhow!("This control has no value pattern; use the input tool"))?;
+            let wide = windows::core::BSTR::from(text);
+            unsafe { p.SetValue(&wide) }.map_err(|e| anyhow!("SetValue failed: {e}"))?;
+            Ok(format!("Set {} characters.", text.chars().count()))
+        }
+        "toggle" => {
+            let el = unsafe { uia_find(&automation, &root, name, id) }?;
+            let p =
+                unsafe { el.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId) }
+                    .map_err(|_| anyhow!("This control has no toggle pattern"))?;
+            unsafe { p.Toggle() }.map_err(|e| anyhow!("Toggle failed: {e}"))?;
+            Ok("Toggled the control.".to_string())
+        }
+        "focus" => {
+            let el = unsafe { uia_find(&automation, &root, name, id) }?;
+            unsafe { el.SetFocus() }.map_err(|e| anyhow!("Focus failed: {e}"))?;
+            Ok("Focused the control.".to_string())
+        }
+        other => bail!("Unknown action '{other}'"),
+    }
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn uia_find(
+    automation: &windows::Win32::UI::Accessibility::IUIAutomation,
+    root: &windows::Win32::UI::Accessibility::IUIAutomationElement,
+    name: Option<&str>,
+    id: Option<&str>,
+) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement> {
+    use windows::Win32::UI::Accessibility::TreeScope_Descendants;
+    if name.is_none() && id.is_none() {
+        bail!("Provide 'name' or 'automation_id'");
+    }
+    let cond = automation.CreateTrueCondition()?;
+    let all = root.FindAll(TreeScope_Descendants, &cond)?;
+    let len = all.Length().unwrap_or(0);
+    for i in 0..len.min(4000) {
+        let Ok(el) = all.GetElement(i) else {
+            continue;
+        };
+        let text = el.CurrentName().map(|b| b.to_string()).unwrap_or_default();
+        let aid = el
+            .CurrentAutomationId()
+            .map(|b| b.to_string())
+            .unwrap_or_default();
+        let name_ok = name.map_or(true, |n| text.to_lowercase().contains(&n.to_lowercase()));
+        let id_ok = id.map_or(true, |x| aid.eq_ignore_ascii_case(x));
+        let enabled = el.CurrentIsEnabled().map(|b| b.as_bool()).unwrap_or(true);
+        if name_ok && id_ok && enabled {
+            return Ok(el);
+        }
+    }
+    bail!("No enabled control matches the given name/automation id")
 }
 
 // ── Screen capture ────────────────────────────────────────────────────────

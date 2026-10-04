@@ -553,6 +553,7 @@ function SystemControlCard() {
     windows: boolean;
     screen: boolean;
     input: boolean;
+    uia: boolean;
     browser: boolean;
     browser_user_profile: boolean;
   } | null>(null);
@@ -568,6 +569,7 @@ function SystemControlCard() {
           windows: c.assistant?.tool_windows ?? true,
           screen: c.assistant?.tool_screen ?? true,
           input: c.assistant?.tool_input ?? true,
+          uia: c.assistant?.tool_uia ?? true,
           browser: c.assistant?.tool_browser ?? true,
           browser_user_profile: c.assistant?.browser_user_profile ?? false,
         }),
@@ -588,6 +590,7 @@ function SystemControlCard() {
           next.windows,
           next.screen,
           next.input,
+          next.uia,
           next.browser,
           next.browser_user_profile,
         ),
@@ -657,6 +660,12 @@ function SystemControlCard() {
             hint="Move the mouse, click, scroll, type, and press keys. The most sensitive tool."
             checked={access.input}
             onChange={(v) => apply({ ...access, input: v })}
+          />
+          <Toggle
+            label="Accessibility (UIA)"
+            hint="Find and invoke app controls by name without moving the mouse; Windows only."
+            checked={access.uia}
+            onChange={(v) => apply({ ...access, uia: v })}
           />
           <Toggle
             label="Browser"
