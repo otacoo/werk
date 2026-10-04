@@ -22,6 +22,8 @@
 
 ### Changed
 
+- Assistant settings apply immediately (on blur or toggle) like Roleplay's, with no Save buttons.
+- The Assistant Access tab splits into System control and Built-in tools cards, and Reminders spans the full width.
 - The Assistant profile mirrors Roleplay: the Assistant tab holds settings (Persona, Reminders, Memory, Access, Behavior) with the same page title, tabs, and two-column card layout, and the conversation moved to its own Chat tab, with the Assistant tab placed before Run.
 - The API page is now a sub-tab of Tools, with a green presence dot on the Tools tab while the server is running.
 

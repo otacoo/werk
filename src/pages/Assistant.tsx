@@ -21,7 +21,6 @@ export default function Assistant({ active = true }: { active?: boolean }) {
   const [avatar, setAvatar] = useState<string | null>(null);
   const [builtInPrompt, setBuiltInPrompt] = useState("");
   const [personaError, setPersonaError] = useState<string | null>(null);
-  const [personaSaved, setPersonaSaved] = useState(false);
 
   const refreshConfig = () => {
     call(commands.getConfig())
@@ -85,23 +84,22 @@ export default function Assistant({ active = true }: { active?: boolean }) {
     }
   };
 
-  const savePersona = async () => {
-    if (!persona) return;
-    setPersonaError(null);
-    // An override equal to the built-in prompt is the same as none.
-    const prompt = persona.system_prompt?.trim() ?? "";
+  /// Persist persona edits immediately; an override equal to the built-in
+  /// prompt is stored as none.
+  const savePersona = async (next: AssistantConfig) => {
+    const prompt = next.system_prompt?.trim() ?? "";
     const toSave = {
-      ...persona,
+      ...next,
       system_prompt:
-        prompt === "" || prompt === builtInPrompt.trim() ? null : persona.system_prompt,
+        prompt === "" || prompt === builtInPrompt.trim() ? null : next.system_prompt,
     };
+    setPersona(toSave);
+    setPersonaError(null);
     try {
       await call(commands.setAssistantConfig(toSave));
-      setPersonaSaved(true);
-      setTimeout(() => setPersonaSaved(false), 1500);
-      refreshConfig();
     } catch (e) {
       setPersonaError(String(e));
+      refreshConfig();
     }
   };
 
@@ -168,6 +166,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                   className="input w-full mt-1"
                   value={persona.name}
                   onChange={(e) => setPersona({ ...persona, name: e.target.value })}
+                  onBlur={() => savePersona(persona)}
                 />
               </label>
               <label className="block">
@@ -178,6 +177,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                   placeholder="Voice, temperament, quirks, what it cares about…"
                   value={persona.persona}
                   onChange={(e) => setPersona({ ...persona, persona: e.target.value })}
+                  onBlur={() => savePersona(persona)}
                 />
               </label>
             </div>
@@ -195,11 +195,12 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                   rows={10}
                   value={persona.system_prompt ?? builtInPrompt}
                   onChange={(e) => setPersona({ ...persona, system_prompt: e.target.value })}
+                  onBlur={() => savePersona(persona)}
                 />
                 <div className="flex items-center gap-2">
                   <button
                     className="btn-ghost text-[0.625rem] py-0.5 px-1.5"
-                    onClick={() => setPersona({ ...persona, system_prompt: null })}
+                    onClick={() => savePersona({ ...persona, system_prompt: null })}
                     title="Clear the custom prompt and follow the built-in default"
                   >
                     Reset
@@ -228,14 +229,15 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                       max={2}
                       placeholder="default"
                       className="input w-full mt-1"
-                      value={persona.temperature ?? ""}
-                      onChange={(e) =>
-                        setPersona({
-                          ...persona,
-                          temperature: e.target.value === "" ? null : Number(e.target.value),
-                        })
-                      }
-                    />
+                    value={persona.temperature ?? ""}
+                    onChange={(e) =>
+                      setPersona({
+                        ...persona,
+                        temperature: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                    onBlur={() => savePersona(persona)}
+                  />
                   </label>
                   <label className="block">
                     <span className="text-[0.6875rem] text-dim">Top P</span>
@@ -246,14 +248,15 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                       max={1}
                       placeholder="default"
                       className="input w-full mt-1"
-                      value={persona.top_p ?? ""}
-                      onChange={(e) =>
-                        setPersona({
-                          ...persona,
-                          top_p: e.target.value === "" ? null : Number(e.target.value),
-                        })
-                      }
-                    />
+                    value={persona.top_p ?? ""}
+                    onChange={(e) =>
+                      setPersona({
+                        ...persona,
+                        top_p: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                    onBlur={() => savePersona(persona)}
+                  />
                   </label>
                   <label className="block">
                     <span className="text-[0.6875rem] text-dim">Repeat penalty</span>
@@ -264,14 +267,15 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                       max={2}
                       placeholder="default"
                       className="input w-full mt-1"
-                      value={persona.repeat_penalty ?? ""}
-                      onChange={(e) =>
-                        setPersona({
-                          ...persona,
-                          repeat_penalty: e.target.value === "" ? null : Number(e.target.value),
-                        })
-                      }
-                    />
+                    value={persona.repeat_penalty ?? ""}
+                    onChange={(e) =>
+                      setPersona({
+                        ...persona,
+                        repeat_penalty: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                    onBlur={() => savePersona(persona)}
+                  />
                   </label>
                 </div>
                 <label className="block">
@@ -280,7 +284,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                     className="input w-full mt-1"
                     value={persona.reasoning_effort ?? ""}
                     onChange={(e) =>
-                      setPersona({ ...persona, reasoning_effort: e.target.value || null })
+                      savePersona({ ...persona, reasoning_effort: e.target.value || null })
                     }
                   >
                     <option value="">Default</option>
@@ -292,12 +296,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                   </select>
                 </label>
               </div>
-              <div className="flex items-center justify-end gap-2">
-                {personaError && <p className="text-xs text-accent-red mr-auto">{personaError}</p>}
-                <button className="btn-primary text-xs py-1 px-2" onClick={savePersona}>
-                  {personaSaved ? "Saved" : "Save"}
-                </button>
-              </div>
+              {personaError && <p className="text-xs text-accent-red">{personaError}</p>}
             </div>
           </div>
         )}
@@ -309,15 +308,12 @@ export default function Assistant({ active = true }: { active?: boolean }) {
           </div>
         )}
 
-        {tab === "reminders" && (
-          <div className="grid grid-cols-2 gap-4 items-start">
-            <RemindersCard />
-          </div>
-        )}
+        {tab === "reminders" && <RemindersCard />}
 
         {tab === "access" && (
           <div className="grid grid-cols-2 gap-4 items-start">
-            <AccessCard />
+            <SystemControlCard />
+            <BuiltInToolsCard />
           </div>
         )}
 
@@ -545,7 +541,8 @@ function RemindersCard() {
 }
 
 /// Opt-in system control: master switch, home folder, and per-tool toggles.
-function AccessCard() {
+/// Changes apply immediately.
+function SystemControlCard() {
   const [access, setAccess] = useState<{
     system_control: boolean;
     workspace: string | null;
@@ -556,7 +553,6 @@ function AccessCard() {
     input: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
   const load = () => {
     call(commands.getConfig())
@@ -575,7 +571,29 @@ function AccessCard() {
   };
   useEffect(load, []);
 
+  const apply = async (next: NonNullable<typeof access>) => {
+    setAccess(next);
+    setError(null);
+    try {
+      await call(
+        commands.setAssistantAccess(
+          next.system_control,
+          next.workspace,
+          next.files,
+          next.clipboard,
+          next.windows,
+          next.screen,
+          next.input,
+        ),
+      );
+    } catch (e) {
+      setError(String(e));
+      load();
+    }
+  };
+
   const pickFolder = async () => {
+    if (!access) return;
     let picked: string | string[] | null = null;
     try {
       picked = await openDialog({ directory: true, multiple: false });
@@ -583,67 +601,24 @@ function AccessCard() {
       return;
     }
     if (!picked || typeof picked !== "string") return;
-    setAccess((a) => (a ? { ...a, workspace: picked } : a));
-  };
-
-  const save = async () => {
-    if (!access) return;
-    setError(null);
-    try {
-      await call(
-        commands.setAssistantAccess(
-          access.system_control,
-          access.workspace,
-          access.files,
-          access.clipboard,
-          access.windows,
-          access.screen,
-          access.input,
-        ),
-      );
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
-      load();
-    } catch (e) {
-      setError(String(e));
-    }
+    apply({ ...access, workspace: picked });
   };
 
   if (!access) return null;
   return (
     <div className="card space-y-3">
       <div>
-        <h2 className="section-title mb-0">System access</h2>
+        <h2 className="section-title mb-0">System control</h2>
         <p className="section-desc">
-          Off by default. When enabled, the assistant gets file tools over its own folder plus an
-          always-granted temp workspace, and clipboard, window, and screen tools; every mutating
-          action still asks for approval, and the sensitive-file policy stays in force.
+          Off by default. Each enabled tool still asks for approval per action, and the
+          sensitive-file policy stays in force.
         </p>
-      </div>
-      <div className="space-y-1.5 border border-border rounded px-3 py-2">
-        <p className="text-xs font-medium text-ink">Built-in tools</p>
-        <p className="text-[0.625rem] text-faint">Always available to the assistant.</p>
-        {(
-          [
-            ["remember", "Curate the assistant's memory."],
-            ["web_search", "Search the web (DuckDuckGo)."],
-            ["get_time", "Current date and time."],
-            ["ask_user", "Ask a multiple-choice question."],
-            ["skill", "Load a saved skill."],
-            ["reminder", "Schedule reminders and alerts."],
-          ] as const
-        ).map(([name, desc]) => (
-          <div key={name} className="flex items-baseline gap-2 min-w-0">
-            <span className="font-mono text-[0.6875rem] text-ink shrink-0">{name}</span>
-            <span className="text-[0.625rem] text-faint truncate">{desc}</span>
-          </div>
-        ))}
       </div>
       <Toggle
         label="Allow system control"
-        hint="Master switch for everything on this tab."
+        hint="Master switch for every tool on this card."
         checked={access.system_control}
-        onChange={(v) => setAccess({ ...access, system_control: v })}
+        onChange={(v) => apply({ ...access, system_control: v })}
       />
       {access.system_control && (
         <>
@@ -657,7 +632,7 @@ function AccessCard() {
                 {access.workspace && (
                   <button
                     className="btn-ghost text-[0.625rem] py-0.5 px-1.5 text-accent-red"
-                    onClick={() => setAccess({ ...access, workspace: null })}
+                    onClick={() => apply({ ...access, workspace: null })}
                   >
                     Clear
                   </button>
@@ -675,47 +650,75 @@ function AccessCard() {
           </div>
           <Toggle
             label="File tools"
-            hint="Read, write, edit, find, and search inside the assistant and temp folders."
+            hint="Read, write, edit, find, and search in the assistant folder and temp workspace."
             checked={access.files}
-            onChange={(v) => setAccess({ ...access, files: v })}
+            onChange={(v) => apply({ ...access, files: v })}
           />
           <Toggle
             label="Clipboard"
             hint="Read the clipboard and copy text."
             checked={access.clipboard}
-            onChange={(v) => setAccess({ ...access, clipboard: v })}
+            onChange={(v) => apply({ ...access, clipboard: v })}
           />
           <Toggle
             label="Window control"
             hint="List, focus, minimize, maximize, close, and move windows."
             checked={access.windows}
-            onChange={(v) => setAccess({ ...access, windows: v })}
+            onChange={(v) => apply({ ...access, windows: v })}
           />
           <Toggle
             label="Screen capture"
             hint="Capture monitors or windows to PNG files."
             checked={access.screen}
-            onChange={(v) => setAccess({ ...access, screen: v })}
+            onChange={(v) => apply({ ...access, screen: v })}
           />
           <Toggle
             label="Input control"
             hint="Move the mouse, click, scroll, type, and press keys. The most sensitive tool — keep approvals scoped."
             checked={access.input}
-            onChange={(v) => setAccess({ ...access, input: v })}
+            onChange={(v) => apply({ ...access, input: v })}
           />
         </>
       )}
-      <div className="flex items-center justify-end gap-2">
-        {error && <p className="text-xs text-accent-red mr-auto">{error}</p>}
-        <button className="btn-primary text-xs py-1 px-2" onClick={save}>
-          {saved ? "Saved" : "Save"}
-        </button>
+      {error && <p className="text-xs text-accent-red">{error}</p>}
+    </div>
+  );
+}
+
+/// The assistant's always-on toolset; independent of system control.
+function BuiltInToolsCard() {
+  return (
+    <div className="card space-y-2">
+      <div>
+        <h2 className="section-title mb-0">Built-in tools</h2>
+        <p className="section-desc">
+          Always on: these need no switches and no approvals. They are separate from the system
+          tools on the left.
+        </p>
+      </div>
+      <div className="space-y-1.5">
+        {(
+          [
+            ["remember", "Curate the assistant's memory."],
+            ["web_search", "Search the web (DuckDuckGo)."],
+            ["get_time", "Current date and time."],
+            ["ask_user", "Ask a multiple-choice question."],
+            ["skill", "Load a saved skill."],
+            ["reminder", "Schedule reminders and alerts."],
+          ] as const
+        ).map(([name, desc]) => (
+          <div key={name} className="flex items-baseline gap-2 min-w-0">
+            <span className="font-mono text-[0.6875rem] text-ink shrink-0">{name}</span>
+            <span className="text-[0.625rem] text-faint truncate">{desc}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-/// Always-on behavior: notifications, proactive turns, autostart.
+/// Always-on behavior: notifications, proactive turns, autostart. Toggles
+/// apply immediately.
 function BehaviorCard() {
   const [behavior, setBehavior] = useState<{
     notify: boolean;
@@ -725,7 +728,6 @@ function BehaviorCard() {
     hotkey: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
   const load = () => {
     call(commands.getConfig())
@@ -742,23 +744,22 @@ function BehaviorCard() {
   };
   useEffect(load, []);
 
-  const save = async () => {
-    if (!behavior) return;
+  const apply = async (next: NonNullable<typeof behavior>) => {
+    setBehavior(next);
     setError(null);
     try {
       await call(
         commands.setAssistantBehavior(
-          behavior.notify,
-          behavior.proactive,
-          behavior.autostart,
-          behavior.overlay_enabled,
-          behavior.hotkey,
+          next.notify,
+          next.proactive,
+          next.autostart,
+          next.overlay_enabled,
+          next.hotkey,
         ),
       );
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
     } catch (e) {
       setError(String(e));
+      load();
     }
   };
 
@@ -776,31 +777,27 @@ function BehaviorCard() {
         label="Reminder alerts"
         hint="Flash the overlay (or taskbar/dock) when a reminder fires."
         checked={behavior.notify}
-        onChange={(v) => setBehavior({ ...behavior, notify: v })}
+        onChange={(v) => apply({ ...behavior, notify: v })}
       />
       <Toggle
         label="Proactive messages"
         hint='"message" reminders also start an assistant turn when they fire.'
         checked={behavior.proactive}
-        onChange={(v) => setBehavior({ ...behavior, proactive: v })}
+        onChange={(v) => apply({ ...behavior, proactive: v })}
       />
       <Toggle
         label="Start with the system"
         hint="Launch werk at login, minimized to the tray."
         checked={behavior.autostart}
-        onChange={(v) => setBehavior({ ...behavior, autostart: v })}
+        onChange={(v) => apply({ ...behavior, autostart: v })}
       />
-      <div className="flex items-center justify-end gap-2">
-        {error && <p className="text-xs text-accent-red mr-auto">{error}</p>}
-        <button className="btn-primary text-xs py-1 px-2" onClick={save}>
-          {saved ? "Saved" : "Save"}
-        </button>
-      </div>
+      {error && <p className="text-xs text-accent-red">{error}</p>}
     </div>
   );
 }
 
 /// The always-on-top overlay: visibility, summon hotkey, and a preview.
+/// Changes apply immediately.
 function OverlayCard() {
   const [overlay, setOverlay] = useState<{
     enabled: boolean;
@@ -810,7 +807,6 @@ function OverlayCard() {
     autostart: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
   const load = () => {
     call(commands.getConfig())
@@ -827,23 +823,22 @@ function OverlayCard() {
   };
   useEffect(load, []);
 
-  const save = async () => {
-    if (!overlay) return;
+  const apply = async (next: NonNullable<typeof overlay>) => {
+    setOverlay(next);
     setError(null);
     try {
       await call(
         commands.setAssistantBehavior(
-          overlay.notify,
-          overlay.proactive,
-          overlay.autostart,
-          overlay.enabled,
-          overlay.hotkey,
+          next.notify,
+          next.proactive,
+          next.autostart,
+          next.enabled,
+          next.hotkey,
         ),
       );
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
     } catch (e) {
       setError(String(e));
+      load();
     }
   };
 
@@ -861,7 +856,7 @@ function OverlayCard() {
         label="Show the overlay"
         hint="Off hides the circle, the hotkey, and reminder flashes on it."
         checked={overlay.enabled}
-        onChange={(v) => setOverlay({ ...overlay, enabled: v })}
+        onChange={(v) => apply({ ...overlay, enabled: v })}
       />
       <label className="block">
         <span className="text-[0.6875rem] text-dim">Summon hotkey (empty disables)</span>
@@ -871,6 +866,7 @@ function OverlayCard() {
           value={overlay.hotkey}
           disabled={!overlay.enabled}
           onChange={(e) => setOverlay({ ...overlay, hotkey: e.target.value })}
+          onBlur={() => apply(overlay)}
         />
       </label>
       <div className="flex items-center gap-2">
@@ -886,12 +882,7 @@ function OverlayCard() {
           The overlay only appears in the assistant profile.
         </span>
       </div>
-      <div className="flex items-center justify-end gap-2">
-        {error && <p className="text-xs text-accent-red mr-auto">{error}</p>}
-        <button className="btn-primary text-xs py-1 px-2" onClick={save}>
-          {saved ? "Saved" : "Save"}
-        </button>
-      </div>
+      {error && <p className="text-xs text-accent-red">{error}</p>}
     </div>
   );
 }
