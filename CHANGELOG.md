@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-04
+
 ### Added
 
 - A Future theme: deep teal glass panes, a glowing mint accent with its own palette, wide flowing green gradients, an inner mint rim on cards, and a glowing Mode selection.
@@ -9,20 +11,21 @@
 - The assistant's system prompt lists its file locations (own folder, temp workspace, accessible folders) and states that everything else is blocked.
 - The Assistant Access tab gains a File system card: the assistant folder, a temp-working-folder toggle, and extra accessible folders; everything outside that list is completely blocked.
 - The Assistant Behavior tab has an Overlay card: show/hide the overlay, set its summon hotkey, and preview it on demand.
-- Assistant input control: an `input` tool (mouse move/click/drag/scroll, keyboard typing and key chords) with per-action approvals and an Access toggle.
+- Assistant input control: an `input` tool (mouse move/click/drag/scroll, keyboard typing and key chords) with an Access toggle.
 - Settings → Profiles can disable the WebUI profile (off by default), removing its Mode card, header tab, launch options, the Tools Server pane, and the Live Tools server card; the Mode page reflows automatically, and the API availability dot sits on the API sub-tab.
 - The assistant gets a profile image (Persona tab), shown in the header, message avatars, and the overlay circle.
 - A native `web_search` tool (DuckDuckGo HTML, no API key) is available to the assistant and the agent.
 - The assistant gets a user-picked home folder for persistent files plus an always-granted temp workspace for scratch scripts, downloads, and screenshots.
 - Tool results carry images when the local model has vision, so the assistant can see screenshots and image files it reads.
-- Assistant system control is opt-in from the Access tab: file tools over chosen folders plus clipboard, window, and screen-capture tools, each approval-gated.
+- Assistant system control is opt-in from the Access tab: file tools over chosen folders plus clipboard, window, and screen-capture tools.
 - The assistant overlay anchors to the monitor work area and re-asserts topmost, so the taskbar no longer covers it.
 - Assistant reminders: a persisted list with a reminder tool, a 30 s scheduler, cross-platform attention alerts, and catch-up for missed times.
 - The Assistant gets an always-on-top pulsing overlay with a floating input, a global hotkey, tray pause/assistant entries, and an autostart toggle.
 - The Assistant profile is live: a Talk-style tab with a persona, its own persistent memory, skills, and the remember/ask_user/get_time tools, running on the same server as the other profiles.
 - The Assistant's Access tab lists its built-in tools, so the web search and reminder tools are discoverable there.
-- Router roles can override the draft model, spec type (including EAGLE3 and DFlash), and draft token limits.
+- Router roles with an attached draft model can tune its draft token limits (N max, N min, P min).
 - Sibling draft files are detected from GGUF metadata (EAGLE3 target layers, DFlash arch, MTP nextn tensors), so drafts without telling filenames auto-attach.
+- Roleplay gets the get_time tool, so the model knows the current date and time.
 
 ### Changed
 
@@ -33,6 +36,17 @@
 - The Assistant Access tab splits into System control and Built-in tools cards, and Reminders spans the full width.
 - The Assistant profile mirrors Roleplay: the Assistant tab holds settings (Persona, Reminders, Memory, Access, Behavior) with the same page title, tabs, and two-column card layout, and the conversation moved to its own Chat tab, with the Assistant tab placed before Run.
 - The API page is now a sub-tab of Tools, with a green presence dot on the Tools tab while the server is running.
+- Run's attachment labels now read Vision and Draft model.
+- The assistant overlay follows theme changes live instead of needing a restart.
+
+### Fixed
+
+- Firefox browser control always ends its BiDi session (even after a failed action), restarts a wedged debug browser once, creates a tab when none is open, reports Firefox's real error message, and says when Chrome/Edge aren't installed.
+- Firefox browser control creates its BiDi session over the socket (`session.new`) and ends it afterwards, fixing "invalid session id" errors.
+- Closing the main window quits the app again when close-to-tray is off; the hidden overlay window used to keep it alive.
+- The launch command passes the host value before the port again, so servers start (a regression had dropped it).
+- EAGLE3/DFlash/MTP draft files are hidden from the model list by GGUF metadata, not only by filename.
+- Auto-attached drafts reserve room in the fit margin (`--fit-target` = 1 GiB + draft size + 768 MiB), so MTP/EAGLE3/DFlash drafts no longer OOM against a model that already fills VRAM.
 
 ## [0.6.0] - 2026-10-03
 
@@ -62,12 +76,6 @@
 
 ### Fixed
 
-- Firefox browser control always ends its BiDi session (even after a failed action), restarts a wedged debug browser once, creates a tab when none is open, reports Firefox's real error message, and says when Chrome/Edge aren't installed.
-- Firefox browser control creates its BiDi session over the socket (`session.new`) and ends it afterwards, fixing "invalid session id" errors.
-- Closing the main window quits the app again when close-to-tray is off; the hidden overlay window used to keep it alive.
-- The launch command passes the host value before the port again, so servers start (a regression had dropped it).
-- EAGLE3/DFlash/MTP draft files are hidden from the model list by GGUF metadata, not only by filename.
-- Auto-attached drafts reserve room in the fit margin (`--fit-target` = 1 GiB + draft size + 768 MiB), so MTP/EAGLE3/DFlash drafts no longer OOM against a model that already fills VRAM.
 - Permission grants are deduplicated and refreshed instead of stacking duplicates, a live global grant subsumes matching project grants, and old `grants.json` files compact on startup.
 - Sensitive shielding now reads nested `.gitignore` files, scoped to their directory and cached, instead of only the project root's.
 - Free read-only `exec` commands no longer expand shell variables — `cat $SECRET_PATH`, `$env:` and `$VAR` reads now need approval.
