@@ -4,10 +4,11 @@ import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from
 import { ArrowUp, Sparkles } from "lucide-react";
 import { commands } from "../bindings";
 import { call } from "../utils/ipc";
+import { loadAppearance } from "../utils/appearance";
 
-const COLLAPSED = 64;
-const EXPANDED_W = 380;
-const EXPANDED_H = 64;
+const COLLAPSED = 84;
+const EXPANDED_W = 404;
+const EXPANDED_H = 84;
 
 /// Always-on-top assistant overlay: a pulsing circle that expands into a
 /// floating input. Enter sends to the assistant; Esc collapses.
@@ -20,8 +21,10 @@ export default function Overlay() {
   const expandedRef = useRef(false);
   const sentTimer = useRef<number | null>(null);
 
-  // Transparent page: the pill owns all visible pixels.
+  // Transparent page: the pill owns all visible pixels. The theme is applied
+  // here too: the overlay renders outside App, which normally loads it.
   useEffect(() => {
+    loadAppearance();
     document.documentElement.style.background = "transparent";
     document.body.style.background = "transparent";
     document.body.style.overflow = "hidden";
