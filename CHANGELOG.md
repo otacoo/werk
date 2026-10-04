@@ -61,6 +61,7 @@
 
 ### Fixed
 
+- Firefox browser control creates its BiDi session over the socket (`session.new`) and ends it afterwards, fixing "invalid session id" errors.
 - Closing the main window quits the app again when close-to-tray is off; the hidden overlay window used to keep it alive.
 - The launch command passes the host value before the port again, so servers start (a regression had dropped it).
 - EAGLE3/DFlash/MTP draft files are hidden from the model list by GGUF metadata, not only by filename.

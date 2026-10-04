@@ -385,6 +385,21 @@ async fn firefox(action: &str, args: &Value) -> Result<String> {
     .await
     .map_err(|e| anyhow!("Cannot attach to Firefox (is a normal Firefox already running?): {e}"))?;
     let mut id = 0u64;
+    // Firefox exposes a BiDi-only endpoint: the session is created over the
+    // socket with the static session.new command before anything else.
+    if let Err(e) = bidi_call(
+        &mut ws,
+        &mut id,
+        "session.new",
+        json!({"capabilities": {}}),
+    )
+    .await
+    {
+        bail!(
+            "Cannot start a Firefox automation session: {e}. Close the Firefox window \
+             werk opened (debug port {FIREFOX_PORT}) and retry."
+        );
+    }
     let tree = bidi_call(&mut ws, &mut id, "browsingContext.getTree", json!({})).await?;
     let context = tree
         .pointer("/result/contexts")
@@ -491,6 +506,8 @@ async fn firefox(action: &str, args: &Value) -> Result<String> {
         }
         other => bail!("Unknown action '{other}'"),
     };
+    // Firefox allows one session at a time; end ours before disconnecting.
+    let _ = bidi_call(&mut ws, &mut id, "session.end", json!({})).await;
     let _ = ws.close(None).await;
     result
 }
