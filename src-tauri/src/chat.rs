@@ -741,6 +741,7 @@ pub fn router_role_entries(
                 None => crate::server::find_spec_draft(model).map(|(p, k)| (p, Some(k))),
             };
             if let Some((draft, kind)) = found {
+                e.fit_target = Some(crate::server::draft_fit_target_mib(&draft));
                 e.draft_model = Some(draft.to_string_lossy().to_string());
                 e.spec_type = params
                     .spec_type

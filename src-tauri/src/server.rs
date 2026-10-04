@@ -224,6 +224,17 @@ pub fn spec_draft_kind(path: &Path) -> Option<SpecDraftKind> {
     metadata_draft_kind(&crate::models::read_model_metadata(path)?)
 }
 
+/// `--fit-target` margin (MiB) that leaves room for a draft: upstream fit
+/// sizes the main model against the default 1 GiB margin, which the draft's
+/// weights and compute buffers then consume, so loads OOM without extra
+/// reservation.
+pub fn draft_fit_target_mib(draft: &Path) -> u32 {
+    let draft_mib = std::fs::metadata(draft)
+        .map(|m| m.len() / (1024 * 1024))
+        .unwrap_or(0);
+    1024 + draft_mib as u32 + 768
+}
+
 /// Sibling draft file next to a model: filename hints first (sorted for
 /// stability), then GGUF metadata probes on the smallest candidates, so
 /// EAGLE3 drafts without a telling filename still auto-attach.
@@ -606,7 +617,11 @@ pub fn build_args(config: &ServerConfig) -> (Vec<String>, Vec<String>) {
         }
     }
 
-    // Sibling draft file for speculative decoding (single-model only).
+    // Sibling draft file for speculative decoding (single-model only). With
+    // fit on, reserve room for the draft in the fit margin: upstream fit only
+    // sizes the main model, so the draft would OOM against the default margin.
+    let fit = config.extra_params.get("fit").map(|s| s.as_str()).unwrap_or("on");
+    let fit_on = fit != "off";
     if !router_mode
         && config.extra_params.contains_key("spec-draft")
         && !config.extra_params.contains_key("spec-draft-model")
@@ -616,17 +631,18 @@ pub fn build_args(config: &ServerConfig) -> (Vec<String>, Vec<String>) {
             args.push(draft.to_string_lossy().to_string());
             args.push("--spec-type".to_string());
             args.push(spec_type_name(kind).to_string());
+            if fit_on && !config.extra_params.contains_key("fit-target") {
+                args.push("--fit-target".to_string());
+                args.push(draft_fit_target_mib(&draft).to_string());
+            }
             notes.push(format!("--spec-draft-model auto-attached: {}", draft.display()));
         }
     }
 
     args.push("--host".to_string());
-    args.push(config.host.clone());
     args.push("--port".to_string());
     args.push(config.port.to_string());
 
-    let fit = config.extra_params.get("fit").map(|s| s.as_str()).unwrap_or("on");
-    let fit_on = fit != "off";
     if !router_mode {
         // With fit on, llama.cpp sizes the offload itself; a user-set
         // --n-gpu-layers aborts that fit and invites VRAM overcommit.
@@ -784,6 +800,8 @@ pub struct PresetEntry {
     pub draft_n_max: Option<u32>,
     pub draft_n_min: Option<u32>,
     pub draft_p_min: Option<f32>,
+    /// `--fit` margin (MiB) leaving room for the draft.
+    pub fit_target: Option<u32>,
 }
 
 /// INI text for the given entries; same file repeats dedupe into one
@@ -821,6 +839,9 @@ pub fn render_router_preset(entries: &[PresetEntry]) -> String {
         if let Some(p) = entry.draft_p_min {
             ini.push_str(&format!("spec-draft-p-min = {p}\n"));
         }
+        if let Some(t) = entry.fit_target {
+            ini.push_str(&format!("fit-target = {t}\n"));
+        }
         ini.push('\n');
     }
     ini
@@ -847,6 +868,7 @@ fn unique_preset_entries(entries: &[PresetEntry]) -> Vec<PresetEntry> {
                 u.draft_n_max = u.draft_n_max.or(e.draft_n_max);
                 u.draft_n_min = u.draft_n_min.or(e.draft_n_min);
                 u.draft_p_min = u.draft_p_min.or(e.draft_p_min);
+                u.fit_target = u.fit_target.or(e.fit_target);
             }
             None => unique.push(PresetEntry {
                 path: path.to_string(),
@@ -859,6 +881,7 @@ fn unique_preset_entries(entries: &[PresetEntry]) -> Vec<PresetEntry> {
                 draft_n_max: e.draft_n_max,
                 draft_n_min: e.draft_n_min,
                 draft_p_min: e.draft_p_min,
+                fit_target: e.fit_target,
             }),
         }
     }
@@ -1314,6 +1337,17 @@ mod tests {
     }
 
     #[test]
+    fn draft_fit_target_covers_draft_size() {
+        let dir = std::env::temp_dir().join(format!("werk-fit-target-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let draft = dir.join("d.gguf");
+        std::fs::write(&draft, vec![0u8; 10 * 1024 * 1024]).unwrap();
+        assert_eq!(draft_fit_target_mib(&draft), 1024 + 10 + 768);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn draft_kind_hints_and_metadata() {
         assert_eq!(name_draft_kind("Model-DSpark-Q4.gguf"), Some(SpecDraftKind::Dspark));
         assert_eq!(name_draft_kind("mtp-llama-8b.gguf"), Some(SpecDraftKind::MtpHead));
@@ -1352,6 +1386,7 @@ mod tests {
                 draft_n_max: Some(8),
                 draft_n_min: Some(1),
                 draft_p_min: Some(0.5),
+                fit_target: Some(2200),
                 ..Default::default()
             },
             PresetEntry {
@@ -1373,6 +1408,7 @@ mod tests {
         assert!(ini.contains("spec-draft-n-max = 8"));
         assert!(ini.contains("spec-draft-n-min = 1"));
         assert!(ini.contains("spec-draft-p-min = 0.5"));
+        assert!(ini.contains("fit-target = 2200"));
         assert!(!ini.contains("missing"));
         let _ = std::fs::remove_dir_all(&dir);
     }
