@@ -30,6 +30,14 @@ export default function Overlay() {
     document.body.style.overflow = "hidden";
   }, []);
 
+  // Theme/accent/font changes in the main window re-apply here live.
+  useEffect(() => {
+    const unlisten = listen("appearance_changed", () => loadAppearance());
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+
   const anchor = async (w: number, h: number, initial = false) => {
     const win = getCurrentWindow();
     const scale = await win.scaleFactor();

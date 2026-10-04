@@ -1,6 +1,8 @@
 //! UI-only appearance prefs (localStorage): theme, accent, font, corners.
 //! Applied as data attributes; components use semantic tokens.
 
+import { emit as emitTauri } from "@tauri-apps/api/event";
+
 export type ThemeName = "system" | "day" | "night" | "werk" | "gemma" | "migu" | "nerv";
 export type AccentName = "blue" | "violet" | "red" | "green" | "amber";
 export type CornersMode = "auto" | "sharp" | "round";
@@ -275,6 +277,11 @@ function applyAppearance(): void {
   root.style.fontSize = `${FONT_SIZES[font].px}px`;
   const sharp = corners === "sharp" || (corners === "auto" && autoCorners === "sharp");
   root.setAttribute("data-corners", sharp ? "sharp" : "round");
+  // Other windows (the assistant overlay) re-read the appearance on change;
+  // the overlay itself must not rebroadcast.
+  if (!window.location.search.includes("overlay")) {
+    emitTauri("appearance_changed").catch(() => {});
+  }
 }
 
 export function loadAppearance(autoDetectedCorners?: "sharp" | "round"): void {
