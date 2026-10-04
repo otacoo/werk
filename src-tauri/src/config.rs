@@ -388,6 +388,9 @@ pub struct AppConfig {
     /// Agent (coding harness) or Roleplay (character cards).
     #[serde(default)]
     pub chat_profile: ChatProfile,
+    /// Show the WebUI profile, tab, and launch options (Settings → Profiles).
+    #[serde(default = "default_true")]
+    pub webui_enabled: bool,
     /// Roleplay: active card, persona, greeting, sampling overrides.
     #[serde(default)]
     pub roleplay: RoleplayConfig,
@@ -531,6 +534,7 @@ impl Default for AppConfig {
             harness_system_prompt: None,
             system_prompt_presets: Vec::new(),
             chat_profile: ChatProfile::Agent,
+            webui_enabled: true,
             roleplay: RoleplayConfig::default(),
             assistant: AssistantConfig::default(),
             utility_target: None,
@@ -616,6 +620,10 @@ impl AppConfig {
         // Missing version keys default to CONFIG_VERSION above; this is the
         // hook for future schema migrations.
         self.version = CONFIG_VERSION;
+        // A disabled profile can never be the active one.
+        if !self.webui_enabled && self.chat_profile == ChatProfile::Webui {
+            self.chat_profile = ChatProfile::Agent;
+        }
     }
 
     /// Atomic save: write tmp + rename, so a crash never halves the file.
@@ -668,6 +676,22 @@ pub fn data_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disabled_webui_profile_coerces_to_agent() {
+        let mut config = AppConfig {
+            chat_profile: ChatProfile::Webui,
+            webui_enabled: false,
+            ..Default::default()
+        };
+        config.migrate();
+        assert_eq!(config.chat_profile, ChatProfile::Agent);
+        // An enabled WebUI profile stays put.
+        config.webui_enabled = true;
+        config.chat_profile = ChatProfile::Webui;
+        config.migrate();
+        assert_eq!(config.chat_profile, ChatProfile::Webui);
+    }
 
     #[test]
     fn server_mode_serializes_external() {

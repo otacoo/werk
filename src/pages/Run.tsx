@@ -1703,30 +1703,34 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
             </Field>
           </div>
           <div className="mt-4 space-y-3">
-            <Toggle
-              label="Web UI"
-              flag="--no-webui"
-              hint={
-                webuiProfile
-                  ? "Required by the WebUI profile."
-                  : "Serve llama.cpp's built-in web interface."
-              }
-              checked={webuiProfile ? true : !hasExtra("no-webui")}
-              disabled={webuiProfile}
-              onChange={(v) => {
-                setExtraFlag("no-webui", !v);
-                // The MCP proxy only exists for the Web UI.
-                if (!v) setExtraFlag("webui-mcp-proxy", false);
-              }}
-            />
-            {!hasExtra("no-webui") && (
-              <Toggle
-                label="WebUI MCP proxy"
-                flag="--webui-mcp-proxy"
-                hint="Enable the experimental MCP CORS proxy."
-                checked={hasExtra("webui-mcp-proxy")}
-                onChange={(v) => setExtraFlag("webui-mcp-proxy", v)}
-              />
+            {(appConfig?.webui_enabled ?? true) && (
+              <>
+                <Toggle
+                  label="Web UI"
+                  flag="--no-webui"
+                  hint={
+                    webuiProfile
+                      ? "Required by the WebUI profile."
+                      : "Serve llama.cpp's built-in web interface."
+                  }
+                  checked={webuiProfile ? true : !hasExtra("no-webui")}
+                  disabled={webuiProfile}
+                  onChange={(v) => {
+                    setExtraFlag("no-webui", !v);
+                    // The MCP proxy only exists for the Web UI.
+                    if (!v) setExtraFlag("webui-mcp-proxy", false);
+                  }}
+                />
+                {!hasExtra("no-webui") && (
+                  <Toggle
+                    label="WebUI MCP proxy"
+                    flag="--webui-mcp-proxy"
+                    hint="Enable the experimental MCP CORS proxy."
+                    checked={hasExtra("webui-mcp-proxy")}
+                    onChange={(v) => setExtraFlag("webui-mcp-proxy", v)}
+                  />
+                )}
+              </>
             )}
             <Toggle
               label="Warmup"

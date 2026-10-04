@@ -334,6 +334,11 @@ export default function Mode({
   // Center of the active server card, for the flow line's drop.
   const serverIndex = Math.max(0, options.findIndex((o) => o.id === mode));
 
+  // Disabled profiles disappear from the picker entirely.
+  const webuiEnabled = appConfig?.webui_enabled ?? true;
+  const visibleProfiles = profiles.filter((p) => p.id !== "webui" || webuiEnabled);
+  const profileColW = 100 / visibleProfiles.length;
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-4 max-w-6xl mx-auto">
@@ -401,10 +406,16 @@ export default function Mode({
         <div className="relative">
           <div
             className="absolute top-0 h-px bg-border"
-            style={{ left: "calc(12.5% - 1px)", right: "calc(12.5% - 1px)" }}
+            style={{
+              left: `calc(${profileColW / 2}% - 1px)`,
+              right: `calc(${profileColW / 2}% - 1px)`,
+            }}
           />
-          <div className="grid grid-cols-4 pt-5">
-            {profiles.map(({ id, icon: Icon, title, desc, points, soon }) => {
+          <div
+            className="grid pt-5"
+            style={{ gridTemplateColumns: `repeat(${visibleProfiles.length}, minmax(0, 1fr))` }}
+          >
+            {visibleProfiles.map(({ id, icon: Icon, title, desc, points, soon }) => {
               const disabled = soon || (id === "webui" && mode === "external");
               const active = !disabled && profile === id;
               return (

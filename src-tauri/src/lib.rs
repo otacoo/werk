@@ -275,6 +275,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         roleplay::roleplay_delete_card,
         roleplay::roleplay_card_avatar,
         roleplay::set_chat_profile,
+        roleplay::set_webui_enabled,
         roleplay::set_roleplay_config,
         roleplay::roleplay_set_user_avatar,
         roleplay::roleplay_user_avatar,

@@ -983,6 +983,22 @@ pub async fn set_chat_profile(
     config.save().map_err(|e| e.to_string())
 }
 
+/// Enable/disable the WebUI profile (Settings → Profiles); disabling it also
+/// switches away from it.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_webui_enabled(
+    enabled: bool,
+    state: State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let mut config = state.config.lock().unwrap();
+    config.webui_enabled = enabled;
+    if !enabled && config.chat_profile == ChatProfile::Webui {
+        config.chat_profile = ChatProfile::Agent;
+    }
+    config.save().map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn set_roleplay_config(

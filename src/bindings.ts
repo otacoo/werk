@@ -169,6 +169,11 @@ export const commands = {
 	roleplayDeleteCard: (id: string) => typedError<null, string>(__TAURI_INVOKE("roleplay_delete_card", { id })),
 	roleplayCardAvatar: (id: string) => typedError<string | null, string>(__TAURI_INVOKE("roleplay_card_avatar", { id })),
 	setChatProfile: (profile: ChatProfile) => typedError<null, string>(__TAURI_INVOKE("set_chat_profile", { profile })),
+	/**
+	 *  Enable/disable the WebUI profile (Settings → Profiles); disabling it also
+	 *  switches away from it.
+	 */
+	setWebuiEnabled: (enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_webui_enabled", { enabled })),
 	setRoleplayConfig: (roleplay: RoleplayConfig_Deserialize) => typedError<null, string>(__TAURI_INVOKE("set_roleplay_config", { roleplay })),
 	/**  Import (or clear) the user's avatar for Talk bubbles. */
 	roleplaySetUserAvatar: (path: string | null) => typedError<null, string>(__TAURI_INVOKE("roleplay_set_user_avatar", { path })),
@@ -369,6 +374,8 @@ export type AppConfig_Deserialize = {
 	system_prompt_presets?: SystemPromptPreset[],
 	/**  Agent (coding harness) or Roleplay (character cards). */
 	chat_profile?: ChatProfile,
+	/**  Show the WebUI profile, tab, and launch options (Settings → Profiles). */
+	webui_enabled?: boolean,
 	/**  Roleplay: active card, persona, greeting, sampling overrides. */
 	roleplay?: RoleplayConfig_Deserialize,
 	/**  Assistant profile: identity, persona, prompt override, sampling. */
@@ -454,6 +461,8 @@ export type AppConfig_Serialize = {
 	system_prompt_presets?: SystemPromptPreset[],
 	/**  Agent (coding harness) or Roleplay (character cards). */
 	chat_profile: ChatProfile,
+	/**  Show the WebUI profile, tab, and launch options (Settings → Profiles). */
+	webui_enabled: boolean,
 	/**  Roleplay: active card, persona, greeting, sampling overrides. */
 	roleplay: RoleplayConfig_Serialize,
 	/**  Assistant profile: identity, persona, prompt override, sampling. */

@@ -9,6 +9,7 @@ import {
   Download,
   ExternalLink,
   Info,
+  Layers,
   Palette,
   RefreshCw,
   SlidersHorizontal,
@@ -51,7 +52,7 @@ import {
 
 const REPO_URL = "https://github.com/otacoo/werk";
 
-export type SettingsSection = "general" | "appearance" | "debug" | "about";
+export type SettingsSection = "general" | "profiles" | "appearance" | "debug" | "about";
 
 function GeneralCard({ appConfig, setAppConfig, refresh }: {
   appConfig: AppConfig | null;
@@ -326,6 +327,52 @@ function UpdatesCard() {
 }
 
 
+/// Enable/disable Mode profiles; disabled ones disappear everywhere.
+function ProfilesCard({
+  appConfig,
+  setAppConfig,
+  refresh,
+}: {
+  appConfig: AppConfig | null;
+  setAppConfig: React.Dispatch<React.SetStateAction<AppConfig | null>>;
+  refresh: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const webui = appConfig?.webui_enabled ?? true;
+
+  const setWebui = async (v: boolean) => {
+    setError(null);
+    setAppConfig((c) => (c ? { ...c, webui_enabled: v } : c));
+    try {
+      await call(commands.setWebuiEnabled(v));
+      refresh();
+      notifyConfigChanged();
+    } catch (e) {
+      setError(String(e));
+      refresh();
+    }
+  };
+
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h2 className="section-title mb-0">Profiles</h2>
+        <p className="section-desc">
+          Enable or disable Mode profiles. A disabled profile disappears from the Mode page, the
+          header tabs, and the launch options.
+        </p>
+      </div>
+      <Toggle
+        label="WebUI"
+        hint="llama-server's own chat UI as a profile and tab, plus the WebUI launch options."
+        checked={webui}
+        onChange={setWebui}
+      />
+      {error && <p className="text-xs text-accent-red">{error}</p>}
+    </div>
+  );
+}
+
 function AppearanceCard() {
   const [theme, setThemeState] = useState<ThemeName>("system");
   const [accent, setAccentState] = useState<AccentName>("blue");
@@ -470,6 +517,7 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange,
   if (!open) return null;
   const visible: { id: SettingsSection; label: string; icon: LucideIcon }[] = [
     { id: "general", label: "General", icon: SlidersHorizontal },
+    { id: "profiles", label: "Profiles", icon: Layers },
     { id: "appearance", label: "Appearance", icon: Palette },
     { id: "debug", label: "Debug", icon: Bug },
     { id: "about", label: "About", icon: Info },
@@ -508,6 +556,9 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange,
           )}
           {section === "general" && (
             <GeneralCard appConfig={appConfig} setAppConfig={setAppConfig} refresh={refreshConfig} />
+          )}
+          {section === "profiles" && (
+            <ProfilesCard appConfig={appConfig} setAppConfig={setAppConfig} refresh={refreshConfig} />
           )}
           {section === "appearance" && <AppearanceCard />}
           {section === "debug" && (

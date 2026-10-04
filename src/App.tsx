@@ -87,6 +87,8 @@ export default function App() {
   const [externalMode, setExternalMode] = useState(false);
   /// Chat profile: which surfaces the header shows.
   const [profile, setProfile] = useState<Profile>("agent");
+  /// WebUI profile availability (Settings → Profiles).
+  const [webuiEnabled, setWebuiEnabled] = useState(true);
 
   const closeSettings = () => setSettingsOpen(false);
 
@@ -109,7 +111,8 @@ export default function App() {
         setQuickBench(c.bench_visible ?? false);
         setExternalMode(c.server_mode === "external");
         setProfileMirror((c.chat_profile ?? "agent") as Profile);
-            setCloseToTray(c.close_to_tray ?? false);
+        setCloseToTray(c.close_to_tray ?? false);
+        setWebuiEnabled(c.webui_enabled ?? true);
       })
       .catch(() => setWizard(false));
     call(commands.getPlatformStyle())
@@ -164,7 +167,8 @@ export default function App() {
             const external = c.server_mode === "external";
             setExternalMode(external);
             setProfileMirror((c.chat_profile ?? "agent") as Profile);
-        setCloseToTray(c.close_to_tray ?? false);
+            setCloseToTray(c.close_to_tray ?? false);
+            setWebuiEnabled(c.webui_enabled ?? true);
             if (external) setTab((t) => (t === "run" ? "chat" : t));
           })
           .catch(() => {});
@@ -172,11 +176,19 @@ export default function App() {
     [],
   );
 
+  // A disabled profile can never be active.
+  useEffect(() => {
+    if (!webuiEnabled && profile === "webui") setProfileMirror("agent");
+  }, [webuiEnabled, profile]);
+
   // Every visible tab must belong to the active profile: pages navigate with
   // hard-coded tab ids, so re-check on tab changes too, not just profile flips.
   useEffect(() => {
-    setTab((t) => visibleTab(t, profile, externalMode));
-  }, [tab, profile, externalMode]);
+    setTab((t) => {
+      if (!webuiEnabled && t === "webui") return "chat";
+      return visibleTab(t, profile, externalMode);
+    });
+  }, [tab, profile, externalMode, webuiEnabled]);
 
   // The window starts hidden; reveal it as soon as the first screen is ready
   // (or after a fallback delay) so startup never shows a blank frame.
@@ -232,7 +244,7 @@ export default function App() {
                 if (t.id === "tools" && (profile === "roleplay" || profile === "assistant")) return false;
                 if ((t.id === "roleplay" || t.id === "talk") && profile !== "roleplay") return false;
                 if (t.id === "assistant" && profile !== "assistant") return false;
-                if (t.id === "webui" && (profile !== "webui" || externalMode)) return false;
+                if (t.id === "webui" && (!webuiEnabled || profile !== "webui" || externalMode)) return false;
                 return true;
               }).map(({ id, label, icon: Icon }) => {
                 // Server state colors Run (green) and the active chat tab.
