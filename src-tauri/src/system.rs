@@ -27,6 +27,9 @@ pub fn tools(config: &AssistantConfig) -> Vec<Arc<dyn Tool>> {
     if config.tool_input {
         out.push(Arc::new(InputTool));
     }
+    if config.tool_browser {
+        out.push(Arc::new(crate::browser::BrowserTool));
+    }
     out
 }
 

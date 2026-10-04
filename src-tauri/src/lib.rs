@@ -3,6 +3,7 @@
 
 pub mod assistant;
 pub mod bench;
+pub mod browser;
 pub mod chat;
 pub mod commands;
 pub mod config;

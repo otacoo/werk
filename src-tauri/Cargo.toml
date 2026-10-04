@@ -46,6 +46,8 @@ specta-typescript = "=0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 harness = { path = "../crates/harness" }
 enigo = "0.6.1"
+chromiumoxide = "0.9.1"
+tokio-tungstenite = "0.30.0"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [

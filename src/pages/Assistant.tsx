@@ -553,6 +553,7 @@ function SystemControlCard() {
     windows: boolean;
     screen: boolean;
     input: boolean;
+    browser: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -566,6 +567,7 @@ function SystemControlCard() {
           windows: c.assistant?.tool_windows ?? true,
           screen: c.assistant?.tool_screen ?? true,
           input: c.assistant?.tool_input ?? true,
+          browser: c.assistant?.tool_browser ?? true,
         }),
       )
       .catch(() => {});
@@ -584,6 +586,7 @@ function SystemControlCard() {
           next.windows,
           next.screen,
           next.input,
+          next.browser,
         ),
       );
     } catch (e) {
@@ -651,6 +654,12 @@ function SystemControlCard() {
             hint="Move the mouse, click, scroll, type, and press keys. The most sensitive tool."
             checked={access.input}
             onChange={(v) => apply({ ...access, input: v })}
+          />
+          <Toggle
+            label="Browser"
+            hint="Open and drive Chrome, Edge, or Firefox in an isolated profile."
+            checked={access.browser}
+            onChange={(v) => apply({ ...access, browser: v })}
           />
           </div>
         </div>

@@ -141,7 +141,7 @@ export const commands = {
 	 *  Save the assistant's system-control settings (master switch + tool
 	 *  toggles). File locations live in `set_assistant_fs`.
 	 */
-	setAssistantAccess: (systemControl: boolean, files: boolean, clipboard: boolean, windows: boolean, screen: boolean, input: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, files, clipboard, windows, screen, input })),
+	setAssistantAccess: (systemControl: boolean, files: boolean, clipboard: boolean, windows: boolean, screen: boolean, input: boolean, browser: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, files, clipboard, windows, screen, input, browser })),
 	/**  Save the assistant's file locations. Everything outside these is barred. */
 	setAssistantFs: (workspace: string | null, tempEnabled: boolean, folders: string[]) => typedError<null, string>(__TAURI_INVOKE("set_assistant_fs", { workspace, tempEnabled, folders })),
 	/**  The temp workspace path, for the File system card. */
@@ -583,6 +583,8 @@ export type AssistantConfig_Deserialize = {
 	tool_screen?: boolean,
 	/**  Mouse and keyboard control (the most sensitive system tool). */
 	tool_input?: boolean,
+	/**  Browser control (Chrome/Edge over CDP, Firefox over WebDriver BiDi). */
+	tool_browser?: boolean,
 };
 
 /**  Assistant profile: identity, persona, prompt override, and sampling. */
@@ -623,6 +625,8 @@ export type AssistantConfig_Serialize = {
 	tool_screen: boolean,
 	/**  Mouse and keyboard control (the most sensitive system tool). */
 	tool_input: boolean,
+	/**  Browser control (Chrome/Edge over CDP, Firefox over WebDriver BiDi). */
+	tool_browser: boolean,
 };
 
 /**  Auto-attached companion file; `auto` ones can be toggled off. */
