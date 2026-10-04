@@ -5,7 +5,7 @@
 ### Added
 
 - A Future theme: deep teal glass panes, a glowing mint accent with its own palette, wide flowing green gradients, an inner mint rim on cards, and a glowing Mode selection.
-- Assistant browser control: a `browser` tool drives Chrome/Edge over CDP and Firefox over WebDriver BiDi (open, read, eval, click, type, screenshot, tabs) in isolated profiles, with an Access toggle.
+- Assistant browser control: a `browser` tool drives Chrome/Edge over CDP and Firefox over WebDriver BiDi (open, read, eval, click, type, screenshot, tabs), with an Access toggle to drive your own Firefox profile instead of an isolated one.
 - The assistant's system prompt lists its file locations (own folder, temp workspace, accessible folders) and states that everything else is blocked.
 - The Assistant Access tab gains a File system card: the assistant folder, a temp-working-folder toggle, and extra accessible folders; everything outside that list is completely blocked.
 - The Assistant Behavior tab has an Overlay card: show/hide the overlay, set its summon hotkey, and preview it on demand.
@@ -26,6 +26,7 @@
 
 ### Changed
 
+- The Assistant card in Mode carries a BETA tag.
 - The Assistant File system card puts the temp toggle above the assistant folder, and the system tool toggles sit in a bordered group connected to the master switch.
 - Assistant system tools no longer ask for approval — the File system roots are the boundary — and the system-control switch carries a warning icon.
 - Assistant settings apply immediately (on blur or toggle) like Roleplay's, with no Save buttons.

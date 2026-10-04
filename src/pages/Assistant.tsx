@@ -554,6 +554,7 @@ function SystemControlCard() {
     screen: boolean;
     input: boolean;
     browser: boolean;
+    browser_user_profile: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -568,6 +569,7 @@ function SystemControlCard() {
           screen: c.assistant?.tool_screen ?? true,
           input: c.assistant?.tool_input ?? true,
           browser: c.assistant?.tool_browser ?? true,
+          browser_user_profile: c.assistant?.browser_user_profile ?? false,
         }),
       )
       .catch(() => {});
@@ -587,6 +589,7 @@ function SystemControlCard() {
           next.screen,
           next.input,
           next.browser,
+          next.browser_user_profile,
         ),
       );
     } catch (e) {
@@ -657,10 +660,20 @@ function SystemControlCard() {
           />
           <Toggle
             label="Browser"
-            hint="Open and drive Chrome, Edge, or Firefox in an isolated profile."
+            hint="Open and drive Chrome, Edge, or Firefox."
             checked={access.browser}
             onChange={(v) => apply({ ...access, browser: v })}
           />
+          {access.browser && (
+            <div className="pl-4 ml-1 border-l border-border">
+              <Toggle
+                label="Use my current browser profile"
+                hint="Firefox only: drive your real profile with its tabs and logins. Quit Firefox before the assistant first launches it. Chrome and Edge block remote debugging on the default profile, so they always use an isolated one."
+                checked={access.browser_user_profile}
+                onChange={(v) => apply({ ...access, browser_user_profile: v })}
+              />
+            </div>
+          )}
           </div>
         </div>
       )}

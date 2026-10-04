@@ -304,6 +304,7 @@ export default function Mode({
       desc: "The full coding agent.",
       points: ["Chat with tools, projects, git, sessions", "Agent, Tools, and Bench tabs"],
       soon: false,
+      beta: false,
     },
     {
       id: "webui" as const,
@@ -312,6 +313,7 @@ export default function Mode({
       desc: "Use llama-server's own chat UI.",
       points: ["Embeds the server's own chat UI", "Can use built-in tools and MCPs"],
       soon: false,
+      beta: false,
     },
     {
       id: "roleplay" as const,
@@ -320,6 +322,7 @@ export default function Mode({
       desc: "Character cards with the Talk tab.",
       points: ["Per-character memory and greetings", "Compaction and distill for long stories"],
       soon: false,
+      beta: true,
     },
     {
       id: "assistant" as const,
@@ -328,6 +331,7 @@ export default function Mode({
       desc: "A personal assistant with personality.",
       points: ["Remembers you across conversations", "Assistant settings plus a dedicated Chat tab"],
       soon: false,
+      beta: true,
     },
   ];
 
@@ -415,7 +419,7 @@ export default function Mode({
             className="grid pt-5"
             style={{ gridTemplateColumns: `repeat(${visibleProfiles.length}, minmax(0, 1fr))` }}
           >
-            {visibleProfiles.map(({ id, icon: Icon, title, desc, points, soon }) => {
+            {visibleProfiles.map(({ id, icon: Icon, title, desc, points, soon, beta }) => {
               const disabled = soon || (id === "webui" && mode === "external");
               const active = !disabled && profile === id;
               return (
@@ -435,6 +439,9 @@ export default function Mode({
                     <div className="flex items-center gap-2 mb-1">
                       <Icon size={15} className={active ? "text-accent" : "text-dim"} />
                       <span className="text-sm font-semibold text-ink">{title}</span>
+                      {beta && (
+                        <span className="badge-blue text-[0.5625rem] shrink-0">BETA</span>
+                      )}
                       {active && (
                         <span className="ml-auto badge-green text-[0.625rem] shrink-0">active</span>
                       )}

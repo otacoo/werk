@@ -281,6 +281,7 @@ pub async fn set_assistant_access(
     screen: bool,
     input: bool,
     browser: bool,
+    browser_user_profile: bool,
     state: State<'_, crate::AppState>,
 ) -> Result<(), String> {
     let mut cfg = state.config.lock().unwrap();
@@ -291,6 +292,7 @@ pub async fn set_assistant_access(
     cfg.assistant.tool_screen = screen;
     cfg.assistant.tool_input = input;
     cfg.assistant.tool_browser = browser;
+    cfg.assistant.browser_user_profile = browser_user_profile;
     cfg.save().map_err(|e| e.to_string())
 }
 

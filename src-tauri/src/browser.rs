@@ -1,6 +1,7 @@
 //! Assistant browser control: Chrome/Edge over CDP (chromiumoxide) and
 //! Firefox over native WebDriver BiDi. Both attach to a browser launched with
-//! a debug port and an isolated profile under the temp workspace.
+//! a debug port; Firefox uses an isolated profile unless the user opts into
+//! their own profile.
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -15,7 +16,16 @@ use harness::tools::Tool;
 const CHROMIUM_PORT: u16 = 9224;
 const FIREFOX_PORT: u16 = 9225;
 
-pub struct BrowserTool;
+pub struct BrowserTool {
+    /// Drive the user's own Firefox profile instead of an isolated one.
+    user_profile: bool,
+}
+
+impl BrowserTool {
+    pub fn new(user_profile: bool) -> Self {
+        Self { user_profile }
+    }
+}
 
 impl Tool for BrowserTool {
     fn name(&self) -> String {
@@ -23,11 +33,17 @@ impl Tool for BrowserTool {
     }
 
     fn description(&self) -> String {
-        "Control a web browser. `open` (url), `read` (page text), `eval` (script), `click` \
-         (selector), `type` (selector + text), `screenshot`, `tabs`. Pick `browser`: chrome, \
-         edge, or firefox. The browser is launched once with an isolated profile and stays open; \
-         screenshots land in the temp workspace."
-            .to_string()
+        let firefox = if self.user_profile {
+            "your own Firefox profile (quit Firefox before it is first launched)"
+        } else {
+            "an isolated profile"
+        };
+        format!(
+            "Control a web browser. `open` (url), `read` (page text), `eval` (script), `click` \
+             (selector), `type` (selector + text), `screenshot`, `tabs`. Pick `browser`: chrome, \
+             edge, or firefox. Firefox runs with {firefox}; Chrome/Edge always use an isolated \
+             profile. The browser stays open; screenshots land in the temp workspace."
+        )
     }
 
     fn parameters(&self) -> Value {
@@ -61,13 +77,14 @@ impl Tool for BrowserTool {
             .unwrap_or("chrome")
             .to_lowercase();
         let args = args.clone();
+        let user_profile = self.user_profile;
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|e| anyhow!("Cannot start the browser runtime: {e}"))?;
         runtime.block_on(async move {
             match browser.as_str() {
-                "firefox" => firefox(&action, &args).await,
+                "firefox" => firefox(&action, &args, user_profile).await,
                 "chrome" | "edge" => chromium(&browser, &action, &args).await,
                 other => bail!("Unknown browser '{other}' (chrome, edge, firefox)"),
             }
@@ -354,14 +371,52 @@ fn firefox_candidates() -> Vec<PathBuf> {
 /// The debug browser werk launched, so a wedged session can be restarted.
 static FIREFOX_CHILD: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
 
-fn ensure_firefox() -> Result<()> {
+fn firefox_child_alive() -> bool {
+    let Ok(mut slot) = FIREFOX_CHILD.lock() else {
+        return false;
+    };
+    match slot.as_mut() {
+        Some(child) => child.try_wait().ok().flatten().is_none(),
+        None => false,
+    }
+}
+
+fn kill_firefox_child() {
+    let Ok(mut slot) = FIREFOX_CHILD.lock() else {
+        return;
+    };
+    if let Some(mut child) = slot.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+fn wait_for_port_closed(port: u16) {
+    for _ in 0..20 {
+        if !port_open(port) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+fn ensure_firefox(user_profile: bool) -> Result<()> {
     if port_open(FIREFOX_PORT) {
-        return Ok(());
+        // Switching to the user profile replaces our isolated instance.
+        if user_profile && firefox_child_alive() {
+            kill_firefox_child();
+            wait_for_port_closed(FIREFOX_PORT);
+        } else {
+            return Ok(());
+        }
     }
     let exe = firefox_candidates()
         .into_iter()
         .find(|p| p.is_file())
         .ok_or_else(|| anyhow!("Firefox executable not found"))?;
+    if user_profile {
+        return launch_user_firefox(&exe);
+    }
     let profile = crate::system::temp_workspace()
         .join("browser")
         .join("firefox-profile");
@@ -383,21 +438,38 @@ fn ensure_firefox() -> Result<()> {
     wait_for_port(FIREFOX_PORT, "Firefox")
 }
 
+/// The user's default profile. Only starts when Firefox is not already
+/// running: otherwise the new process hands the port flag to the existing
+/// instance and exits without ever opening the debug port.
+fn launch_user_firefox(exe: &std::path::Path) -> Result<()> {
+    let mut child = Command::new(exe)
+        .arg("--remote-debugging-port")
+        .arg(FIREFOX_PORT.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| anyhow!("Cannot launch {}: {e}", exe.display()))?;
+    for _ in 0..60 {
+        if port_open(FIREFOX_PORT) {
+            return Ok(());
+        }
+        if child.try_wait().ok().flatten().is_some() {
+            bail!(
+                "Firefox is already running — quit it completely (including background \
+                 windows) and try again, or turn off 'Use my Firefox profile'"
+            );
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    bail!("Firefox did not open its debug port")
+}
+
 /// Kill the debug Firefox werk launched (if any) and start a fresh one.
 fn restart_firefox() -> Result<()> {
-    if let Ok(mut slot) = FIREFOX_CHILD.lock() {
-        if let Some(mut child) = slot.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-    for _ in 0..20 {
-        if !port_open(FIREFOX_PORT) {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    ensure_firefox()
+    kill_firefox_child();
+    wait_for_port_closed(FIREFOX_PORT);
+    ensure_firefox(false)
 }
 
 type BidiSocket =
@@ -407,19 +479,19 @@ async fn firefox_socket() -> Result<BidiSocket> {
     let (ws, _) =
         tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{FIREFOX_PORT}/session"))
             .await
-            .map_err(|e| {
-                anyhow!("Cannot attach to Firefox (is a normal Firefox already running?): {e}")
-            })?;
+            .map_err(|e| anyhow!("Cannot attach to Firefox: {e}"))?;
     Ok(ws)
 }
 
 /// Connect and create the BiDi session; a stale session or a wedged debug
-/// instance is cleaned up by restarting the browser once.
-async fn firefox_connect() -> Result<(BidiSocket, u64)> {
+/// instance is cleaned up by restarting the browser once. The user's own
+/// browser is never restarted — it may hold their real windows.
+async fn firefox_connect(user_profile: bool) -> Result<(BidiSocket, u64)> {
     let mut ws = firefox_socket().await?;
     let mut id = 0u64;
     match bidi_call(&mut ws, &mut id, "session.new", json!({"capabilities": {}})).await {
         Ok(_) => Ok((ws, id)),
+        Err(first) if user_profile => Err(anyhow!("Cannot start a Firefox automation session: {first}")),
         Err(first) => {
             drop(ws);
             restart_firefox()?;
@@ -437,9 +509,9 @@ async fn firefox_connect() -> Result<(BidiSocket, u64)> {
     }
 }
 
-async fn firefox(action: &str, args: &Value) -> Result<String> {
-    ensure_firefox()?;
-    let (mut ws, mut id) = firefox_connect().await?;
+async fn firefox(action: &str, args: &Value, user_profile: bool) -> Result<String> {
+    ensure_firefox(user_profile)?;
+    let (mut ws, mut id) = firefox_connect(user_profile).await?;
     // Every path must end the session: Firefox allows only one at a time.
     let result = firefox_session(&mut ws, &mut id, action, args).await;
     let _ = bidi_call(&mut ws, &mut id, "session.end", json!({})).await;

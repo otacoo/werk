@@ -141,7 +141,7 @@ export const commands = {
 	 *  Save the assistant's system-control settings (master switch + tool
 	 *  toggles). File locations live in `set_assistant_fs`.
 	 */
-	setAssistantAccess: (systemControl: boolean, files: boolean, clipboard: boolean, windows: boolean, screen: boolean, input: boolean, browser: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, files, clipboard, windows, screen, input, browser })),
+	setAssistantAccess: (systemControl: boolean, files: boolean, clipboard: boolean, windows: boolean, screen: boolean, input: boolean, browser: boolean, browserUserProfile: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, files, clipboard, windows, screen, input, browser, browserUserProfile })),
 	/**  Save the assistant's file locations. Everything outside these is barred. */
 	setAssistantFs: (workspace: string | null, tempEnabled: boolean, folders: string[]) => typedError<null, string>(__TAURI_INVOKE("set_assistant_fs", { workspace, tempEnabled, folders })),
 	/**  The temp workspace path, for the File system card. */
@@ -585,6 +585,11 @@ export type AssistantConfig_Deserialize = {
 	tool_input?: boolean,
 	/**  Browser control (Chrome/Edge over CDP, Firefox over WebDriver BiDi). */
 	tool_browser?: boolean,
+	/**
+	 *  Drive the user's own Firefox profile instead of an isolated one;
+	 *  Firefox must be closed when the assistant first launches it.
+	 */
+	browser_user_profile?: boolean,
 };
 
 /**  Assistant profile: identity, persona, prompt override, and sampling. */
@@ -627,6 +632,11 @@ export type AssistantConfig_Serialize = {
 	tool_input: boolean,
 	/**  Browser control (Chrome/Edge over CDP, Firefox over WebDriver BiDi). */
 	tool_browser: boolean,
+	/**
+	 *  Drive the user's own Firefox profile instead of an isolated one;
+	 *  Firefox must be closed when the assistant first launches it.
+	 */
+	browser_user_profile: boolean,
 };
 
 /**  Auto-attached companion file; `auto` ones can be toggled off. */

@@ -334,6 +334,10 @@ pub struct AssistantConfig {
     /// Browser control (Chrome/Edge over CDP, Firefox over WebDriver BiDi).
     #[serde(default = "default_true")]
     pub tool_browser: bool,
+    /// Drive the user's own Firefox profile instead of an isolated one;
+    /// Firefox must be closed when the assistant first launches it.
+    #[serde(default)]
+    pub browser_user_profile: bool,
 }
 
 impl Default for AssistantConfig {
@@ -362,6 +366,7 @@ impl Default for AssistantConfig {
             tool_screen: true,
             tool_input: true,
             tool_browser: true,
+            browser_user_profile: false,
         }
     }
 }
