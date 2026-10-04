@@ -20,8 +20,9 @@ pub fn project_memory_path(root: &Path) -> PathBuf {
 
 /// Injected prompt block; capped so a rambling file cannot eat the window.
 pub const MEMORY_BLOCK_CAP: usize = 4_096;
-/// Hard file size cap for writes through the tool.
-pub const MEMORY_FILE_CAP: usize = 16_384;
+/// Hard file size cap for writes through the tool. Generous: prompts retrieve
+/// only the entries that matter, so growth no longer floods the window.
+pub const MEMORY_FILE_CAP: usize = 65_536;
 
 /// UTC date as `YYYY-MM-DD` (civil-from-days; keeps the crate dependency-free).
 pub fn today_iso() -> String {
@@ -556,7 +557,7 @@ mod tests {
 
     #[test]
     fn overflow_folds_the_oldest_entries() {
-        let mut entries: Vec<MemoryEntry> = (0..80)
+        let mut entries: Vec<MemoryEntry> = (0..300)
             .map(|i| MemoryEntry {
                 date: "2026-01-01".into(),
                 topic: "log".into(),
