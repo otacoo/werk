@@ -147,7 +147,7 @@ fn image_path_in_goal(goal: &str, jail: &crate::sandbox::PathJail) -> Option<Str
 fn base64_encode(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
         let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
@@ -816,6 +816,8 @@ impl AgentRun<'_> {
                         .get(&tool_name)
                         .map(|tool| tool.result_images(&args_value, &output))
                         .unwrap_or_default();
+                    // Secrets never enter the model context, whatever the tool.
+                    let output = crate::sensitive::redact_secrets(&output);
                     history.push(ChatMessage {
                         role: "tool".into(),
                         content: Some(tool_result_content(output, images, self.vision)),
@@ -827,7 +829,7 @@ impl AgentRun<'_> {
 
                 history.push(ChatMessage {
                     role: "tool".into(),
-                    content: Some(Value::String(output)),
+                    content: Some(Value::String(crate::sensitive::redact_secrets(&output))),
                     tool_calls: None,
                     tool_call_id: Some(call_id),
                 });
