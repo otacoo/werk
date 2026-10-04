@@ -792,6 +792,7 @@ unsafe fn uia_find(
 // ── macOS Accessibility (AXUIElement) ─────────────────────────────────────
 
 #[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
 fn ax_run(action: &str, args: &Value) -> Result<String> {
     use accessibility::{
         AXAttribute, AXUIElement, AXUIElementActions, AXUIElementAttributes, ElementFinder,
@@ -862,12 +863,14 @@ fn ax_run(action: &str, args: &Value) -> Result<String> {
                 el.role().map(|r| r.to_string()).unwrap_or_default(),
                 el.title().map(|t| t.to_string()).unwrap_or_default(),
                 el.identifier()
+                    .ok()
                     .map(|i| i.to_string())
                     .filter(|i| !i.is_empty())
                     .map(|i| format!(" ({i})"))
                     .unwrap_or_default(),
                 el.enabled().map(bool::from).unwrap_or(true),
                 el.value()
+                    .ok()
                     .map(|v| ax_value_string(&v))
                     .filter(|v| !v.is_empty())
                     .map(|v| format!(" value=\"{v}\""))
@@ -912,7 +915,7 @@ fn ax_tree(el: &accessibility::AXUIElement, depth: usize, out: &mut String, show
         return;
     }
     if let Ok(children) = el.children() {
-        for child in children {
+        for child in children.into_iter() {
             if *shown >= 80 {
                 out.push_str("[…more controls]\n");
                 return;
@@ -1044,7 +1047,7 @@ async fn atspi_run_async(action: &str, args: &Value) -> Result<String> {
                     let text = proxy.name().await.unwrap_or_default();
                     if !text.trim().is_empty() && shown < 80 {
                         let role = proxy
-                            .role()
+                            .get_role()
                             .await
                             .map(|r| format!("{r:?}"))
                             .unwrap_or_default();
@@ -1062,13 +1065,18 @@ async fn atspi_run_async(action: &str, args: &Value) -> Result<String> {
         "read" => {
             let el = atspi_find(&conn, &root, name, id).await?;
             let text = el.name().await.unwrap_or_default();
-            let role = el.role().await.map(|r| format!("{r:?}")).unwrap_or_default();
+            let role = el.get_role().await.map(|r| format!("{r:?}")).unwrap_or_default();
             Ok(format!("{role} \"{text}\""))
         }
         "click" | "toggle" => {
+            use atspi::proxy::proxy_ext::ProxyExt;
             let el = atspi_find(&conn, &root, name, id).await?;
-            let action_iface = el
-                .get_action_iface()
+            let proxies = el
+                .proxies()
+                .await
+                .map_err(|e| anyhow!("No interface proxies: {e}"))?;
+            let action_iface = proxies
+                .action()
                 .await
                 .map_err(|e| anyhow!("No action interface: {e}"))?;
             action_iface
@@ -1078,13 +1086,18 @@ async fn atspi_run_async(action: &str, args: &Value) -> Result<String> {
             Ok("Activated the control.".to_string())
         }
         "type" => {
+            use atspi::proxy::proxy_ext::ProxyExt;
             let text = args
                 .get("text")
                 .and_then(Value::as_str)
                 .ok_or_else(|| anyhow!("'text' is required for type"))?;
             let el = atspi_find(&conn, &root, name, id).await?;
-            let edit = el
-                .get_editable_text_iface()
+            let proxies = el
+                .proxies()
+                .await
+                .map_err(|e| anyhow!("No interface proxies: {e}"))?;
+            let edit = proxies
+                .editable_text()
                 .await
                 .map_err(|e| anyhow!("No editable text interface: {e}"))?;
             edit.set_text_contents(text)
@@ -1093,9 +1106,14 @@ async fn atspi_run_async(action: &str, args: &Value) -> Result<String> {
             Ok(format!("Set {} characters.", text.chars().count()))
         }
         "focus" => {
+            use atspi::proxy::proxy_ext::ProxyExt;
             let el = atspi_find(&conn, &root, name, id).await?;
-            let component = el
-                .get_component_iface()
+            let proxies = el
+                .proxies()
+                .await
+                .map_err(|e| anyhow!("No interface proxies: {e}"))?;
+            let component = proxies
+                .component()
                 .await
                 .map_err(|e| anyhow!("No component interface: {e}"))?;
             component
