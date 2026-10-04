@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -93,7 +93,6 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
     dspark: HfFileDto[];
     parts: HfFileDto[];
   } | null>(null);
-  const lastProgress = useRef(0);
 
   /// Bounds a load call so a stalled backend can't pin the page on "Loading".
   const withTimeout = <T,>(p: Promise<T>, what: string): Promise<T> =>
@@ -190,9 +189,6 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
     const unlisten = listen<{ id: string; downloaded: number; total?: number | null }>(
       "download_progress",
       (e) => {
-        const now = Date.now();
-        if (now - lastProgress.current < 120) return;
-        lastProgress.current = now;
         const p = e.payload;
         if (p.id.startsWith("runtime:")) {
           setRtProgress({ downloaded: p.downloaded, total: p.total ?? null });

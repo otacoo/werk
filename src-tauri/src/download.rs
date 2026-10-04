@@ -121,15 +121,22 @@ async fn download_from(
     let mut downloaded = if resumed { have } else { 0 };
     on_progress(DownloadProgress { downloaded, total });
     use futures::StreamExt;
-    let mut stream = resp.bytes_stream();    while let Some(chunk) = stream.next().await {
+    // Chunks arrive far faster than the UI can use them; report on a clock.
+    let mut last_emit = std::time::Instant::now();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
         if cancel() {
             anyhow::bail!("Download cancelled");
         }
         let chunk = chunk.context("Download stream failed")?;
         file.write_all(&chunk).await?;
         downloaded += chunk.len() as u64;
-        on_progress(DownloadProgress { downloaded, total });
+        if last_emit.elapsed() >= std::time::Duration::from_millis(100) {
+            last_emit = std::time::Instant::now();
+            on_progress(DownloadProgress { downloaded, total });
+        }
     }
+    on_progress(DownloadProgress { downloaded, total });
     file.flush().await?;
     Ok(dest.to_path_buf())
 }

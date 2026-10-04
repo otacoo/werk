@@ -584,15 +584,6 @@ pub struct HfTreeEntry {
     pub path: String,
     #[serde(default)]
     pub size: Option<u64>,
-    /// LFS pointer info; `oid` is the sha256 of the blob.
-    #[serde(default)]
-    pub lfs: Option<HfLfs>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct HfLfs {
-    #[serde(default)]
-    pub oid: Option<String>,
 }
 
 /// Recursive file tree for a repo (blobs only).
@@ -639,15 +630,6 @@ pub fn part_path(dest: &Path) -> PathBuf {
         .map(|n| format!("{}.part", n.to_string_lossy()))
         .unwrap_or_else(|| "download.part".to_string());
     dest.with_file_name(name)
-}
-
-/// Streamed sha256 of a file (blocking; run it on the blocking pool).
-pub fn sha256_file(path: &Path) -> Result<String> {
-    use sha2::{Digest, Sha256};
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)?;
-    Ok(format!("{:x}", hasher.finalize()))
 }
 
 /// Download one repo file to an explicit destination (renames). The transfer
@@ -1196,20 +1178,6 @@ mod tests {
             PathBuf::from("/a/model.gguf.part")
         );
         assert_eq!(part_path(Path::new("/a/noext")), PathBuf::from("/a/noext.part"));
-    }
-
-    #[test]
-    fn sha256_matches_a_known_vector() {
-        let dir = std::env::temp_dir().join(format!("werk-sha-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("abc.bin");
-        std::fs::write(&path, b"abc").unwrap();
-        assert_eq!(
-            sha256_file(&path).unwrap(),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -1265,47 +1265,6 @@ pub async fn download_model(
     .await;
     state.downloads.lock().unwrap().remove(&id);
     let dest = result?;
-    // Verify against the repo's LFS sha256 when the tree reports one; a bad
-    // file is removed instead of being listed as an installed model.
-    let expected: Vec<(PathBuf, String)> =
-        match crate::models::hf_repo_files(&state.http_client, &repo_id).await {
-            Ok(entries) => targets
-                .iter()
-                .filter_map(|(repo_file, rename)| {
-                    let oid = entries
-                        .iter()
-                        .find(|e| &e.path == repo_file)?
-                        .lfs
-                        .as_ref()?
-                        .oid
-                        .clone()?;
-                    Some((
-                        crate::models::download_dest(&dest_dir, &repo_id, repo_file, rename.as_deref()),
-                        oid,
-                    ))
-                })
-                .collect(),
-            Err(_) => Vec::new(),
-        };
-    if !expected.is_empty() {
-        tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-            for (path, oid) in &expected {
-                let got = crate::models::sha256_file(path).map_err(|e| e.to_string())?;
-                if !got.eq_ignore_ascii_case(oid) {
-                    let _ = std::fs::remove_file(path);
-                    return Err(format!(
-                        "Checksum mismatch for {} — the file was removed, download again",
-                        path.file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_default()
-                    ));
-                }
-            }
-            Ok(())
-        })
-        .await
-        .map_err(|e| e.to_string())??;
-    }
     crate::models::write_hf_sidecar(&dest, &repo_id);
     Ok(dest.to_string_lossy().to_string())
 }

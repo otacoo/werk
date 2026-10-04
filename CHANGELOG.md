@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Model downloads no longer re-read and sha256-check the finished file, so they complete as soon as the last byte arrives.
+
+### Fixed
+
+- Download progress events are throttled to ~10/s instead of one per chunk, so large downloads stop flooding the webview with IPC and the bar reaches 100%.
+
 ## [0.7.0] - 2026-10-04
 
 ### Added
