@@ -4,6 +4,8 @@
 
 ### Added
 
+- Assistant system control is opt-in from the Access tab: file tools over chosen folders plus clipboard, window, and screen-capture tools, each approval-gated.
+- The assistant overlay anchors to the monitor work area and re-asserts topmost, so the taskbar no longer covers it.
 - Assistant reminders: a persisted list with a reminder tool, a 30 s scheduler, cross-platform attention alerts, and catch-up for missed times.
 - The Assistant gets an always-on-top pulsing overlay with a floating input, a global hotkey, tray pause/assistant entries, and an autostart toggle.
 - The Assistant profile is live: a Talk-style tab with a persona, its own persistent memory, skills, and the remember/ask_user/get_time tools, running on the same server as the other profiles.

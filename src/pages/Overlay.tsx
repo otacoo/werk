@@ -42,17 +42,30 @@ export default function Overlay() {
     const win = getCurrentWindow();
     const scale = await win.scaleFactor();
     if (initial) {
+      const pw = Math.round(w * scale);
+      const ph = Math.round(h * scale);
+      const margin = Math.round(16 * scale);
+      const raise = Math.round(16 * scale);
+      // Prefer the work area so the pill never sits over the taskbar.
+      const area = await commands.overlayWorkArea().catch(() => null);
+      if (area) {
+        await win.setSize(new PhysicalSize(pw, ph));
+        await win.setPosition(
+          new PhysicalPosition(area.right - pw - margin, area.bottom - ph - margin - raise),
+        );
+        await win.setAlwaysOnTop(true);
+        return;
+      }
       const mon = await currentMonitor();
       if (mon) {
-        const pw = Math.round(w * scale);
-        const ph = Math.round(h * scale);
         await win.setSize(new PhysicalSize(pw, ph));
         await win.setPosition(
           new PhysicalPosition(
-            mon.position.x + mon.size.width - pw - Math.round(16 * scale),
-            mon.position.y + mon.size.height - ph - Math.round(16 * scale),
+            mon.position.x + mon.size.width - pw - margin,
+            mon.position.y + mon.size.height - ph - margin - raise,
           ),
         );
+        await win.setAlwaysOnTop(true);
         return;
       }
     }
@@ -62,6 +75,7 @@ export default function Overlay() {
     const ph = Math.round(h * scale);
     await win.setSize(new PhysicalSize(pw, ph));
     await win.setPosition(new PhysicalPosition(pos.x + size.width - pw, pos.y + size.height - ph));
+    await win.setAlwaysOnTop(true);
   };
 
   useEffect(() => {

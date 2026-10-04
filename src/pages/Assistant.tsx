@@ -5,6 +5,8 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   ArrowUp,
   Brain,
+  Check,
+  FileWarning,
   FolderOpen,
   Paperclip,
   RefreshCw,
@@ -54,6 +56,13 @@ type Item =
       args: string;
       output?: { ok: boolean; text: string };
     }
+  | {
+      kind: "approval";
+      tool: string;
+      command: string | null;
+      args: string;
+      resolved?: string;
+    }
   | { kind: "reasoning"; text: string }
   | { kind: "sys"; text: string };
 
@@ -73,7 +82,7 @@ const SLASH = [
   { name: "/help", hint: "List the assistant commands" },
 ];
 
-type Tab = "chat" | "persona" | "reminders" | "memory" | "behavior";
+type Tab = "chat" | "persona" | "reminders" | "memory" | "access" | "behavior";
 
 /// Assistant surface: one continuous thread with personality, memory, and
 /// the remember/ask_user/get_time/skill toolset.
@@ -338,6 +347,24 @@ export default function Assistant({ active = true }: { active?: boolean }) {
     };
   }, []);
 
+  // System-control approvals park the run until answered.
+  useEffect(() => {
+    const unlisten = listen<{ tool: string; command: string | null; args: string }>(
+      "assistant_approval",
+      (event) => {
+        const p = event.payload;
+        setItems((prev) => [
+          ...prev,
+          { kind: "approval", tool: p.tool, command: p.command, args: p.args },
+        ]);
+        void playNotificationSound("permissions");
+      },
+    );
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+
   // Stay pinned to the newest message.
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -552,6 +579,19 @@ export default function Assistant({ active = true }: { active?: boolean }) {
     } catch {}
   };
 
+  const decide = async (index: number, grant: string | null) => {
+    setItems((prev) =>
+      prev.map((it, i) =>
+        i === index && it.kind === "approval"
+          ? { ...it, resolved: grant === null ? "denied" : grant }
+          : it,
+      ),
+    );
+    try {
+      await call(commands.assistantDecide(grant));
+    } catch {}
+  };
+
   const attachFiles = async () => {
     let picked: string | string[] | null = null;
     try {
@@ -634,6 +674,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
     { id: "persona", label: "Persona" },
     { id: "reminders", label: "Reminders" },
     { id: "memory", label: "Memory" },
+    { id: "access", label: "Access" },
     { id: "behavior", label: "Behavior" },
   ];
 
@@ -795,6 +836,61 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                     args={it.args}
                     output={it.output}
                   />
+                );
+              }
+              if (it.kind === "approval") {
+                return (
+                  <div key={`approval-${i}`} className="flex justify-start">
+                    <div className="max-w-[85%] xl:max-w-[75%] rounded border border-accent-yellow/40 bg-accent-yellow/5 px-3 py-2 text-xs">
+                      <p className="text-ink flex items-center gap-1.5 mb-1">
+                        <FileWarning size={11} className="text-accent-yellow shrink-0" />
+                        Approval requested: <span className="font-medium">{it.tool}</span>
+                        {it.command && (
+                          <span className="badge-gray text-[0.625rem]">{it.command}</span>
+                        )}
+                      </p>
+                      <pre className="whitespace-pre-wrap break-words text-[0.6875rem] text-dim mb-2 max-h-40 overflow-y-auto">
+                        {it.args}
+                      </pre>
+                      {!it.resolved ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            className="btn-secondary py-1 px-2"
+                            onClick={() => decide(i, "once")}
+                          >
+                            <Check size={11} /> Allow once
+                          </button>
+                          <button
+                            className="btn-secondary py-1 px-2"
+                            onClick={() => decide(i, "session")}
+                          >
+                            <Check size={11} /> Allow session
+                          </button>
+                          <button
+                            className="btn-secondary py-1 px-2"
+                            onClick={() => decide(i, "project")}
+                            title="Remember for this profile"
+                          >
+                            <Check size={11} /> Allow always
+                          </button>
+                          <button
+                            className="btn-ghost py-1 px-2 text-accent-red"
+                            onClick={() => decide(i, null)}
+                          >
+                            <X size={11} /> Deny
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-faint">
+                          {it.resolved === "denied"
+                            ? "Denied"
+                            : it.resolved === "project"
+                              ? "Allowed (always)"
+                              : `Allowed (${it.resolved})`}
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 );
               }
               if (it.kind === "reasoning") {
@@ -1156,6 +1252,14 @@ export default function Assistant({ active = true }: { active?: boolean }) {
         </div>
       )}
 
+      {tab === "access" && (
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-3xl mx-auto space-y-4">
+            <AccessCard />
+          </div>
+        </div>
+      )}
+
       {tab === "behavior" && (
         <div className="flex-1 overflow-y-auto p-6">
           <div className="max-w-3xl mx-auto space-y-4">
@@ -1374,6 +1478,166 @@ function RemindersCard() {
             </button>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/// Opt-in system control: master switch, file roots, and per-tool toggles.
+function AccessCard() {
+  const [access, setAccess] = useState<{
+    system_control: boolean;
+    roots: string[];
+    files: boolean;
+    clipboard: boolean;
+    windows: boolean;
+    screen: boolean;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const load = () => {
+    call(commands.getConfig())
+      .then((c) =>
+        setAccess({
+          system_control: c.assistant?.system_control ?? false,
+          roots: c.assistant?.roots ?? [],
+          files: c.assistant?.tool_files ?? true,
+          clipboard: c.assistant?.tool_clipboard ?? true,
+          windows: c.assistant?.tool_windows ?? true,
+          screen: c.assistant?.tool_screen ?? true,
+        }),
+      )
+      .catch(() => {});
+  };
+  useEffect(load, []);
+
+  const addFolder = async () => {
+    let picked: string | string[] | null = null;
+    try {
+      picked = await openDialog({ directory: true, multiple: true });
+    } catch {
+      return;
+    }
+    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    if (paths.length === 0) return;
+    setAccess((a) =>
+      a
+        ? {
+            ...a,
+            roots: [...a.roots, ...paths.filter((p) => !a.roots.includes(p))].slice(0, 16),
+          }
+        : a,
+    );
+  };
+
+  const save = async () => {
+    if (!access) return;
+    setError(null);
+    try {
+      await call(
+        commands.setAssistantAccess(
+          access.system_control,
+          access.roots,
+          access.files,
+          access.clipboard,
+          access.windows,
+          access.screen,
+        ),
+      );
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+      load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  if (!access) return null;
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h2 className="section-title mb-0">System access</h2>
+        <p className="section-desc">
+          Off by default. When enabled, the assistant gets file tools over the folders below plus
+          clipboard, window, and screen tools; every mutating action still asks for approval, and
+          the sensitive-file policy stays in force.
+        </p>
+      </div>
+      <Toggle
+        label="Allow system control"
+        hint="Master switch for everything on this tab."
+        checked={access.system_control}
+        onChange={(v) => setAccess({ ...access, system_control: v })}
+      />
+      {access.system_control && (
+        <>
+          <div className="space-y-2 border border-border rounded px-3 py-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-ink">Folders</p>
+              <button
+                className="btn-ghost text-[0.625rem] py-0.5 px-1.5"
+                onClick={addFolder}
+              >
+                <FolderOpen size={11} /> Add folder
+              </button>
+            </div>
+            {access.roots.length === 0 && (
+              <p className="text-[0.6875rem] text-dim">
+                No folders yet; file tools stay off until one is added.
+              </p>
+            )}
+            {access.roots.map((root) => (
+              <div key={root} className="flex items-center gap-2">
+                <span
+                  className="flex-1 min-w-0 truncate font-mono text-[0.6875rem] text-dim"
+                  title={root}
+                >
+                  {root}
+                </span>
+                <button
+                  className="text-faint hover:text-accent-red shrink-0"
+                  onClick={() =>
+                    setAccess({ ...access, roots: access.roots.filter((r) => r !== root) })
+                  }
+                  title="Remove"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <Toggle
+            label="File tools"
+            hint="Read, write, edit, find, and search inside the folders."
+            checked={access.files}
+            onChange={(v) => setAccess({ ...access, files: v })}
+          />
+          <Toggle
+            label="Clipboard"
+            hint="Read the clipboard and copy text."
+            checked={access.clipboard}
+            onChange={(v) => setAccess({ ...access, clipboard: v })}
+          />
+          <Toggle
+            label="Window control"
+            hint="List, focus, minimize, maximize, close, and move windows."
+            checked={access.windows}
+            onChange={(v) => setAccess({ ...access, windows: v })}
+          />
+          <Toggle
+            label="Screen capture"
+            hint="Capture monitors or windows to PNG files."
+            checked={access.screen}
+            onChange={(v) => setAccess({ ...access, screen: v })}
+          />
+        </>
+      )}
+      <div className="flex items-center justify-end gap-2">
+        {error && <p className="text-xs text-accent-red mr-auto">{error}</p>}
+        <button className="btn-primary text-xs py-1 px-2" onClick={save}>
+          {saved ? "Saved" : "Save"}
+        </button>
       </div>
     </div>
   );

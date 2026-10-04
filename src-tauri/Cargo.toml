@@ -30,6 +30,8 @@ futures = "0.3"
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
 sysinfo = "0.36"
 trash = "5"
+xcap = "0.9"
+arboard = "3"
 sha2 = "0.10"
 zip = "2"
 tar = "0.4"
@@ -48,6 +50,7 @@ harness = { path = "../crates/harness" }
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Shell",
     "Win32_UI_HiDpi",

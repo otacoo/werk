@@ -21,6 +21,7 @@ pub mod roleplay;
 pub mod runtime;
 pub mod scheduler;
 pub mod server;
+pub mod system;
 pub mod terminal;
 pub mod worktree;
 
@@ -46,9 +47,59 @@ pub fn show_main(app: &tauri::AppHandle) {
 pub fn show_overlay(app: &tauri::AppHandle) {
     use tauri::{Emitter, Manager};
     if let Some(win) = app.get_webview_window("overlay") {
+        // Re-assert topmost: the taskbar is topmost too and can win z-order.
+        let _ = win.set_always_on_top(true);
         let _ = win.show();
         let _ = win.set_focus();
         let _ = app.emit_to("overlay", "assistant_focus", ());
+    }
+}
+
+/// Physical work-area rect (excludes the taskbar) of the overlay's monitor.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct WorkArea {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+/// The overlay's work area; None outside Windows (the frontend falls back to
+/// the full monitor rect).
+#[tauri::command]
+#[specta::specta]
+fn overlay_work_area(app: tauri::AppHandle) -> Option<WorkArea> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        };
+        let win = app.get_webview_window("overlay")?;
+        let hwnd = HWND(win.hwnd().ok()?.0 as _);
+        unsafe {
+            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            let mut info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+                return None;
+            }
+            let r = info.rcWork;
+            Some(WorkArea {
+                left: r.left,
+                top: r.top,
+                right: r.right,
+                bottom: r.bottom,
+            })
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        None
     }
 }
 
@@ -147,6 +198,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         app_version,
         get_config,
         set_overlay_visible,
+        overlay_work_area,
         chat::harness_agent_send,
         chat::harness_agent_abort,
         chat::harness_agent_steer,
@@ -169,6 +221,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::assistant_context_stats,
         chat::assistant_question_answer,
         chat::assistant_reset,
+        chat::assistant_decide,
         chat::roleplay_list_discussions,
         chat::roleplay_load_discussion,
         chat::roleplay_delete_discussion,
@@ -206,6 +259,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         assistant::set_assistant_config,
         assistant::set_assistant_behavior,
         assistant::assistant_system_prompt_default,
+        assistant::set_assistant_access,
         scheduler::assistant_reminders_list,
         scheduler::assistant_reminder_add,
         scheduler::assistant_reminder_complete,

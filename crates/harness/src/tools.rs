@@ -986,6 +986,12 @@ impl ToolRegistry {
         self
     }
 
+    /// Append another registry's tools; this registry's jail is kept.
+    pub fn merge(mut self, other: ToolRegistry) -> Self {
+        self.tools.extend(other.tools);
+        self
+    }
+
     pub fn without(self, names: &[&str]) -> Self {
         Self {
             tools: self

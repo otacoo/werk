@@ -385,6 +385,8 @@ struct UiGate {
     runtime: Arc<HarnessRuntime>,
     /// Event carrying ask_user questions ("harness_question"/"talk_question").
     question_event: &'static str,
+    /// Event carrying approval requests ("harness_approval"/"assistant_approval").
+    approval_event: &'static str,
 }
 
 impl ApprovalGate for UiGate {
@@ -394,6 +396,7 @@ impl ApprovalGate for UiGate {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Approved> + Send>> {
         let app = self.app.clone();
         let runtime = self.runtime.clone();
+        let approval_event = self.approval_event;
         Box::pin(async move {
             let (tx, rx) = tokio::sync::oneshot::channel();
             {
@@ -404,7 +407,7 @@ impl ApprovalGate for UiGate {
                 *pending = Some(tx);
             }
             let _ = app.emit(
-                "harness_approval",
+                approval_event,
                 serde_json::json!({
                     "type": "approval_required",
                     "tool": req.key.tool,
@@ -1601,6 +1604,36 @@ async fn agent_send_impl(
             if !skills.is_empty() {
                 registry = registry.add(Arc::new(harness::skills::SkillTool::new(skills)));
             }
+            // Opt-in system control: file tools over the configured roots,
+            // plus clipboard/window/screen (each approval-gated).
+            if app_config.assistant.system_control {
+                if app_config.assistant.tool_files {
+                    let roots = crate::system::file_roots(&app_config.assistant);
+                    if let Some((first, rest)) = roots.split_first() {
+                        if let Ok(file_jail) = PathJail::new(first, &[]) {
+                            let sensitive = Arc::new(harness::sensitive::SensitivePolicy::build(
+                                file_jail.root(),
+                                &app_config.sensitive_patterns,
+                                &app_config.sensitive_allow,
+                            ));
+                            let file_jail =
+                                Arc::new(file_jail.with_write_roots(rest).shield(sensitive));
+                            registry = registry.merge(ToolRegistry::project_tools(file_jail).only(
+                                &[
+                                    "read_file",
+                                    "write_file",
+                                    "edit_file",
+                                    "find_files",
+                                    "search_content",
+                                ],
+                            ));
+                        }
+                    }
+                }
+                for tool in crate::system::tools(&app_config.assistant) {
+                    registry = registry.add(tool);
+                }
+            }
             registry
         }
         RunMode::Agent => build_registry(
@@ -2032,6 +2065,10 @@ async fn agent_send_impl(
             RunMode::Roleplay => "talk_question",
             RunMode::Assistant => "assistant_question",
             RunMode::Agent => "harness_question",
+        },
+        approval_event: match run_mode {
+            RunMode::Assistant => "assistant_approval",
+            _ => "harness_approval",
         },
     });
     let steer_rt = runtime.clone();
@@ -3258,6 +3295,27 @@ pub async fn harness_agent_decide(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let sender = state.harness.pending.lock().unwrap().take();
+    let scope = match grant.as_deref() {
+        Some("once") => Approved::Once,
+        Some("session") => Approved::Session,
+        Some("project") => Approved::Project,
+        Some("global") => Approved::Global,
+        _ => Approved::Denied,
+    };
+    if let Some(tx) = sender {
+        let _ = tx.send(scope);
+    }
+    Ok(())
+}
+
+/// Resolve the assistant's parked approval request.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_decide(
+    grant: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let sender = state.assistant.pending.lock().unwrap().take();
     let scope = match grant.as_deref() {
         Some("once") => Approved::Once,
         Some("session") => Approved::Session,

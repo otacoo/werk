@@ -11,6 +11,16 @@ export const commands = {
 	getConfig: () => typedError<AppConfig_Serialize, string>(__TAURI_INVOKE("get_config")),
 	/**  Show/hide the assistant overlay (the frontend owns profile awareness). */
 	setOverlayVisible: (visible: boolean) => typedError<null, string>(__TAURI_INVOKE("set_overlay_visible", { visible })),
+	/**
+	 *  The overlay's work area; None outside Windows (the frontend falls back to
+	 *  the full monitor rect).
+	 */
+	overlayWorkArea: () => __TAURI_INVOKE<{
+	left: number,
+	top: number,
+	right: number,
+	bottom: number,
+} | null>("overlay_work_area"),
 	/**  Send a message to the coding agent; streams over `harness_event`. */
 	harnessAgentSend: (message: string, reasoningEffort: string | null, attachments: SendAttachment_Deserialize[] | null) => typedError<RunResult_Serialize, string>(__TAURI_INVOKE("harness_agent_send", { message, reasoningEffort, attachments })),
 	/**  Stop the running agent loop. */
@@ -55,6 +65,8 @@ export const commands = {
 	assistantQuestionAnswer: (answer: string) => typedError<null, string>(__TAURI_INVOKE("assistant_question_answer", { answer })),
 	/**  Clear the assistant thread (a fresh conversation). */
 	assistantReset: () => typedError<null, string>(__TAURI_INVOKE("assistant_reset")),
+	/**  Resolve the assistant's parked approval request. */
+	assistantDecide: (grant: string | null) => typedError<null, string>(__TAURI_INVOKE("assistant_decide", { grant })),
 	/**  Every saved discussion for the active character, newest first. */
 	roleplayListDiscussions: () => typedError<DiscussionSummary[], string>(__TAURI_INVOKE("roleplay_list_discussions")),
 	/**  Make a saved discussion the active one; the current active is archived. */
@@ -125,6 +137,8 @@ export const commands = {
 	setAssistantBehavior: (notify: boolean, proactive: boolean, autostart: boolean, hotkey: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_behavior", { notify, proactive, autostart, hotkey })),
 	/**  Built-in assistant prompt for the Persona editor. */
 	assistantSystemPromptDefault: () => typedError<string, string>(__TAURI_INVOKE("assistant_system_prompt_default")),
+	/**  Save the assistant's system-control settings (master switch, roots, tools). */
+	setAssistantAccess: (systemControl: boolean, roots: string[], files: boolean, clipboard: boolean, windows: boolean, screen: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, roots, files, clipboard, windows, screen })),
 	/**  List reminders for the UI. */
 	assistantRemindersList: () => typedError<Reminder_Serialize[], string>(__TAURI_INVOKE("assistant_reminders_list")),
 	/**  Add a reminder from the UI (unix `due`). */
@@ -525,6 +539,14 @@ export type AssistantConfig_Deserialize = {
 	autostart?: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
 	hotkey?: string,
+	/**  Master switch for the system-control tools (opt-in). */
+	system_control?: boolean,
+	/**  Folders the assistant's file tools may read and write. */
+	roots?: string[],
+	tool_files?: boolean,
+	tool_clipboard?: boolean,
+	tool_windows?: boolean,
+	tool_screen?: boolean,
 };
 
 /**  Assistant profile: identity, persona, prompt override, and sampling. */
@@ -547,6 +569,14 @@ export type AssistantConfig_Serialize = {
 	autostart: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
 	hotkey: string,
+	/**  Master switch for the system-control tools (opt-in). */
+	system_control: boolean,
+	/**  Folders the assistant's file tools may read and write. */
+	roots?: string[],
+	tool_files: boolean,
+	tool_clipboard: boolean,
+	tool_windows: boolean,
+	tool_screen: boolean,
 };
 
 /**  Auto-attached companion file; `auto` ones can be toggled off. */
@@ -1617,6 +1647,14 @@ export type ToolsList = {
  *  Thorough also fires on turns that read.
  */
 export type VerifyMode = "off" | "normal" | "thorough";
+
+/**  Physical work-area rect (excludes the taskbar) of the overlay's monitor. */
+export type WorkArea = {
+	left: number,
+	top: number,
+	right: number,
+	bottom: number,
+};
 
 export type WorktreeDto = WorktreeDto_Serialize | WorktreeDto_Deserialize;
 

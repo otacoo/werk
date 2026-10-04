@@ -302,6 +302,20 @@ pub struct AssistantConfig {
     /// Global hotkey that summons the overlay; empty disables it.
     #[serde(default = "default_assistant_hotkey")]
     pub hotkey: String,
+    /// Master switch for the system-control tools (opt-in).
+    #[serde(default)]
+    pub system_control: bool,
+    /// Folders the assistant's file tools may read and write.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roots: Vec<String>,
+    #[serde(default = "default_true")]
+    pub tool_files: bool,
+    #[serde(default = "default_true")]
+    pub tool_clipboard: bool,
+    #[serde(default = "default_true")]
+    pub tool_windows: bool,
+    #[serde(default = "default_true")]
+    pub tool_screen: bool,
 }
 
 impl Default for AssistantConfig {
@@ -318,6 +332,12 @@ impl Default for AssistantConfig {
             proactive: true,
             autostart: false,
             hotkey: default_assistant_hotkey(),
+            system_control: false,
+            roots: Vec::new(),
+            tool_files: true,
+            tool_clipboard: true,
+            tool_windows: true,
+            tool_screen: true,
         }
     }
 }

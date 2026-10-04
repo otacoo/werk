@@ -26,6 +26,8 @@ fn is_agent_file(path: &Path) -> bool {
 pub struct PathJail {
     root: PathBuf,
     extra_read: Vec<PathBuf>,
+    /// Additional read/write roots (the assistant's configured folders).
+    extra_write: Vec<PathBuf>,
     hide_agent_files: bool,
     sensitive: Option<std::sync::Arc<crate::sensitive::SensitivePolicy>>,
 }
@@ -41,9 +43,21 @@ impl PathJail {
         Ok(Self {
             root,
             extra_read: extra_read.iter().map(|p| strip_verbatim(p.clone())).collect(),
+            extra_write: Vec::new(),
             hide_agent_files: false,
             sensitive: None,
         })
+    }
+
+    /// Additional roots the jail may read and write. Relative paths still
+    /// resolve under the primary root; absolute ones may land in any root.
+    pub fn with_write_roots(mut self, roots: &[PathBuf]) -> Self {
+        self.extra_write = roots
+            .iter()
+            .filter_map(|p| p.canonicalize().ok())
+            .map(strip_verbatim)
+            .collect();
+        self
     }
 
     pub fn root(&self) -> &Path {
@@ -131,27 +145,31 @@ impl PathJail {
         if self.extra_read.iter().any(|r| under(r, &p)) {
             bail!("Path is read-only: {rel}");
         }
-        for protected in PROTECTED_WRITE {
-            if under(&self.root.join(protected), &p) {
-                bail!(
-                    "Path is protected: tool and skill definitions are user-authored ({rel})"
-                );
+        for r in std::iter::once(&self.root).chain(self.extra_write.iter()) {
+            for protected in PROTECTED_WRITE {
+                if under(&r.join(protected), &p) {
+                    bail!(
+                        "Path is protected: tool and skill definitions are user-authored ({rel})"
+                    );
+                }
             }
         }
         Ok(p)
     }
 
-    /// Absolute input: allowed when it lands inside the root (writes) or an
-    /// extra root (reads only). Lexically cleaned; `..` may not climb out.
+    /// Absolute input: allowed when it lands inside a writable root, or a
+    /// read-only root on reads. Lexically cleaned; `..` may not climb out.
     fn absolute(&self, path: &Path, writable: bool) -> Result<PathBuf> {
         let clean = strip_verbatim(clean_absolute(path)?);
-        if under(&self.root, &clean) {
+        let writable_hit =
+            under(&self.root, &clean) || self.extra_write.iter().any(|r| under(r, &clean));
+        if writable_hit {
             return Ok(clean);
         }
         if !writable && self.extra_read.iter().any(|r| under(r, &clean)) {
             return Ok(clean);
         }
-        bail!("Path is outside the project: {}", path.display())
+        bail!("Path is outside the allowed folders: {}", path.display())
     }
 }
 
@@ -246,6 +264,30 @@ mod tests {
         assert!(jail.check_read("/abs/path").is_err());
         assert!(jail.check_read("").is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn extra_write_roots_are_writable() {
+        let (dir, canon, jail) = jail("multi");
+        let second = std::env::temp_dir().join(format!("werk-jail-second-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&second);
+        std::fs::create_dir_all(&second).unwrap();
+        let jail = jail.with_write_roots(&[second.clone()]);
+        let second_canon = strip_verbatim(second.canonicalize().unwrap());
+        let target = second_canon.join("x.txt").to_string_lossy().to_string();
+        assert_eq!(jail.check_write(&target).unwrap(), second_canon.join("x.txt"));
+        assert_eq!(jail.check_read(&target).unwrap(), second_canon.join("x.txt"));
+        // Relative paths still resolve under the primary root.
+        assert_eq!(jail.check_write("rel.txt").unwrap(), canon.join("rel.txt"));
+        // Outside every root is rejected.
+        let outside = std::env::temp_dir()
+            .join(format!("werk-jail-outside-{}", std::process::id()))
+            .join("nope.txt")
+            .to_string_lossy()
+            .to_string();
+        assert!(jail.check_write(&outside).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&second);
     }
 
     #[test]
