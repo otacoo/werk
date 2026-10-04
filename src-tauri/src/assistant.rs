@@ -106,7 +106,8 @@ pub async fn set_assistant_config(
     cfg.save().map_err(|e| e.to_string())
 }
 
-/// Always-on behavior: notifications, proactive turns, autostart, hotkey.
+/// Always-on behavior: alerts, proactive turns, autostart, hotkey. Tray
+/// behavior follows the shared `close_to_tray` setting.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_assistant_behavior(
@@ -114,7 +115,6 @@ pub async fn set_assistant_behavior(
     notify: bool,
     proactive: bool,
     autostart: bool,
-    minimize_on_start: bool,
     hotkey: String,
     state: State<'_, crate::AppState>,
 ) -> Result<(), String> {
@@ -126,7 +126,6 @@ pub async fn set_assistant_behavior(
         cfg.assistant.notify = notify;
         cfg.assistant.proactive = proactive;
         cfg.assistant.autostart = autostart;
-        cfg.assistant.minimize_on_start = minimize_on_start;
         cfg.assistant.hotkey = hotkey.clone();
         cfg.save().map_err(|e| e.to_string())?;
     }
@@ -140,6 +139,13 @@ pub async fn set_assistant_behavior(
             .map_err(|e| format!("Invalid hotkey: {e}"))?;
     }
     Ok(())
+}
+
+/// Built-in assistant prompt for the Persona editor.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_system_prompt_default() -> Result<String, String> {
+    Ok(BUILT_IN_ASSISTANT_PROMPT.to_string())
 }
 
 #[cfg(test)]

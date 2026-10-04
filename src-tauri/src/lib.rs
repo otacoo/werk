@@ -205,6 +205,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::set_system_prompt_presets,
         assistant::set_assistant_config,
         assistant::set_assistant_behavior,
+        assistant::assistant_system_prompt_default,
         scheduler::assistant_reminders_list,
         scheduler::assistant_reminder_add,
         scheduler::assistant_reminder_complete,

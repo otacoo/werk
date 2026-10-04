@@ -118,8 +118,13 @@ export const commands = {
 	setSystemPromptPresets: (presets: SystemPromptPreset[]) => typedError<null, string>(__TAURI_INVOKE("set_system_prompt_presets", { presets })),
 	/**  Save assistant identity, persona, prompt override, and sampling. */
 	setAssistantConfig: (config: AssistantConfig_Deserialize) => typedError<null, string>(__TAURI_INVOKE("set_assistant_config", { config })),
-	/**  Always-on behavior: notifications, proactive turns, autostart, hotkey. */
-	setAssistantBehavior: (notify: boolean, proactive: boolean, autostart: boolean, minimizeOnStart: boolean, hotkey: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_behavior", { notify, proactive, autostart, minimizeOnStart, hotkey })),
+	/**
+	 *  Always-on behavior: alerts, proactive turns, autostart, hotkey. Tray
+	 *  behavior follows the shared `close_to_tray` setting.
+	 */
+	setAssistantBehavior: (notify: boolean, proactive: boolean, autostart: boolean, hotkey: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_behavior", { notify, proactive, autostart, hotkey })),
+	/**  Built-in assistant prompt for the Persona editor. */
+	assistantSystemPromptDefault: () => typedError<string, string>(__TAURI_INVOKE("assistant_system_prompt_default")),
 	/**  List reminders for the UI. */
 	assistantRemindersList: () => typedError<Reminder_Serialize[], string>(__TAURI_INVOKE("assistant_reminders_list")),
 	/**  Add a reminder from the UI (unix `due`). */
@@ -518,8 +523,6 @@ export type AssistantConfig_Deserialize = {
 	proactive?: boolean,
 	/**  Start werk with the OS session (minimized to the tray). */
 	autostart?: boolean,
-	/**  Hide to the tray once the assistant's server is running. */
-	minimize_on_start?: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
 	hotkey?: string,
 };
@@ -542,8 +545,6 @@ export type AssistantConfig_Serialize = {
 	proactive: boolean,
 	/**  Start werk with the OS session (minimized to the tray). */
 	autostart: boolean,
-	/**  Hide to the tray once the assistant's server is running. */
-	minimize_on_start: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
 	hotkey: string,
 };

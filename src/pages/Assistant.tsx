@@ -97,6 +97,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
   const [externalMode, setExternalMode] = useState(false);
   const [externalTarget, setExternalTarget] = useState("");
   const [persona, setPersona] = useState<AssistantConfig | null>(null);
+  const [builtInPrompt, setBuiltInPrompt] = useState("");
   const [personaError, setPersonaError] = useState<string | null>(null);
   const [personaSaved, setPersonaSaved] = useState(false);
   // Reasoning traces visibility (all blocks, live and restored).
@@ -187,6 +188,9 @@ export default function Assistant({ active = true }: { active?: boolean }) {
   useEffect(() => {
     refreshConfig();
     void restore();
+    call(commands.assistantSystemPromptDefault())
+      .then(setBuiltInPrompt)
+      .catch(() => {});
     const poll = () => {
       if (!activeRef.current) return;
       call(commands.assistantContextStats()).then(setSlotCtx).catch(() => {});
@@ -591,8 +595,15 @@ export default function Assistant({ active = true }: { active?: boolean }) {
   const savePersona = async () => {
     if (!persona) return;
     setPersonaError(null);
+    // An override equal to the built-in prompt is the same as none.
+    const prompt = persona.system_prompt?.trim() ?? "";
+    const toSave = {
+      ...persona,
+      system_prompt:
+        prompt === "" || prompt === builtInPrompt.trim() ? null : persona.system_prompt,
+    };
     try {
-      await call(commands.setAssistantConfig(persona));
+      await call(commands.setAssistantConfig(toSave));
       setPersonaSaved(true);
       setTimeout(() => setPersonaSaved(false), 1500);
       refreshConfig();
@@ -1009,20 +1020,35 @@ export default function Assistant({ active = true }: { active?: boolean }) {
                   onChange={(e) => setPersona({ ...persona, persona: e.target.value })}
                 />
               </label>
-              <label className="block">
-                <span className="text-[0.6875rem] text-dim">
-                  System prompt override (empty = built-in assistant prompt)
+            </div>
+            <div className="card space-y-2">
+              <div>
+                <h2 className="section-title mb-0">System prompt</h2>
+                <p className="section-desc">
+                  Always sent first, before the persona, memory, and skills. Edit it here, or
+                  reset to follow the built-in default; {"{{name}}"} becomes the assistant name.
+                </p>
+              </div>
+              <textarea
+                className="input w-full font-mono text-[0.6875rem] leading-snug"
+                rows={10}
+                value={persona.system_prompt ?? builtInPrompt}
+                onChange={(e) => setPersona({ ...persona, system_prompt: e.target.value })}
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  className="btn-ghost text-[0.625rem] py-0.5 px-1.5"
+                  onClick={() => setPersona({ ...persona, system_prompt: null })}
+                  title="Clear the custom prompt and follow the built-in default"
+                >
+                  Reset
+                </button>
+                <span className="text-[0.6875rem] text-faint ml-auto text-right">
+                  {persona.system_prompt?.trim()
+                    ? "Custom system prompt active."
+                    : "Using the built-in default."}
                 </span>
-                <textarea
-                  className="input w-full mt-1 text-xs font-mono"
-                  rows={6}
-                  placeholder="Leave empty to use the built-in prompt. {{name}} is replaced with the assistant name."
-                  value={persona.system_prompt ?? ""}
-                  onChange={(e) =>
-                    setPersona({ ...persona, system_prompt: e.target.value || null })
-                  }
-                />
-              </label>
+              </div>
             </div>
             <div className="card space-y-3">
               <div>
@@ -1359,7 +1385,6 @@ function BehaviorCard() {
     notify: boolean;
     proactive: boolean;
     autostart: boolean;
-    minimize_on_start: boolean;
     hotkey: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1372,7 +1397,6 @@ function BehaviorCard() {
           notify: c.assistant?.notify ?? true,
           proactive: c.assistant?.proactive ?? true,
           autostart: c.assistant?.autostart ?? false,
-          minimize_on_start: c.assistant?.minimize_on_start ?? true,
           hotkey: c.assistant?.hotkey ?? "",
         }),
       )
@@ -1389,7 +1413,6 @@ function BehaviorCard() {
           behavior.notify,
           behavior.proactive,
           behavior.autostart,
-          behavior.minimize_on_start,
           behavior.hotkey,
         ),
       );
@@ -1405,7 +1428,10 @@ function BehaviorCard() {
     <div className="card space-y-3">
       <div>
         <h2 className="section-title mb-0">Behavior</h2>
-        <p className="section-desc">How the assistant behaves when the window is closed or idle.</p>
+        <p className="section-desc">
+          How the assistant behaves when the window is closed or idle. Hiding to the tray follows
+          the "Show in notification area" setting in Settings → General.
+        </p>
       </div>
       <Toggle
         label="Reminder alerts"
@@ -1424,12 +1450,6 @@ function BehaviorCard() {
         hint="Launch werk at login, minimized to the tray."
         checked={behavior.autostart}
         onChange={(v) => setBehavior({ ...behavior, autostart: v })}
-      />
-      <Toggle
-        label="Minimize to tray when running"
-        hint="Hide the window once the assistant's server is up."
-        checked={behavior.minimize_on_start}
-        onChange={(v) => setBehavior({ ...behavior, minimize_on_start: v })}
       />
       <label className="block">
         <span className="text-[0.6875rem] text-dim">Global hotkey (empty disables)</span>

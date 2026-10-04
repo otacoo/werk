@@ -112,7 +112,7 @@ export default function App() {
         setQuickBench(c.bench_visible ?? false);
         setExternalMode(c.server_mode === "external");
         setProfileMirror((c.chat_profile ?? "agent") as Profile);
-        setMinimizeOnStart(c.assistant?.minimize_on_start ?? false);
+            setCloseToTray(c.close_to_tray ?? false);
       })
       .catch(() => setWizard(false));
     call(commands.getPlatformStyle())
@@ -124,18 +124,19 @@ export default function App() {
   }, []);
 
   // Assistant always-on: the overlay follows the profile, and the app hides
-  // to the tray once the server is running (once per session).
-  const [minimizeOnStart, setMinimizeOnStart] = useState(false);
+  // to the tray once the server is running (shares close_to_tray, so the tray
+  // icon is always there to reopen from).
+  const [closeToTray, setCloseToTray] = useState(false);
   const minimizedRef = useRef(false);
   useEffect(() => {
     call(commands.setOverlayVisible(profile === "assistant")).catch(() => {});
   }, [profile]);
   useEffect(() => {
-    if (profile !== "assistant" || !serverRunning || !minimizeOnStart) return;
+    if (profile !== "assistant" || !serverRunning || !closeToTray) return;
     if (minimizedRef.current) return;
     minimizedRef.current = true;
     getCurrentWindow().hide().catch(() => {});
-  }, [profile, serverRunning, minimizeOnStart]);
+  }, [profile, serverRunning, closeToTray]);
 
   // Tray "Assistant" item: open the tab in the main window.
   useEffect(() => {
@@ -166,7 +167,7 @@ export default function App() {
             const external = c.server_mode === "external";
             setExternalMode(external);
             setProfileMirror((c.chat_profile ?? "agent") as Profile);
-            setMinimizeOnStart(c.assistant?.minimize_on_start ?? false);
+        setCloseToTray(c.close_to_tray ?? false);
             if (external) setTab((t) => (t === "run" || t === "api" ? "chat" : t));
           })
           .catch(() => {});

@@ -299,9 +299,6 @@ pub struct AssistantConfig {
     /// Start werk with the OS session (minimized to the tray).
     #[serde(default)]
     pub autostart: bool,
-    /// Hide to the tray once the assistant's server is running.
-    #[serde(default = "default_true")]
-    pub minimize_on_start: bool,
     /// Global hotkey that summons the overlay; empty disables it.
     #[serde(default = "default_assistant_hotkey")]
     pub hotkey: String,
@@ -320,7 +317,6 @@ impl Default for AssistantConfig {
             notify: true,
             proactive: true,
             autostart: false,
-            minimize_on_start: true,
             hotkey: default_assistant_hotkey(),
         }
     }
