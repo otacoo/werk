@@ -692,6 +692,7 @@ mod tests {
         assert_eq!(cuda_suffix("llama-b11177-bin-win-cpu-x64.zip"), "");
     }
 
+    #[cfg(target_os = "windows")]
     fn scored_names(release: &ReleaseInfo, backends: &[BackendInfo], cuda: Option<&str>) -> Vec<(String, i64)> {
         score_release(release, backends, cuda)
             .into_iter()
@@ -699,6 +700,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg(target_os = "windows")]
     fn win_cuda_host() -> Vec<BackendInfo> {
         vec![
             BackendInfo { id: "cuda".into(), label: "CUDA".into(), available: true },
