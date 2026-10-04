@@ -491,8 +491,9 @@ impl Tool for UiaTool {
     fn description(&self) -> String {
         "Interact with app controls through Windows UI Automation: find controls by name or \
          automation id and invoke, type into, toggle, focus, or read them without moving the \
-         mouse. Actions: tree (list the foreground window's controls), click, type, toggle, \
-         focus, read. Prefer this over `input` for standard controls."
+         mouse. Actions: tree (list the window's controls), click, type, toggle, focus, read. \
+         Targets the foreground window unless `window` names one. Prefer this over `input` for \
+         standard controls."
             .to_string()
     }
 
@@ -503,7 +504,8 @@ impl Tool for UiaTool {
                 "action": { "type": "string", "enum": ["tree", "click", "type", "toggle", "focus", "read"] },
                 "name": { "type": "string", "description": "Control name (case-insensitive substring)." },
                 "automation_id": { "type": "string", "description": "Exact automation id." },
-                "text": { "type": "string", "description": "Text to set for type." }
+                "text": { "type": "string", "description": "Text to set for type." },
+                "window": { "type": "string", "description": "Window title substring; default the foreground window." }
             },
             "required": ["action"]
         })
@@ -594,8 +596,20 @@ fn uia_run(action: &str, args: &Value) -> Result<String> {
     let automation: IUIAutomation =
         unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
             .map_err(|e| anyhow!("UI Automation unavailable: {e}"))?;
-    let root: IUIAutomationElement = unsafe { automation.ElementFromHandle(GetForegroundWindow()) }
-        .map_err(|e| anyhow!("No foreground window: {e}"))?;
+    let hwnd = match args
+        .get("window")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(title) => {
+            let found = find_window(title)?;
+            windows::Win32::Foundation::HWND(found as *mut std::ffi::c_void)
+        }
+        None => unsafe { GetForegroundWindow() },
+    };
+    let root: IUIAutomationElement = unsafe { automation.ElementFromHandle(hwnd) }
+        .map_err(|e| anyhow!("No matching window: {e}"))?;
 
     let name = args
         .get("name")
