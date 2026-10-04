@@ -466,12 +466,39 @@ fn save_permission_grants(state: &AppState) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
+    // Both chat runtimes have their own engines; the file carries both.
     // try_lock: a contended lock must defer the write, never freeze the app.
-    if let Ok(grants) = state.harness.engine.try_lock().map(|e| e.persistable()) {
-        if let Ok(json) = serde_json::to_string_pretty(&grants) {
-            let _ = std::fs::write(&path, json);
-        }
+    let mut grants: Vec<harness::permissions::Grant> = Vec::new();
+    if let Ok(engine) = state.harness.engine.try_lock() {
+        grants.extend(engine.persistable());
     }
+    if let Ok(engine) = state.assistant.engine.try_lock() {
+        grants.extend(engine.persistable());
+    }
+    let grants = dedupe_grants(grants);
+    if let Ok(json) = serde_json::to_string_pretty(&grants) {
+        let _ = std::fs::write(&path, json);
+    }
+}
+
+/// One row per key+scope+project; the newest expiry wins.
+fn dedupe_grants(grants: Vec<harness::permissions::Grant>) -> Vec<harness::permissions::Grant> {
+    let mut out: Vec<harness::permissions::Grant> = Vec::new();
+    for grant in grants {
+        if let Some(existing) = out.iter_mut().find(|e| {
+            e.tool == grant.tool
+                && e.command == grant.command
+                && e.scope == grant.scope
+                && e.project == grant.project
+        }) {
+            if grant.expires.unwrap_or(i64::MAX) > existing.expires.unwrap_or(i64::MAX) {
+                existing.expires = grant.expires;
+            }
+            continue;
+        }
+        out.push(grant);
+    }
+    out
 }
 
 pub(crate) fn load_permission_grants(state: &AppState) {
@@ -485,15 +512,23 @@ pub(crate) fn load_permission_grants(state: &AppState) {
         return;
     };
     let loaded = grants.len();
-    let kept = {
+    let mut compacted = false;
+    {
         let Ok(mut engine) = state.harness.engine.lock() else {
             return;
         };
+        engine.load_persisted(grants.clone());
+        compacted |= engine.persistable().len() < loaded;
+    }
+    {
+        let Ok(mut engine) = state.assistant.engine.lock() else {
+            return;
+        };
         engine.load_persisted(grants);
-        engine.persistable().len()
-    };
+        compacted |= engine.persistable().len() < loaded;
+    }
     // Old files stacked duplicates and expired entries; compact them once.
-    if kept < loaded {
+    if compacted {
         save_permission_grants(state);
     }
 }
