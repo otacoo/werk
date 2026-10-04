@@ -436,6 +436,9 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
   };
 
   // One attachment symbol: colored when on, grey when off.
+  const attachmentLabel = (kind: string) =>
+    kind === "mmproj" ? "Vision" : kind === "draft model" ? "Draft model" : kind;
+
   const attachmentIcon = (a: AttachmentInfo) => {
     const Icon = a.kind === "mmproj" ? Projector : a.kind === "chat-template" ? FileCode : Rabbit;
     const color =
@@ -449,7 +452,11 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
     const where = a.role ? ` (${a.role})` : "";
     if (!a.auto) {
       return (
-        <span key={key} className="inline-flex items-center" title={`${a.kind}${where}: ${a.path}`}>
+        <span
+          key={key}
+          className="inline-flex items-center"
+          title={`${attachmentLabel(a.kind)}${where}: ${a.path}`}
+        >
           <Icon size={13} className={cls} />
         </span>
       );
@@ -458,7 +465,7 @@ export default function Run({ go }: { go: (t: Tab) => void }) {
       <button
         key={key}
         className="inline-flex items-center hover:opacity-80"
-        title={`${a.kind}${where}: ${a.path} — click to ${a.enabled ? "detach" : "attach"}`}
+        title={`${attachmentLabel(a.kind)}${where}: ${a.path} — click to ${a.enabled ? "detach" : "attach"}`}
         onClick={() => toggleAttachment(a)}
       >
         <Icon size={13} className={cls} />
