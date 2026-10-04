@@ -22,6 +22,11 @@ pub trait Tool: Send + Sync {
     /// None runs free; Some gates through the permission engine.
     fn approval_key(&self, args: &Value) -> Option<ApprovalKey>;
     fn execute(&self, args: &Value) -> Result<String>;
+    /// Images to attach to the tool result (mime, bytes). The agent loop
+    /// drops them when the run's model has no vision.
+    fn result_images(&self, _args: &Value, _output: &str) -> Vec<(String, Vec<u8>)> {
+        Vec::new()
+    }
 }
 
 fn str_arg(args: &Value, key: &str) -> Result<String> {
@@ -43,7 +48,9 @@ impl Tool for ReadFileTool {
         "read_file".to_string()
     }
     fn description(&self) -> String {
-        "Read a text file relative to the project directory.".to_string()
+        "Read a text file relative to the project directory. Image files are attached to the \
+         result when the model has vision."
+            .to_string()
     }
     fn parameters(&self) -> Value {
         json!({
@@ -59,14 +66,15 @@ impl Tool for ReadFileTool {
     }
     fn execute(&self, args: &Value) -> Result<String> {
         let path = self.jail.check_read(&str_arg(args, "path")?)?;
+        if crate::agent::is_image_path(&path) {
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            return Ok(format!(
+                "Image file {} ({size} bytes); attached to this result when the model has vision.",
+                path.display()
+            ));
+        }
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => text,
-            // Images are binary: point at the paths that can actually use them.
-            Err(_) if crate::agent::is_image_path(&path) => bail!(
-                "{} is an image, not text. Attach it in the chat, or pass it to \
-                 spawn_subagent as `image` (the subagent's model needs vision).",
-                path.display()
-            ),
             Err(e) => {
                 return Err(e).with_context(|| format!("Cannot read {}", path.display()));
             }
@@ -78,6 +86,43 @@ impl Tool for ReadFileTool {
         }
         Ok(text)
     }
+
+    fn result_images(&self, args: &Value, _output: &str) -> Vec<(String, Vec<u8>)> {
+        let Ok(path) = self.jail.check_read(&str_arg(args, "path").unwrap_or_default()) else {
+            return Vec::new();
+        };
+        image_attachment(&path)
+    }
+}
+
+/// Read an image file for tool-result attachment, capped so one call cannot
+/// blow up the request.
+pub fn image_attachment(path: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    const IMAGE_ATTACH_CAP: u64 = 12 * 1024 * 1024;
+    if !crate::agent::is_image_path(path) {
+        return Vec::new();
+    }
+    let Ok(meta) = std::fs::metadata(path) else {
+        return Vec::new();
+    };
+    if meta.len() == 0 || meta.len() > IMAGE_ATTACH_CAP {
+        return Vec::new();
+    }
+    let Ok(bytes) = std::fs::read(path) else {
+        return Vec::new();
+    };
+    let mime = match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        _ => "image/png",
+    };
+    vec![(mime.to_string(), bytes)]
 }
 
 // ── write_file ────────────────────────────────────────────────────────────
@@ -1106,17 +1151,21 @@ mod tests {
     }
 
     #[test]
-    fn read_file_hints_images_instead_of_binary_garbage() {
+    fn read_file_attaches_images_instead_of_binary_garbage() {
         let root = temp_dir("read-image");
         let reg = registry_for(&root);
         std::fs::write(root.join("pic.png"), [0x89u8, 0x50, 0x4E, 0x47, 0x00]).unwrap();
-        let err = reg
-            .get("read_file")
-            .unwrap()
-            .execute(&json!({"path": "pic.png"}))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("image") && err.contains("spawn_subagent"), "{err}");
+        let tool = reg.get("read_file").unwrap();
+        let text = tool.execute(&json!({"path": "pic.png"})).unwrap();
+        assert!(text.contains("Image file"), "{text}");
+        let images = tool.result_images(&json!({"path": "pic.png"}), &text);
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].0, "image/png");
+        assert_eq!(images[0].1, [0x89u8, 0x50, 0x4E, 0x47, 0x00]);
+        // Non-images never attach.
+        std::fs::write(root.join("a.txt"), "hello").unwrap();
+        let text = tool.execute(&json!({"path": "a.txt"})).unwrap();
+        assert!(tool.result_images(&json!({"path": "a.txt"}), &text).is_empty());
         std::fs::remove_dir_all(&root).unwrap();
     }
 

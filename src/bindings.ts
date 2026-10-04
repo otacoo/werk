@@ -137,8 +137,11 @@ export const commands = {
 	setAssistantBehavior: (notify: boolean, proactive: boolean, autostart: boolean, hotkey: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_behavior", { notify, proactive, autostart, hotkey })),
 	/**  Built-in assistant prompt for the Persona editor. */
 	assistantSystemPromptDefault: () => typedError<string, string>(__TAURI_INVOKE("assistant_system_prompt_default")),
-	/**  Save the assistant's system-control settings (master switch, roots, tools). */
-	setAssistantAccess: (systemControl: boolean, roots: string[], files: boolean, clipboard: boolean, windows: boolean, screen: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, roots, files, clipboard, windows, screen })),
+	/**
+	 *  Save the assistant's system-control settings (master switch, home folder,
+	 *  tool toggles). The temp workspace is always granted on top.
+	 */
+	setAssistantAccess: (systemControl: boolean, workspace: string | null, files: boolean, clipboard: boolean, windows: boolean, screen: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_access", { systemControl, workspace, files, clipboard, windows, screen })),
 	/**  List reminders for the UI. */
 	assistantRemindersList: () => typedError<Reminder_Serialize[], string>(__TAURI_INVOKE("assistant_reminders_list")),
 	/**  Add a reminder from the UI (unix `due`). */
@@ -541,8 +544,11 @@ export type AssistantConfig_Deserialize = {
 	hotkey?: string,
 	/**  Master switch for the system-control tools (opt-in). */
 	system_control?: boolean,
-	/**  Folders the assistant's file tools may read and write. */
-	roots?: string[],
+	/**
+	 *  The assistant's own folder for persistent files (user-picked); the
+	 *  temp workspace is always granted on top of it.
+	 */
+	workspace?: string | null,
 	tool_files?: boolean,
 	tool_clipboard?: boolean,
 	tool_windows?: boolean,
@@ -571,8 +577,11 @@ export type AssistantConfig_Serialize = {
 	hotkey: string,
 	/**  Master switch for the system-control tools (opt-in). */
 	system_control: boolean,
-	/**  Folders the assistant's file tools may read and write. */
-	roots?: string[],
+	/**
+	 *  The assistant's own folder for persistent files (user-picked); the
+	 *  temp workspace is always granted on top of it.
+	 */
+	workspace?: string | null,
 	tool_files: boolean,
 	tool_clipboard: boolean,
 	tool_windows: boolean,

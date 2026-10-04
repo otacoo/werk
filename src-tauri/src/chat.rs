@@ -1643,7 +1643,7 @@ async fn agent_send_impl(
             // plus clipboard/window/screen (each approval-gated).
             if app_config.assistant.system_control {
                 if app_config.assistant.tool_files {
-                    let roots = crate::system::file_roots(&app_config.assistant);
+                    let roots = crate::system::roots(&app_config.assistant);
                     if let Some((first, rest)) = roots.split_first() {
                         if let Ok(file_jail) = PathJail::new(first, &[]) {
                             let sensitive = Arc::new(harness::sensitive::SensitivePolicy::build(
@@ -2154,6 +2154,25 @@ async fn agent_send_impl(
         (!map.is_empty()).then_some(serde_json::Value::Object(map))
     };
 
+    let main_vision = if mode == crate::config::ServerMode::External {
+        // OpenAI-compatible tool messages do not carry images.
+        false
+    } else {
+        let path = orchestrator_id.clone().or_else(|| {
+            state
+                .server
+                .lock()
+                .unwrap()
+                .config
+                .as_ref()
+                .map(|c| c.model_path.clone())
+                .filter(|p| !p.is_empty())
+        });
+        path.as_deref()
+            .map(|p| crate::server::find_mmproj_sibling(std::path::Path::new(p)).is_some())
+            .unwrap_or(false)
+    };
+
     let run = AgentRun {
         client,
         registry: Arc::new(registry),
@@ -2176,6 +2195,7 @@ async fn agent_send_impl(
             RunMode::Agent => reasoning_effort.filter(|e| !e.is_empty()),
         },
         sampling,
+        vision: main_vision,
         max_turns,
         context_limit,
         verify_mode,

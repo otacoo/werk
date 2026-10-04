@@ -4,6 +4,8 @@
 
 ### Added
 
+- The assistant gets a user-picked home folder for persistent files plus an always-granted temp workspace for scratch scripts, downloads, and screenshots.
+- Tool results carry images when the local model has vision, so the assistant can see screenshots and image files it reads.
 - Assistant system control is opt-in from the Access tab: file tools over chosen folders plus clipboard, window, and screen-capture tools, each approval-gated.
 - The assistant overlay anchors to the monitor work area and re-asserts topmost, so the taskbar no longer covers it.
 - Assistant reminders: a persisted list with a reminder tool, a 30 s scheduler, cross-platform attention alerts, and catch-up for missed times.

@@ -1483,11 +1483,11 @@ function RemindersCard() {
   );
 }
 
-/// Opt-in system control: master switch, file roots, and per-tool toggles.
+/// Opt-in system control: master switch, home folder, and per-tool toggles.
 function AccessCard() {
   const [access, setAccess] = useState<{
     system_control: boolean;
-    roots: string[];
+    workspace: string | null;
     files: boolean;
     clipboard: boolean;
     windows: boolean;
@@ -1501,7 +1501,7 @@ function AccessCard() {
       .then((c) =>
         setAccess({
           system_control: c.assistant?.system_control ?? false,
-          roots: c.assistant?.roots ?? [],
+          workspace: c.assistant?.workspace ?? null,
           files: c.assistant?.tool_files ?? true,
           clipboard: c.assistant?.tool_clipboard ?? true,
           windows: c.assistant?.tool_windows ?? true,
@@ -1512,23 +1512,15 @@ function AccessCard() {
   };
   useEffect(load, []);
 
-  const addFolder = async () => {
+  const pickFolder = async () => {
     let picked: string | string[] | null = null;
     try {
-      picked = await openDialog({ directory: true, multiple: true });
+      picked = await openDialog({ directory: true, multiple: false });
     } catch {
       return;
     }
-    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
-    if (paths.length === 0) return;
-    setAccess((a) =>
-      a
-        ? {
-            ...a,
-            roots: [...a.roots, ...paths.filter((p) => !a.roots.includes(p))].slice(0, 16),
-          }
-        : a,
-    );
+    if (!picked || typeof picked !== "string") return;
+    setAccess((a) => (a ? { ...a, workspace: picked } : a));
   };
 
   const save = async () => {
@@ -1538,7 +1530,7 @@ function AccessCard() {
       await call(
         commands.setAssistantAccess(
           access.system_control,
-          access.roots,
+          access.workspace,
           access.files,
           access.clipboard,
           access.windows,
@@ -1559,9 +1551,9 @@ function AccessCard() {
       <div>
         <h2 className="section-title mb-0">System access</h2>
         <p className="section-desc">
-          Off by default. When enabled, the assistant gets file tools over the folders below plus
-          clipboard, window, and screen tools; every mutating action still asks for approval, and
-          the sensitive-file policy stays in force.
+          Off by default. When enabled, the assistant gets file tools over its own folder plus an
+          always-granted temp workspace, and clipboard, window, and screen tools; every mutating
+          action still asks for approval, and the sensitive-file policy stays in force.
         </p>
       </div>
       <Toggle
@@ -1574,42 +1566,33 @@ function AccessCard() {
         <>
           <div className="space-y-2 border border-border rounded px-3 py-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-ink">Folders</p>
-              <button
-                className="btn-ghost text-[0.625rem] py-0.5 px-1.5"
-                onClick={addFolder}
-              >
-                <FolderOpen size={11} /> Add folder
-              </button>
-            </div>
-            {access.roots.length === 0 && (
-              <p className="text-[0.6875rem] text-dim">
-                No folders yet; file tools stay off until one is added.
-              </p>
-            )}
-            {access.roots.map((root) => (
-              <div key={root} className="flex items-center gap-2">
-                <span
-                  className="flex-1 min-w-0 truncate font-mono text-[0.6875rem] text-dim"
-                  title={root}
-                >
-                  {root}
-                </span>
-                <button
-                  className="text-faint hover:text-accent-red shrink-0"
-                  onClick={() =>
-                    setAccess({ ...access, roots: access.roots.filter((r) => r !== root) })
-                  }
-                  title="Remove"
-                >
-                  <X size={11} />
+              <p className="text-xs font-medium text-ink">Assistant folder</p>
+              <div className="flex items-center gap-1">
+                <button className="btn-ghost text-[0.625rem] py-0.5 px-1.5" onClick={pickFolder}>
+                  <FolderOpen size={11} /> Choose…
                 </button>
+                {access.workspace && (
+                  <button
+                    className="btn-ghost text-[0.625rem] py-0.5 px-1.5 text-accent-red"
+                    onClick={() => setAccess({ ...access, workspace: null })}
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
-            ))}
+            </div>
+            <p className="font-mono text-[0.6875rem] text-dim break-all">
+              {access.workspace ?? "Not set — the temp workspace is used for everything."}
+            </p>
+            <p className="text-[0.625rem] text-faint">
+              The assistant's persistent files (documents it wants to keep) live here. A temp
+              workspace under the system temp folder is always granted for scratch files, scripts,
+              and screenshots.
+            </p>
           </div>
           <Toggle
             label="File tools"
-            hint="Read, write, edit, find, and search inside the folders."
+            hint="Read, write, edit, find, and search inside the assistant and temp folders."
             checked={access.files}
             onChange={(v) => setAccess({ ...access, files: v })}
           />

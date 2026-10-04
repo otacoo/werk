@@ -457,6 +457,9 @@ pub struct AgentRun<'a> {
     pub reasoning_effort: Option<String>,
     /// Per-request sampling overrides (roleplay); None = server defaults.
     pub sampling: Option<serde_json::Value>,
+    /// Whether the run's model can see images; tool results attach them only
+    /// then (local models with an mmproj).
+    pub vision: bool,
     pub max_turns: usize,
     pub subagents: Option<Subagents<'a>>,
     pub verify_mode: VerifyMode,
@@ -490,6 +493,23 @@ fn short_args(pretty: &str) -> String {
         s.push('…');
     }
     s
+}
+
+/// Tool result content: text, or text plus image parts when the model sees.
+/// llama.cpp accepts image_url parts in any role (they become media markers).
+fn tool_result_content(text: String, images: Vec<(String, Vec<u8>)>, vision: bool) -> Value {
+    if !vision || images.is_empty() {
+        return Value::String(text);
+    }
+    let mut parts: Vec<Value> = Vec::with_capacity(images.len() + 1);
+    parts.push(json!({"type": "text", "text": text}));
+    for (mime, bytes) in images {
+        parts.push(json!({
+            "type": "image_url",
+            "image_url": {"url": format!("data:{mime};base64,{}", base64_encode(&bytes))}
+        }));
+    }
+    Value::Array(parts)
 }
 
 /// llama-server's context-overflow rejection, matched loosely.
@@ -791,9 +811,14 @@ impl AgentRun<'_> {
                             });
                         }
                     }
+                    let images = self
+                        .registry
+                        .get(&tool_name)
+                        .map(|tool| tool.result_images(&args_value, &output))
+                        .unwrap_or_default();
                     history.push(ChatMessage {
                         role: "tool".into(),
-                        content: Some(Value::String(output)),
+                        content: Some(tool_result_content(output, images, self.vision)),
                         tool_calls: None,
                         tool_call_id: Some(call_id),
                     });
@@ -1173,6 +1198,7 @@ impl AgentRun<'_> {
             project: self.project.clone(),
             reasoning_effort: self.reasoning_effort.clone(),
             sampling: None,
+            vision: vision.unwrap_or(false),
             max_turns: sub.max_turns,
             subagents: None,
             verify_mode: self.verify_mode,
@@ -1258,6 +1284,19 @@ mod tests {
         }
     }
 
+    #[test]
+    fn tool_results_attach_images_only_with_vision() {
+        let images = vec![("image/png".to_string(), vec![1u8, 2, 3])];
+        assert!(tool_result_content("hi".into(), Vec::new(), true).is_string());
+        assert!(tool_result_content("hi".into(), images.clone(), false).is_string());
+        let on = tool_result_content("hi".into(), images, true);
+        let parts = on.as_array().expect("content parts");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["type"], "text");
+        let url = parts[1]["image_url"]["url"].as_str().unwrap();
+        assert!(url.starts_with("data:image/png;base64,"), "{url}");
+    }
+
     fn test_run(jail: Arc<crate::sandbox::PathJail>) -> AgentRun<'static> {
         // Leaked client never touches the network (read_file is local).
         let client: &'static LlmClient = Box::leak(Box::new(LlmClient::new("http://127.0.0.1:9")));
@@ -1269,6 +1308,7 @@ mod tests {
             project: Some("p".to_string()),
             reasoning_effort: None,
             sampling: None,
+            vision: false,
             max_turns: 5,
             subagents: None,
             verify_mode: VerifyMode::Normal,

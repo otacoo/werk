@@ -148,34 +148,25 @@ pub async fn assistant_system_prompt_default() -> Result<String, String> {
     Ok(BUILT_IN_ASSISTANT_PROMPT.to_string())
 }
 
-/// Save the assistant's system-control settings (master switch, roots, tools).
+/// Save the assistant's system-control settings (master switch, home folder,
+/// tool toggles). The temp workspace is always granted on top.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_assistant_access(
     system_control: bool,
-    roots: Vec<String>,
+    workspace: Option<String>,
     files: bool,
     clipboard: bool,
     windows: bool,
     screen: bool,
     state: State<'_, crate::AppState>,
 ) -> Result<(), String> {
-    let mut cleaned: Vec<String> = Vec::new();
-    for root in roots {
-        let root = root.trim();
-        if root.is_empty() || cleaned.iter().any(|r| r.eq_ignore_ascii_case(root)) {
-            continue;
-        }
-        if std::path::Path::new(root).is_dir() {
-            cleaned.push(root.to_string());
-        }
-        if cleaned.len() >= 16 {
-            break;
-        }
-    }
+    let workspace = workspace
+        .map(|w| w.trim().to_string())
+        .filter(|w| !w.is_empty() && std::path::Path::new(w).is_dir());
     let mut cfg = state.config.lock().unwrap();
     cfg.assistant.system_control = system_control;
-    cfg.assistant.roots = cleaned;
+    cfg.assistant.workspace = workspace;
     cfg.assistant.tool_files = files;
     cfg.assistant.tool_clipboard = clipboard;
     cfg.assistant.tool_windows = windows;

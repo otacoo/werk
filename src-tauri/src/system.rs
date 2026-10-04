@@ -297,9 +297,7 @@ impl Tool for ScreenTool {
 
     fn execute(&self, args: &Value) -> Result<String> {
         let target = args.get("target").and_then(Value::as_str).unwrap_or("monitor");
-        let dir = crate::assistant::dir()
-            .ok_or_else(|| anyhow!("Cannot find data directory"))?
-            .join("screens");
+        let dir = temp_workspace().join("screens");
         std::fs::create_dir_all(&dir)?;
         let millis = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -345,6 +343,14 @@ impl Tool for ScreenTool {
         };
         Ok(format!("Saved {width}x{height} capture to {}", path.display()))
     }
+
+    fn result_images(&self, _args: &Value, output: &str) -> Vec<(String, Vec<u8>)> {
+        // The output ends with the saved path.
+        let Some(path) = output.rsplit(' ').next() else {
+            return Vec::new();
+        };
+        harness::tools::image_attachment(std::path::Path::new(path))
+    }
 }
 
 /// Minimal PNG writer (8-bit RGBA, no interlace) so captures do not need the
@@ -386,13 +392,30 @@ fn write_png(path: &std::path::Path, width: u32, height: u32, rgba: &[u8]) -> Re
     Ok(())
 }
 
-/// The assistant's configured file roots that still exist.
-pub fn file_roots(config: &AssistantConfig) -> Vec<PathBuf> {
+/// Ephemeral workspace: always granted, safe to delete (screenshots, scratch
+/// scripts, downloads).
+pub fn temp_workspace() -> PathBuf {
+    std::env::temp_dir().join("werk-assistant")
+}
+
+/// The assistant's persistent home folder, when configured and present.
+pub fn home(config: &AssistantConfig) -> Option<PathBuf> {
     config
-        .roots
-        .iter()
+        .workspace
+        .as_deref()
         .map(PathBuf::from)
         .filter(|p| p.is_dir())
-        .take(16)
-        .collect()
+}
+
+/// File-tool roots: the assistant home first (relative paths land there),
+/// then the always-granted temp workspace.
+pub fn roots(config: &AssistantConfig) -> Vec<PathBuf> {
+    let temp = temp_workspace();
+    let _ = std::fs::create_dir_all(&temp);
+    let mut roots = Vec::new();
+    if let Some(home) = home(config) {
+        roots.push(home);
+    }
+    roots.push(temp);
+    roots
 }

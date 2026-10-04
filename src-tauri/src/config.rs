@@ -305,9 +305,10 @@ pub struct AssistantConfig {
     /// Master switch for the system-control tools (opt-in).
     #[serde(default)]
     pub system_control: bool,
-    /// Folders the assistant's file tools may read and write.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub roots: Vec<String>,
+    /// The assistant's own folder for persistent files (user-picked); the
+    /// temp workspace is always granted on top of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
     #[serde(default = "default_true")]
     pub tool_files: bool,
     #[serde(default = "default_true")]
@@ -333,7 +334,7 @@ impl Default for AssistantConfig {
             autostart: false,
             hotkey: default_assistant_hotkey(),
             system_control: false,
-            roots: Vec::new(),
+            workspace: None,
             tool_files: true,
             tool_clipboard: true,
             tool_windows: true,
