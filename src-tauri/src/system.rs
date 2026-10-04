@@ -435,6 +435,7 @@ fn parse_key(name: &str) -> Result<enigo::Key> {
         "space" => Key::Space,
         "backspace" => Key::Backspace,
         "delete" | "del" => Key::Delete,
+        #[cfg(not(target_os = "macos"))]
         "insert" => Key::Insert,
         "home" => Key::Home,
         "end" => Key::End,
