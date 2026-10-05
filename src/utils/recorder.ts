@@ -7,6 +7,9 @@ export class VoiceRecorder {
   private stream: MediaStream | null = null;
   private recorder: MediaRecorder | null = null;
   private chunks: Blob[] = [];
+  private audioCtx: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private levelData: Uint8Array<ArrayBuffer> | null = null;
 
   get active(): boolean {
     return this.recorder !== null;
@@ -23,6 +26,28 @@ export class VoiceRecorder {
       if (e.data.size > 0) this.chunks.push(e.data);
     };
     this.recorder.start();
+    // Input level for the listening feedback; separate from the recorder.
+    this.audioCtx = new AudioContext();
+    const source = this.audioCtx.createMediaStreamSource(this.stream);
+    this.analyser = this.audioCtx.createAnalyser();
+    this.analyser.fftSize = 512;
+    source.connect(this.analyser);
+  }
+
+  /// Smoothed 0..1 input level while recording; 0 when idle.
+  level(): number {
+    const analyser = this.analyser;
+    if (!analyser) return 0;
+    if (!this.levelData || this.levelData.length !== analyser.fftSize) {
+      this.levelData = new Uint8Array(analyser.fftSize);
+    }
+    analyser.getByteTimeDomainData(this.levelData);
+    let sum = 0;
+    for (const v of this.levelData) {
+      const x = (v - 128) / 128;
+      sum += x * x;
+    }
+    return Math.min(1, Math.sqrt(sum / this.levelData.length) * 4);
   }
 
   /// Stop and return base64 WAV (16 kHz mono PCM16); empty when idle.
@@ -38,6 +63,10 @@ export class VoiceRecorder {
     this.stream = null;
     this.recorder = null;
     this.chunks = [];
+    void this.audioCtx?.close();
+    this.audioCtx = null;
+    this.analyser = null;
+    this.levelData = null;
     const pcm = await decodeToPcm(blob);
     return bytesToBase64(encodeWav(pcm, TARGET_RATE));
   }

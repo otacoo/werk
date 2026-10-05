@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
-import { ArrowUp, Mic, RefreshCw, Sparkles, Square } from "lucide-react";
+import { ArrowUp, Droplets, Mic, RefreshCw, Sparkles, Square } from "lucide-react";
 import { commands } from "../bindings";
 import { call } from "../utils/ipc";
 import { loadAppearance } from "../utils/appearance";
@@ -52,7 +52,10 @@ export default function Overlay() {
   const [micReady, setMicReady] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [level, setLevel] = useState(0);
+  const [sweat, setSweat] = useState(false);
   const recorder = useRef(new VoiceRecorder());
+  const sweatTimer = useRef<number | null>(null);
 
   const beginPress = (e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
@@ -220,12 +223,58 @@ export default function Overlay() {
   };
 
   useEffect(() => {
-    void anchor(COLLAPSED, COLLAPSED, true);
+    void anchor(COLLAPSED, COLLAPSED, true).then(() => enforceBounds());
     call(commands.assistantAvatar())
       .then(setAvatar)
       .catch(() => {});
     refreshMic();
   }, []);
+
+  /// More than half off-screen: sweat, then bounce fully back in.
+  const enforceBounds = async () => {
+    const win = getCurrentWindow();
+    const [pos, size] = await Promise.all([win.outerPosition(), win.outerSize()]);
+    let bounds: { left: number; top: number; right: number; bottom: number } | null = null;
+    const area = await commands.overlayWorkArea().catch(() => null);
+    if (area) {
+      bounds = { left: area.left, top: area.top, right: area.right, bottom: area.bottom };
+    } else {
+      const mon = await currentMonitor();
+      if (mon) {
+        bounds = {
+          left: mon.position.x,
+          top: mon.position.y,
+          right: mon.position.x + mon.size.width,
+          bottom: mon.position.y + mon.size.height,
+        };
+      }
+    }
+    if (!bounds) return;
+    const visibleW = Math.min(pos.x + size.width, bounds.right) - Math.max(pos.x, bounds.left);
+    const visibleH = Math.min(pos.y + size.height, bounds.bottom) - Math.max(pos.y, bounds.top);
+    const visible = Math.max(0, visibleW) * Math.max(0, visibleH);
+    if (visible * 2 >= size.width * size.height) return;
+    const margin = Math.round(12 * (await win.scaleFactor()));
+    const target = {
+      x: Math.min(Math.max(pos.x, bounds.left + margin), bounds.right - size.width - margin),
+      y: Math.min(Math.max(pos.y, bounds.top + margin), bounds.bottom - size.height - margin),
+    };
+    setSweat(true);
+    // Ease the window back instead of teleporting it.
+    const steps = 8;
+    for (let i = 1; i <= steps; i++) {
+      const t = 1 - Math.pow(1 - i / steps, 3);
+      await win.setPosition(
+        new PhysicalPosition(
+          Math.round(pos.x + (target.x - pos.x) * t),
+          Math.round(pos.y + (target.y - pos.y) * t),
+        ),
+      );
+      await new Promise((r) => window.setTimeout(r, 16));
+    }
+    if (sweatTimer.current) window.clearTimeout(sweatTimer.current);
+    sweatTimer.current = window.setTimeout(() => setSweat(false), 900);
+  };
 
   /// Voice input is ready when the Voice tab has an STT model enabled.
   const refreshMic = () => {
@@ -272,12 +321,15 @@ export default function Overlay() {
       if (timer) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         localStorage.setItem(POS_KEY, JSON.stringify({ x: payload.x, y: payload.y }));
+        dragging.current = false;
+        void enforceBounds();
       }, 250);
     });
     return () => {
       unlisten.then((f) => f());
       if (timer) window.clearTimeout(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const expand = async () => {
@@ -367,9 +419,46 @@ export default function Overlay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Dictation hotkey: open the pill and start or stop recording.
+  useEffect(() => {
+    const unlisten = listen("assistant_dictate", () => {
+      void (async () => {
+        if (!expandedRef.current) await expand();
+        await toggleDictation();
+      })();
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Live input level while recording, so the pill visibly listens.
+  useEffect(() => {
+    if (!recording) {
+      setLevel(0);
+      return;
+    }
+    let raf = 0;
+    let last = 0;
+    const tick = (t: number) => {
+      if (t - last > 60) {
+        last = t;
+        setLevel(recorder.current.level());
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [recording]);
+
   const send = async () => {
     const text = input.trim();
     if (!text || sending.current) return;
+    if (recording) {
+      void recorder.current.stop();
+      setRecording(false);
+    }
     sending.current = true;
     setError(null);
     setState("working");
@@ -423,7 +512,7 @@ export default function Overlay() {
       style={opacity < 100 ? { opacity: opacity / 100 } : undefined}
     >
       <div
-        className={`relative flex items-center gap-2 rounded-full border border-border bg-surface-2/95 shadow-lg backdrop-blur transition-all ${
+        className={`relative flex items-center gap-2 rounded-full border border-border bg-surface-2/95 shadow-lg transition-all ${
           expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"
         }`}
         onPointerDown={onPillDown}
@@ -471,12 +560,17 @@ export default function Overlay() {
             <span>z</span>
           </span>
         )}
+        {sweat && (
+          <span className="overlay-sweat" aria-hidden>
+            <Droplets size={12} />
+          </span>
+        )}
         {expanded && (
           <>
             <input
               ref={inputRef}
               className="input flex-1 min-w-0 bg-transparent border-0 text-sm focus:outline-none"
-              placeholder="Ask the assistant…"
+              placeholder={recording ? "Listening…" : "Ask the assistant…"}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -492,6 +586,17 @@ export default function Overlay() {
                 if (!pillPress.current && !input.trim()) void collapse();
               }}
             />
+            {recording && (
+              <span className="flex items-end gap-0.5 h-4 shrink-0" aria-hidden>
+                {[0.45, 0.8, 0.6, 1].map((k, i) => (
+                  <span
+                    key={i}
+                    className="w-0.5 rounded-full bg-accent-red transition-[height] duration-75"
+                    style={{ height: `${Math.max(12, Math.min(100, level * 100 * k))}%` }}
+                  />
+                ))}
+              </span>
+            )}
             <button
               className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
                 recording

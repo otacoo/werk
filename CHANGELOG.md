@@ -6,6 +6,14 @@
 
 - Voice input: local speech-to-text with Qwen3-ASR 0.6B — one-click download and model pickers in the Voice tab, and the overlay microphone dictates into the pill (record, transcribe, fill the input).
 
+### Changed
+
+- Overlay: dragging it more than half off-screen pops a sweat drop and eases the pill back into view; while recording it shows live mic levels and a "Listening…" placeholder, and the dictation hotkey (default `Ctrl+Alt+D`) starts and stops it.
+
+### Fixed
+
+- The faint blurred square behind the overlay is gone.
+
 ## [0.8.1] - 2026-10-05
 
 ### Fixed

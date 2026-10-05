@@ -1198,6 +1198,7 @@ function VoiceCard() {
     enabled: boolean;
     model: string;
     mmproj: string;
+    hotkey: string;
   } | null>(null);
   const [testText, setTestText] = useState("Hello! This is my assistant voice.");
   const [busy, setBusy] = useState(false);
@@ -1223,6 +1224,7 @@ function VoiceCard() {
           enabled: c.assistant?.stt_enabled ?? false,
           model: c.assistant?.stt_model ?? "",
           mmproj: c.assistant?.stt_mmproj ?? "",
+          hotkey: c.assistant?.stt_hotkey ?? "",
         });
       })
       .catch(() => {});
@@ -1233,7 +1235,14 @@ function VoiceCard() {
     setStt(next);
     setSttError(null);
     try {
-      await call(commands.setAssistantStt(next.enabled, next.model || null, next.mmproj || null));
+      await call(
+        commands.setAssistantStt(
+          next.enabled,
+          next.model || null,
+          next.mmproj || null,
+          next.hotkey,
+        ),
+      );
     } catch (e) {
       setSttError(String(e));
       load();
@@ -1490,6 +1499,16 @@ function VoiceCard() {
                 </button>
               </div>
             </div>
+            <label className="block">
+              <span className="text-[0.6875rem] text-dim">Dictation hotkey (empty disables)</span>
+              <input
+                className="input w-full mt-1 font-mono text-xs"
+                placeholder="Ctrl+Alt+D"
+                value={stt.hotkey}
+                onChange={(e) => setStt({ ...stt, hotkey: e.target.value })}
+                onBlur={() => applyStt(stt)}
+              />
+            </label>
             <div className="flex items-center gap-2">
               <button
                 className={`${recording ? "btn-danger" : "btn-secondary"} text-xs py-1 px-2 shrink-0`}

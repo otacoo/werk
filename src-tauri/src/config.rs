@@ -320,6 +320,9 @@ pub struct AssistantConfig {
     /// Audio projector (mmproj) that ships with the STT GGUF.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stt_mmproj: Option<String>,
+    /// Global hotkey that starts/stops dictation; empty disables it.
+    #[serde(default = "default_stt_hotkey")]
+    pub stt_hotkey: String,
     /// Start werk with the OS session (minimized to the tray).
     #[serde(default)]
     pub autostart: bool,
@@ -389,6 +392,7 @@ impl Default for AssistantConfig {
             stt_enabled: false,
             stt_model: None,
             stt_mmproj: None,
+            stt_hotkey: default_stt_hotkey(),
             autostart: false,
             hotkey: default_assistant_hotkey(),
             overlay_enabled: true,
@@ -579,6 +583,10 @@ fn default_assistant_persona() -> String {
 
 fn default_assistant_hotkey() -> String {
     "Ctrl+Alt+Space".to_string()
+}
+
+fn default_stt_hotkey() -> String {
+    "Ctrl+Alt+D".to_string()
 }
 
 impl Default for AppConfig {

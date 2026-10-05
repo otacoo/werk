@@ -205,6 +205,19 @@ pub async fn set_assistant_behavior(
             .register(hotkey.as_str())
             .map_err(|e| format!("Invalid hotkey: {e}"))?;
     }
+    // The dictation hotkey shares the manager; re-add it after the reset.
+    let (stt_enabled, stt_hotkey) = {
+        let cfg = state.config.lock().unwrap();
+        (
+            cfg.assistant.stt_enabled,
+            cfg.assistant.stt_hotkey.clone(),
+        )
+    };
+    if overlay_enabled && stt_enabled && !stt_hotkey.trim().is_empty() {
+        shortcuts
+            .register(stt_hotkey.as_str())
+            .map_err(|e| format!("Invalid dictation hotkey: {e}"))?;
+    }
     // Disabling the overlay hides it right away.
     if !overlay_enabled {
         if let Some(win) = app.get_webview_window("overlay") {
@@ -383,24 +396,49 @@ pub async fn set_assistant_voice(
     cfg.save().map_err(|e| e.to_string())
 }
 
-/// Voice input: the overlay microphone and its Qwen3-ASR model files.
+/// Voice input: the overlay microphone, its Qwen3-ASR model files, and the
+/// dictation hotkey.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_assistant_stt(
+    app: tauri::AppHandle,
     stt_enabled: bool,
     stt_model: Option<String>,
     stt_mmproj: Option<String>,
+    stt_hotkey: String,
     state: State<'_, crate::AppState>,
 ) -> Result<(), String> {
-    let mut cfg = state.config.lock().unwrap();
-    cfg.assistant.stt_enabled = stt_enabled;
-    cfg.assistant.stt_model = stt_model
-        .map(|m| m.trim().to_string())
-        .filter(|m| !m.is_empty());
-    cfg.assistant.stt_mmproj = stt_mmproj
-        .map(|m| m.trim().to_string())
-        .filter(|m| !m.is_empty());
-    cfg.save().map_err(|e| e.to_string())
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let hotkey: String = stt_hotkey.trim().chars().take(64).collect();
+    let (overlay_enabled, summon) = {
+        let mut cfg = state.config.lock().unwrap();
+        cfg.assistant.stt_enabled = stt_enabled;
+        cfg.assistant.stt_model = stt_model
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty());
+        cfg.assistant.stt_mmproj = stt_mmproj
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty());
+        cfg.assistant.stt_hotkey = hotkey.clone();
+        cfg.save().map_err(|e| e.to_string())?;
+        (cfg.assistant.overlay_enabled, cfg.assistant.hotkey.clone())
+    };
+    // The summon and dictation shortcuts share one manager: reset and re-add.
+    let shortcuts = app.global_shortcut();
+    let _ = shortcuts.unregister_all();
+    if overlay_enabled {
+        if !summon.trim().is_empty() {
+            shortcuts
+                .register(summon.as_str())
+                .map_err(|e| format!("Invalid hotkey: {e}"))?;
+        }
+        if stt_enabled && !hotkey.is_empty() {
+            shortcuts
+                .register(hotkey.as_str())
+                .map_err(|e| format!("Invalid dictation hotkey: {e}"))?;
+        }
+    }
+    Ok(())
 }
 
 /// The temp workspace path, for the File system card.

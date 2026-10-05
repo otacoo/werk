@@ -87,3 +87,32 @@
   }
 }
 
+/* Dragged more than half off-screen: a droplet pops off the avatar before
+   the window bounces back in. */
+.overlay-sweat {
+  position: absolute;
+  top: -4px;
+  left: 32px;
+  color: rgb(var(--accent));
+  pointer-events: none;
+  animation: overlay-sweat-pop 900ms ease-out;
+}
+@keyframes overlay-sweat-pop {
+  0% {
+    transform: translateY(2px) scale(0.4);
+    opacity: 0;
+  }
+  30% {
+    transform: translateY(-2px) scale(1.15);
+    opacity: 1;
+  }
+  70% {
+    transform: translateY(-3px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-7px) scale(0.9);
+    opacity: 0;
+  }
+}
+

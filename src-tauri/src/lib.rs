@@ -64,6 +64,40 @@ pub fn show_overlay(app: &tauri::AppHandle) {
     }
 }
 
+/// Show the overlay and ask it to start or stop dictation.
+fn dictate_overlay(app: &tauri::AppHandle) {
+    use tauri::{Emitter, Manager};
+    if let Some(state) = app.try_state::<AppState>() {
+        let cfg = state.config.lock().unwrap();
+        if !cfg.assistant.overlay_enabled || !cfg.assistant.stt_enabled {
+            return;
+        }
+    }
+    if let Some(win) = app.get_webview_window("overlay") {
+        let _ = win.set_always_on_top(true);
+        let _ = win.show();
+        let _ = win.set_focus();
+        let _ = app.emit_to("overlay", "assistant_dictate", ());
+    }
+}
+
+/// True when the pressed shortcut is the configured dictation hotkey.
+fn is_dictate_hotkey(app: &tauri::AppHandle, shortcut: &tauri_plugin_global_shortcut::Shortcut) -> bool {
+    use tauri::Manager;
+    let Some(state) = app.try_state::<AppState>() else {
+        return false;
+    };
+    let cfg = state.config.lock().unwrap().assistant.clone();
+    if !cfg.stt_enabled || cfg.stt_hotkey.trim().is_empty() {
+        return false;
+    }
+    cfg.stt_hotkey
+        .trim()
+        .parse::<tauri_plugin_global_shortcut::Shortcut>()
+        .map(|h| h == *shortcut)
+        .unwrap_or(false)
+}
+
 /// Physical work-area rect (excludes the taskbar) of the overlay's monitor.
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct WorkArea {
@@ -444,9 +478,13 @@ pub fn run() {
         ))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                .with_handler(|app, shortcut, event| {
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        show_overlay(app);
+                        if is_dictate_hotkey(app, shortcut) {
+                            dictate_overlay(app);
+                        } else {
+                            show_overlay(app);
+                        }
                     }
                 })
                 .build(),
@@ -559,6 +597,12 @@ pub fn run() {
                 let assistant = app.state::<AppState>().config.lock().unwrap().assistant.clone();
                 if assistant.overlay_enabled && !assistant.hotkey.trim().is_empty() {
                     let _ = app.global_shortcut().register(assistant.hotkey.as_str());
+                }
+                if assistant.overlay_enabled
+                    && assistant.stt_enabled
+                    && !assistant.stt_hotkey.trim().is_empty()
+                {
+                    let _ = app.global_shortcut().register(assistant.stt_hotkey.as_str());
                 }
                 let _ = if assistant.autostart {
                     app.autolaunch().enable()
