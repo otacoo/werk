@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { ArrowUp, Mic, Sparkles } from "lucide-react";
@@ -27,8 +27,10 @@ export default function Overlay() {
   const pressAt = useRef<{ x: number; y: number } | null>(null);
   /// Expanded state at press time: the input blurs before the click lands.
   const wasExpanded = useRef(false);
+  /// A press on the pill body: keep the input's blur from collapsing it.
+  const pillPress = useRef(false);
 
-  const onPressDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
+  const beginPress = (e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
     dragging.current = false;
     wasExpanded.current = expandedRef.current;
@@ -36,7 +38,18 @@ export default function Overlay() {
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
-  const onPressMove = async (e: ReactPointerEvent<HTMLButtonElement>) => {
+  const onPressDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    beginPress(e);
+  };
+
+  /// The pill body drags too; controls keep their own behavior.
+  const onPillDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest("input, button, textarea, select, a")) return;
+    pillPress.current = true;
+    beginPress(e);
+  };
+
+  const onPressMove = async (e: ReactPointerEvent<HTMLElement>) => {
     const from = pressAt.current;
     if (!from || dragging.current) return;
     if (Math.hypot(e.screenX - from.x, e.screenY - from.y) < 4) return;
@@ -49,7 +62,8 @@ export default function Overlay() {
     }
   };
 
-  const onPressUp = (e: ReactPointerEvent<HTMLButtonElement>) => {
+  const onPressUp = (e: ReactPointerEvent<HTMLElement>) => {
+    pillPress.current = false;
     pressAt.current = null;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -65,6 +79,17 @@ export default function Overlay() {
     }
     if (wasExpanded.current) void collapse();
     else void expand();
+  };
+
+  /// Clicking the pill body (never a control) collapses an empty pill.
+  const onPillClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    pillPress.current = false;
+    if ((e.target as HTMLElement).closest("input, button, textarea, select, a")) return;
+    if (dragging.current) {
+      dragging.current = false;
+      return;
+    }
+    if (expandedRef.current && !input.trim()) void collapse();
   };
 
   // Transparent page: the pill owns all visible pixels. The theme is applied
@@ -277,41 +302,47 @@ export default function Overlay() {
   return (
     <div className="h-screen w-screen flex items-end justify-end p-2 select-none">
       <div
-        data-tauri-drag-region
-        className={`flex items-center gap-2 rounded-full border border-border bg-surface-2/95 shadow-lg backdrop-blur transition-all ${
-          expanded ? "overlay-glow" : ""
-        } ${state === "idle" && !expanded ? "opacity-70 hover:opacity-100" : "opacity-100"} ${
-          expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"
-        }`}
+        className={`relative flex items-center gap-2 rounded-full border border-border bg-surface-2/95 shadow-lg backdrop-blur transition-all ${
+          state === "idle" && !expanded ? "opacity-70 hover:opacity-100" : "opacity-100"
+        } ${expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"}`}
+        onPointerDown={onPillDown}
+        onPointerMove={(e) => void onPressMove(e)}
+        onPointerUp={onPressUp}
+        onPointerCancel={onPressUp}
+        onClick={onPillClick}
       >
-        <span
-          className={`shrink-0 inline-flex rounded-full p-px ${
-            !expanded && state === "working" ? "overlay-glow overlay-glow-avatar" : ""
-          }`}
+        {expanded && (
+          <span className="overlay-ring" aria-hidden>
+            <span className="overlay-ring-rotor" />
+          </span>
+        )}
+        <button
+          className="relative w-11 h-11 rounded-full bg-surface-3 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer"
+          onPointerDown={onPressDown}
+          onPointerMove={(e) => void onPressMove(e)}
+          onPointerUp={onPressUp}
+          onPointerCancel={onPressUp}
+          onClick={onPressClick}
+          title={expanded ? "Collapse" : "Ask the assistant (drag to move)"}
         >
-          <button
-            className="relative w-11 h-11 rounded-full bg-surface-3 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer"
-            onPointerDown={onPressDown}
-            onPointerMove={(e) => void onPressMove(e)}
-            onPointerUp={onPressUp}
-            onPointerCancel={onPressUp}
-            onClick={onPressClick}
-            title={expanded ? "Collapse" : "Ask the assistant (drag to move)"}
-          >
-            <span className={`absolute inset-0 rounded-full opacity-30 ${dot}`} />
-            {avatar ? (
-              <img
-                src={avatar}
-                alt=""
-                draggable={false}
-                onDragStart={(e) => e.preventDefault()}
-                className="relative w-full h-full object-cover"
-              />
-            ) : (
-              <Sparkles size={16} className="relative text-ink" />
-            )}
-          </button>
-        </span>
+          <span className={`absolute inset-0 rounded-full opacity-30 ${dot}`} />
+          {avatar ? (
+            <img
+              src={avatar}
+              alt=""
+              draggable={false}
+              onDragStart={(e) => e.preventDefault()}
+              className="relative w-full h-full object-cover"
+            />
+          ) : (
+            <Sparkles size={16} className="relative text-ink" />
+          )}
+          {!expanded && state === "working" && (
+            <span className="overlay-ring" aria-hidden>
+              <span className="overlay-ring-rotor" />
+            </span>
+          )}
+        </button>
         {expanded && (
           <>
             <input
@@ -330,7 +361,7 @@ export default function Overlay() {
                 }
               }}
               onBlur={() => {
-                if (!input.trim()) void collapse();
+                if (!pillPress.current && !input.trim()) void collapse();
               }}
             />
             <button

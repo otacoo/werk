@@ -3,30 +3,33 @@
    overlay themes later; overlay-only rules must not leak into the app. */
 
 /* An arc orbits the border — the NERV/Future card trick, tuned slower and
-   brighter. While collapsed the ring hugs the avatar circle; while open it
-   hugs the whole pill. The rotating layer is an oversized conic gradient
-   moved with `transform` (compositor-only); the inner cover leaves a 1px
-   ring, because a masked ring cannot be animated cheaply. */
-.overlay-glow {
-  --overlay-glow-cover: rgb(var(--surface-2));
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
+   brighter. The rotor is an oversized conic square turned with `transform`
+   (compositor-only) and a ring mask keeps only the border band, so whatever
+   sits underneath (glassy pill, avatar) keeps its own background. */
+.overlay-ring {
+  --overlay-ring-width: 2px;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: var(--overlay-ring-width);
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
 }
-.overlay-glow::before {
-  content: "";
+.overlay-ring-rotor {
   position: absolute;
   top: 50%;
   left: 50%;
-  /* A square at least the shape's diagonal, so the rotating layer always
-     covers it. */
+  /* A square at least the shape's diagonal, so the rotor always covers the
+     ring while it turns. */
   width: 160%;
   aspect-ratio: 1 / 1;
-  z-index: -2;
   background: conic-gradient(
-    rgb(var(--accent) / 0.15),
+    rgb(var(--accent) / 0.1),
     rgb(var(--accent) / 0.95),
-    rgb(var(--accent) / 0.15)
+    rgb(var(--accent) / 0.1)
   );
   will-change: transform;
   animation: overlay-orbit 8s linear infinite;
@@ -38,17 +41,4 @@
   to {
     transform: translate(-50%, -50%) rotate(360deg);
   }
-}
-.overlay-glow::after {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  z-index: -1;
-  border-radius: inherit;
-  background: var(--overlay-glow-cover);
-  pointer-events: none;
-}
-/* The avatar button's pane is surface-3, not the pill's surface-2. */
-.overlay-glow-avatar {
-  --overlay-glow-cover: rgb(var(--surface-3));
 }
