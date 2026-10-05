@@ -6,54 +6,41 @@
 
 ### Fixed
 
-- Voice playback works in installed builds: the content-security policy now allows `data:`/`blob:` audio, which the packaged webview had blocked with `NotSupportedError`.
+- Voice playback works in installed builds (the CSP allows `data:`/`blob:` audio).
 
 ## [0.8.0] - 2026-10-05
 
 ### Added
 
-- The Voice tab has a Model downloads card with quantization tags and live progress for the suggested Qwen3-TTS 0.6B quants (Q8_0, Q6_K, Q4_K_M); one click downloads the model plus its mmproj and pairs them.
-- A skull button (and `/forget`) wipes every assistant memory and the conversation behind a warning about lobotomizing it; `/new` now truly starts fresh.
-- The Assistant Overlay card has an opacity slider for the pill.
-- The overlay shows a greyed-out microphone button next to Send as a placeholder for voice input.
-- Assistant Voice tab: local text-to-speech through llama.cpp's `llama-tts` with a Qwen3-TTS GGUF — model and optional reference voice (cloning), language, a test phrase with playback, and a "narrate replies" mode that speaks each finished answer.
-- A `delete_file` tool moves files to the OS trash (recycle bin) — never a hard delete — for the assistant and the agent, inside the same jail and File system roots; folders and protected paths are refused.
-- The assistant can extend its own toolset: `skill_write` saves reusable procedures as skills, `plugin_write` creates local-command plugins, and `mcp` lists/adds/removes MCP servers — all in the shared folders, so the agent profile sees them too.
-- Assistant learning polish: an auto-distill toggle summarizes a session into memory with the utility model when it is reset, and an opt-in daily reflection merges duplicate memories and extracts durable facts.
-- The assistant's `uia` tool drives app controls through the platform accessibility API — Windows UI Automation, macOS Accessibility, Linux AT-SPI — find by name or id and invoke, type, toggle, focus, or read them without moving the mouse, with an OS-labelled Access toggle.
+- Local text-to-speech (llama-tts, Qwen3-TTS) with reference-voice cloning, language, test playback, and a narrate-replies mode.
+- Voice tab: one-click downloads of the suggested Qwen3-TTS 0.6B quants (quant + mmproj) with progress.
+- `/forget` and a skull button: wipe all assistant memory and the conversation.
+- Overlay opacity slider.
+- `delete_file` tool: moves files to the OS trash, never deletes them.
+- Assistant can author its own skills and plugins and manage MCP servers (`skill_write`, `plugin_write`, `mcp`).
+- Assistant learning: optional session auto-distill into memory and a daily reflection pass.
+- `uia` tool: drive app controls through Windows UI Automation, macOS Accessibility, or Linux AT-SPI.
 
 ### Changed
 
-- Narration is pipelined: sentences are synthesized while the reply is still streaming, so the voice starts right after the text ends instead of after a full model load.
-- While the assistant is generating, a fast bright arc orbits the avatar; opening the pill moves the orbit around the whole pill. Idle, loading, and failed runs do not glow.
-- After a quiet spell the idle overlay dozes off, with little z's drifting up from the avatar.
-- The overlay drags by the pill body too (not just the avatar), and clicking the empty pill body collapses it.
-- Overlay styles live in their own `themes/overlay.css`, ready for user-chosen overlay themes later.
-- The Model downloads card leads with a generic description and names Qwen3-TTS 0.6B as a subsection, ready for more model families later.
-- The overlay remembers where it was dragged and restores that position on the next run, clamped into the monitor work area.
-- The local server no longer unloads by default: the idle-unload window starts at 0 (never), and the setting has its own Local server card in the Assistant Behavior tab.
-- The overlay button can be dragged anywhere to reposition it — a plain click still opens the input — and its opacity slider (100% = fully opaque) replaces the fixed idle dim.
-- The Assistant Behavior tab gains the local server's "unload after N minutes" setting, shared with the Local server card.
-- Prompts retrieve the memory entries most relevant to the current message (the newest entries always survive) instead of truncating the file head, so assistant, roleplay, and agent memory can grow past the old 16 KiB fold.
-- The Profiles section moved from the Settings menu to the Debug section.
-- Model downloads no longer re-read and sha256-check the finished file, so they complete as soon as the last byte arrives.
-- Both border orbits run faster (NERV 3s, Future 4.5s per lap), and NERV's selected Mode cards get a subtle green pane tint since the uniform border and pane had flattened the selection.
+- Narration synthesizes sentences while the reply streams, so voice starts as soon as the text ends.
+- Overlay: a glowing arc orbits the avatar while generating and the pill when open; idle, loading, and failed runs do not glow, and a quiet overlay dozes with floating z's.
+- Overlay: draggable by the pill body, position remembered across runs.
+- Idle unload defaults to off (0 = never) with its own Local server card in Assistant Behavior.
+- Prompts inject the most relevant memory entries instead of truncating the file head.
+- NERV/Future borders orbit faster; NERV selection gets a pane tint.
+- Model downloads complete as soon as the last byte arrives.
+- Profiles moved from Settings to Debug.
 
 ### Fixed
 
-- The idle overlay's z's come back after the pill is dragged or nudged; waking now re-arms the doze timer.
-- Overlay messages no longer show up doubled in the assistant chat: runs emit a completion event, and the chat page folds in runs it did not start instead of leaving a stale live bubble.
-- The overlay narrates replies through voice when narration is on, like the chat page does.
-- Dragging the open overlay no longer collapses the pill, and holding Enter can no longer send the same overlay message twice.
-- Starting a new assistant conversation archives the old transcript instead of leaving it on disk, where it was restored on the next visit and made `/new` look broken.
-- A CUDA failure inside llama-tts retries synthesis on the CPU instead of surfacing the abort.
-- The Voice tab takes the TTS audio projector (mmproj) that ships with the Qwen3-TTS GGUF, and llama-tts failures report the real error message and exit code instead of progress output.
-- The overlay window is created with the app again and only shown or hidden; building it on demand blocked the main thread at startup and timed out every dashboard command.
-- Sending from the overlay starts the local server first, like the Chat composer, instead of failing when it is stopped.
-- Absolute tool paths resolve symlinks in their existing ancestors, so macOS `/var` spellings land inside the jail and symlinked escapes are rejected.
-- The NERV and Future borders orbit a square layer sized to the card's diagonal; the old 300%-wide rectangle left a moving edge line on wide or short cards because the rotated layer stopped covering them.
-- The Future theme's cards trade their translucent glass for an opaque pane so the orbiting border stays hidden inside; the rim and active glow moved to the pane.
-- The assistant overlay window is destroyed while the overlay is disabled instead of lingering hidden, so it uses no memory or CPU.
+- `/new` archives the old transcript instead of restoring it on the next visit.
+- Overlay runs no longer duplicate in the assistant chat, and overlay replies narrate when narration is on.
+- Dragging the open overlay no longer collapses the pill; Enter key-repeat cannot double-send.
+- llama-tts retries on the CPU when CUDA fails and reports real errors instead of progress output.
+- The overlay window is created at startup (no startup hang) and sending from it starts the server first.
+- NERV/Future borders use a diagonal-sized layer (no moving edge line on wide cards); Future cards are opaque.
+
 - Download progress events are throttled to ~10/s instead of one per chunk, so large downloads stop flooding the webview with IPC and the bar reaches 100%.
 
 ## [0.7.0] - 2026-10-04
