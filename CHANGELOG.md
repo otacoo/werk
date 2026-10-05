@@ -15,7 +15,8 @@
 
 ### Changed
 
-- While the assistant is working (or the overlay pill is open), a slow, bright arc orbits the pill's border.
+- While the assistant is working, a slow, bright arc orbits the avatar; opening the pill moves the orbit around the whole pill.
+- Overlay styles live in their own `themes/overlay.css`, ready for user-chosen overlay themes later.
 - The Model downloads card leads with a generic description and names Qwen3-TTS 0.6B as a subsection, ready for more model families later.
 - The overlay remembers where it was dragged and restores that position on the next run, clamped into the monitor work area.
 - The local server no longer unloads by default: the idle-unload window starts at 0 (never), and the setting has its own Local server card in the Assistant Behavior tab.

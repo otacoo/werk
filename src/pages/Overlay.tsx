@@ -279,33 +279,39 @@ export default function Overlay() {
       <div
         data-tauri-drag-region
         className={`flex items-center gap-2 rounded-full border border-border bg-surface-2/95 shadow-lg backdrop-blur transition-all ${
-          expanded || state === "working" ? "overlay-glow overlay-glow-on" : ""
+          expanded ? "overlay-glow" : ""
         } ${state === "idle" && !expanded ? "opacity-70 hover:opacity-100" : "opacity-100"} ${
           expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"
         }`}
       >
-        <button
-          className="relative w-11 h-11 rounded-full bg-surface-3 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer"
-          onPointerDown={onPressDown}
-          onPointerMove={(e) => void onPressMove(e)}
-          onPointerUp={onPressUp}
-          onPointerCancel={onPressUp}
-          onClick={onPressClick}
-          title={expanded ? "Collapse" : "Ask the assistant (drag to move)"}
+        <span
+          className={`shrink-0 inline-flex rounded-full p-px ${
+            !expanded && state === "working" ? "overlay-glow overlay-glow-avatar" : ""
+          }`}
         >
-          <span className={`absolute inset-0 rounded-full opacity-30 ${dot}`} />
-          {avatar ? (
-            <img
-              src={avatar}
-              alt=""
-              draggable={false}
-              onDragStart={(e) => e.preventDefault()}
-              className="relative w-full h-full object-cover"
-            />
-          ) : (
-            <Sparkles size={16} className="relative text-ink" />
-          )}
-        </button>
+          <button
+            className="relative w-11 h-11 rounded-full bg-surface-3 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer"
+            onPointerDown={onPressDown}
+            onPointerMove={(e) => void onPressMove(e)}
+            onPointerUp={onPressUp}
+            onPointerCancel={onPressUp}
+            onClick={onPressClick}
+            title={expanded ? "Collapse" : "Ask the assistant (drag to move)"}
+          >
+            <span className={`absolute inset-0 rounded-full opacity-30 ${dot}`} />
+            {avatar ? (
+              <img
+                src={avatar}
+                alt=""
+                draggable={false}
+                onDragStart={(e) => e.preventDefault()}
+                className="relative w-full h-full object-cover"
+              />
+            ) : (
+              <Sparkles size={16} className="relative text-ink" />
+            )}
+          </button>
+        </span>
         {expanded && (
           <>
             <input
