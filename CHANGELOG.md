@@ -4,7 +4,8 @@
 
 ### Added
 
-- The Voice tab suggests Qwen3-TTS 0.6B quants (Q8_0, Q6_K, Q4_K_M); one click downloads the model plus its mmproj and pairs them.
+- The Voice tab has a Model downloads card with quantization tags and live progress for the suggested Qwen3-TTS 0.6B quants (Q8_0, Q6_K, Q4_K_M); one click downloads the model plus its mmproj and pairs them.
+- The overlay shows a greyed-out microphone button next to Send as a placeholder for voice input.
 - Assistant Voice tab: local text-to-speech through llama.cpp's `llama-tts` with a Qwen3-TTS GGUF — model and optional reference voice (cloning), language, a test phrase with playback, and a "narrate replies" mode that speaks each finished answer.
 - A `delete_file` tool moves files to the OS trash (recycle bin) — never a hard delete — for the assistant and the agent, inside the same jail and File system roots; folders and protected paths are refused.
 - The assistant can extend its own toolset: `skill_write` saves reusable procedures as skills, `plugin_write` creates local-command plugins, and `mcp` lists/adds/removes MCP servers — all in the shared folders, so the agent profile sees them too.

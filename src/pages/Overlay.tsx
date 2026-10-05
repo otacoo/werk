@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
-import { ArrowUp, Sparkles } from "lucide-react";
+import { ArrowUp, Mic, Sparkles } from "lucide-react";
 import { commands } from "../bindings";
 import { call } from "../utils/ipc";
 import { loadAppearance } from "../utils/appearance";
@@ -325,6 +325,13 @@ export default function Overlay() {
                 if (!input.trim()) void collapse();
               }}
             />
+            <button
+              className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-surface-3 text-faint opacity-40 cursor-not-allowed"
+              disabled
+              title="Voice input — coming soon (hotkey TBD)"
+            >
+              <Mic size={13} />
+            </button>
             <button
               className="btn-primary shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
               onClick={() => void send()}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { listen } from "@tauri-apps/api/event";
 import { AlertTriangle, Download, FolderOpen, ImagePlus, Play, RefreshCw, X } from "lucide-react";
 import { commands } from "../bindings";
 import type { AssistantConfig, MemoryFileDto, Reminder } from "../bindings";
@@ -1030,11 +1031,130 @@ function LocalServerCard() {
 /// voice, and a test phrase.
 const TTS_REPO = "mradermacher/Qwen3-TTS-12Hz-0.6B-Base-GGUF";
 const TTS_MMPROJ = "Qwen3-TTS-12Hz-0.6B-Base.mmproj-Q8_0.gguf";
-const TTS_SUGGESTED: { file: string; label: string }[] = [
-  { file: "Qwen3-TTS-12Hz-0.6B-Base.Q8_0.gguf", label: "Q8_0 · 646 MB" },
-  { file: "Qwen3-TTS-12Hz-0.6B-Base.Q6_K.gguf", label: "Q6_K · 500 MB" },
-  { file: "Qwen3-TTS-12Hz-0.6B-Base.Q4_K_M.gguf", label: "Q4_K_M · 361 MB" },
+const TTS_MMPROJ_SIZE = "401 MB";
+const TTS_SUGGESTED: { file: string; quant: string; size: string }[] = [
+  { file: "Qwen3-TTS-12Hz-0.6B-Base.Q8_0.gguf", quant: "Q8_0", size: "646 MB" },
+  { file: "Qwen3-TTS-12Hz-0.6B-Base.Q6_K.gguf", quant: "Q6_K", size: "500 MB" },
+  { file: "Qwen3-TTS-12Hz-0.6B-Base.Q4_K_M.gguf", quant: "Q4_K_M", size: "361 MB" },
 ];
+
+/// Suggested Qwen3-TTS quants with live download progress. Installing a quant
+/// also fetches the matching mmproj and points the voice config at both.
+function VoiceDownloadsCard({
+  activeModel,
+  onInstalled,
+}: {
+  activeModel: string;
+  onInstalled: (model: string, mmproj: string) => Promise<void>;
+}) {
+  const [progress, setProgress] = useState<
+    Record<string, { downloaded: number; total: number | null }>
+  >({});
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [phase, setPhase] = useState<"model" | "mmproj">("model");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unlisten = listen<{ id: string; downloaded: number; total?: number | null }>(
+      "download_progress",
+      (e) => {
+        const p = e.payload;
+        setProgress((prev) => ({
+          ...prev,
+          [p.id]: { downloaded: p.downloaded, total: p.total ?? null },
+        }));
+      },
+    );
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+
+  const install = async (file: string) => {
+    setInstalling(file);
+    setPhase("model");
+    setError(null);
+    try {
+      const modelPath = await call(commands.downloadModel(TTS_REPO, file, null, null));
+      setPhase("mmproj");
+      const mmprojPath = await call(commands.downloadModel(TTS_REPO, TTS_MMPROJ, null, null));
+      await onInstalled(modelPath, mmprojPath);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setInstalling(null);
+    }
+  };
+
+  const pct = (file: string) => {
+    const p = progress[file];
+    if (!p || !p.total) return null;
+    return Math.min(100, (p.downloaded / p.total) * 100);
+  };
+
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h2 className="section-title mb-0">Model downloads</h2>
+        <p className="section-desc">
+          Qwen3-TTS 0.6B quants; each download also fetches the{" "}
+          <span className="font-mono">{TTS_MMPROJ}</span> projector ({TTS_MMPROJ_SIZE}).
+        </p>
+      </div>
+      <div className="space-y-2.5">
+        {TTS_SUGGESTED.map((s) => {
+          const inUse =
+            activeModel === s.file ||
+            activeModel.endsWith(`/${s.file}`) ||
+            activeModel.endsWith(`\\${s.file}`);
+          const busy = installing === s.file;
+          const bar = busy ? (phase === "model" ? pct(s.file) : pct(TTS_MMPROJ)) : null;
+          const label = busy
+            ? phase === "model"
+              ? "Model"
+              : "Audio projector"
+            : s.quant;
+          return (
+            <div key={s.file} className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="badge-blue text-[0.5625rem] shrink-0">{label}</span>
+                <span className="text-[0.6875rem] text-dim flex-1 min-w-0 truncate">
+                  {s.size}
+                </span>
+                {inUse ? (
+                  <span className="badge-green text-[0.5625rem] shrink-0">in use</span>
+                ) : (
+                  <button
+                    className="btn-secondary text-xs py-0.5 px-2 shrink-0"
+                    disabled={installing !== null}
+                    onClick={() => void install(s.file)}
+                    title={s.file}
+                  >
+                    {busy ? (
+                      <RefreshCw size={11} className="animate-spin" />
+                    ) : (
+                      <Download size={11} />
+                    )}
+                    {busy ? "Downloading…" : "Download"}
+                  </button>
+                )}
+              </div>
+              {bar !== null && (
+                <div className="h-1 rounded-full bg-surface-3 overflow-hidden">
+                  <div
+                    className="h-full bg-accent transition-[width] duration-150"
+                    style={{ width: `${bar}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {error && <p className="text-xs text-accent-red">{error}</p>}
+    </div>
+  );
+}
 
 function VoiceCard() {
   const [voice, setVoice] = useState<{
@@ -1118,21 +1238,6 @@ function VoiceCard() {
   };
 
   /// Fetch a suggested quant plus its mmproj and point the config at both.
-  const install = async (file: string) => {
-    if (!voice) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const modelPath = await call(commands.downloadModel(TTS_REPO, file, null, null));
-      const mmprojPath = await call(commands.downloadModel(TTS_REPO, TTS_MMPROJ, null, null));
-      await apply({ ...voice, enabled: true, model: modelPath, mmproj: mmprojPath });
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   if (!voice) return null;
   return (
     <div className="grid grid-cols-2 gap-4 items-start">
@@ -1227,29 +1332,6 @@ function VoiceCard() {
                 ))}
               </select>
             </label>
-            <div className="space-y-1.5 border-t border-border pt-3">
-              <span className="text-[0.6875rem] text-dim">
-                Suggested (downloads the model and its mmproj, then pairs them)
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {TTS_SUGGESTED.map((s) => (
-                  <button
-                    key={s.file}
-                    className="btn-secondary text-xs py-1 px-2"
-                    disabled={busy}
-                    onClick={() => void install(s.file)}
-                    title={s.file}
-                  >
-                    {busy ? (
-                      <RefreshCw size={12} className="animate-spin" />
-                    ) : (
-                      <Download size={12} />
-                    )}
-                    Qwen3-TTS 0.6B · {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
             <Toggle
               label="Narrate replies"
               hint="Speak each assistant reply as soon as it finishes."
@@ -1260,33 +1342,39 @@ function VoiceCard() {
         )}
         {error && <p className="text-xs text-accent-red">{error}</p>}
       </div>
-      {voice.enabled && (
-        <div className="card space-y-3">
-          <div>
-            <h2 className="section-title mb-0">Test voice</h2>
-            <p className="section-desc">Synthesize a phrase and play it back.</p>
+      <div className="space-y-4">
+        {voice.enabled && (
+          <div className="card space-y-3">
+            <div>
+              <h2 className="section-title mb-0">Test voice</h2>
+              <p className="section-desc">Synthesize a phrase and play it back.</p>
+            </div>
+            <textarea
+              className="input w-full text-xs min-h-[4rem]"
+              value={testText}
+              onChange={(e) => setTestText(e.target.value)}
+            />
+            <div className="flex items-center gap-2">
+              <button
+                className="btn-secondary text-xs py-1 px-2"
+                disabled={busy}
+                onClick={() => void speak()}
+              >
+                {busy ? <RefreshCw size={12} className="animate-spin" /> : <Play size={12} />}
+                {busy ? "Synthesizing…" : "Speak"}
+              </button>
+              {lastPath && <span className="text-[0.625rem] text-faint truncate">{lastPath}</span>}
+            </div>
+            <p className="text-[0.625rem] text-faint">
+              The first run loads the model, so it can take a few seconds.
+            </p>
           </div>
-          <textarea
-            className="input w-full text-xs min-h-[4rem]"
-            value={testText}
-            onChange={(e) => setTestText(e.target.value)}
-          />
-          <div className="flex items-center gap-2">
-            <button
-              className="btn-secondary text-xs py-1 px-2"
-              disabled={busy}
-              onClick={() => void speak()}
-            >
-              {busy ? <RefreshCw size={12} className="animate-spin" /> : <Play size={12} />}
-              {busy ? "Synthesizing…" : "Speak"}
-            </button>
-            {lastPath && <span className="text-[0.625rem] text-faint truncate">{lastPath}</span>}
-          </div>
-          <p className="text-[0.625rem] text-faint">
-            The first run loads the model, so it can take a few seconds.
-          </p>
-        </div>
-      )}
+        )}
+        <VoiceDownloadsCard
+          activeModel={voice.model}
+          onInstalled={(model, mmproj) => apply({ ...voice, enabled: true, model, mmproj })}
+        />
+      </div>
     </div>
   );
 }
