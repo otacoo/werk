@@ -5,6 +5,7 @@
 ### Fixed
 
 - Linux: dropdowns follow the theme (native select chrome is replaced) and notification sounds play (PCM WAV assets, pre-unlocked players, cached toggles).
+- Linux/Wayland: the overlay is titled `werk.` and stops enforcing bounds/position memory, since Wayland owns window placement — this removes the choppy drags and the dead bounce.
 - The Local server card sits directly under the Behavior card instead of after a grid gap.
 
 ## [0.8.1] - 2026-10-05

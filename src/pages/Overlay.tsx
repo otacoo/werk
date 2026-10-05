@@ -30,6 +30,8 @@ export default function Overlay() {
   const [opacity, setOpacity] = useState(getOverlayOpacity);
   /// Decorative motion: sleeping z's and the sweat drop.
   const [animations, setAnimations] = useState(getOverlayAnimations);
+  /// Wayland forbids client-side positioning: bounds and position memory off.
+  const waylandRef = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -231,11 +233,18 @@ export default function Overlay() {
     call(commands.assistantAvatar())
       .then(setAvatar)
       .catch(() => {});
+    call(commands.sessionKind())
+      .then((k) => {
+        waylandRef.current = k === "wayland";
+      })
+      .catch(() => {});
     refreshMic();
   }, []);
 
-  /// More than half off-screen: sweat, then bounce fully back in.
+  /// More than half off-screen: sweat, then bounce fully back in. Wayland
+  /// compositors place windows themselves, so there is nothing to enforce.
   const enforceBounds = async () => {
+    if (waylandRef.current) return;
     const win = getCurrentWindow();
     const [pos, size] = await Promise.all([win.outerPosition(), win.outerSize()]);
     let bounds: { left: number; top: number; right: number; bottom: number } | null = null;
@@ -328,9 +337,12 @@ export default function Overlay() {
     const unlisten = win.onMoved(({ payload }) => {
       if (timer) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        localStorage.setItem(POS_KEY, JSON.stringify({ x: payload.x, y: payload.y }));
         dragging.current = false;
-        void enforceBounds();
+        // Wayland ignores setPosition, so a saved spot could never be restored.
+        if (!waylandRef.current) {
+          localStorage.setItem(POS_KEY, JSON.stringify({ x: payload.x, y: payload.y }));
+          void enforceBounds();
+        }
       }, 250);
     });
     return () => {

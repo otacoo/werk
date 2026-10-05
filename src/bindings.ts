@@ -21,6 +21,12 @@ export const commands = {
 	right: number,
 	bottom: number,
 } | null>("overlay_work_area"),
+	/**
+	 *  Session kind for platform quirks: Wayland forbids client-side window
+	 *  positioning, so the overlay disables bounds enforcement and position
+	 *  memory there.
+	 */
+	sessionKind: () => typedError<string, string>(__TAURI_INVOKE("session_kind")),
 	/**  Send a message to the coding agent; streams over `harness_event`. */
 	harnessAgentSend: (message: string, reasoningEffort: string | null, attachments: SendAttachment_Deserialize[] | null) => typedError<RunResult_Serialize, string>(__TAURI_INVOKE("harness_agent_send", { message, reasoningEffort, attachments })),
 	/**  Stop the running agent loop. */

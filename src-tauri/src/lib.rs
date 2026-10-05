@@ -151,6 +151,34 @@ fn overlay_work_area(app: tauri::AppHandle) -> Option<WorkArea> {
     }
 }
 
+/// Session kind for platform quirks: Wayland forbids client-side window
+/// positioning, so the overlay disables bounds enforcement and position
+/// memory there.
+#[tauri::command]
+#[specta::specta]
+fn session_kind() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        Ok("windows".to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Ok("macos".to_string())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
+            || std::env::var("XDG_SESSION_TYPE")
+                .map(|v| v.eq_ignore_ascii_case("wayland"))
+                .unwrap_or(false);
+        if wayland {
+            Ok("wayland".to_string())
+        } else {
+            Ok("x11".to_string())
+        }
+    }
+}
+
 /// Config rows -> spawnable specs; unusable rows are skipped.
 pub fn lsp_specs(config: &config::AppConfig) -> Vec<harness::lsp::servers::ServerSpec> {
     config
@@ -247,6 +275,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         get_config,
         set_overlay_visible,
         overlay_work_area,
+        session_kind,
         chat::harness_agent_send,
         chat::harness_agent_abort,
         chat::harness_agent_steer,
