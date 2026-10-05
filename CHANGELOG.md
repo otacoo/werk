@@ -8,7 +8,7 @@
 
 - Linux: WebKitGTK's DMA-BUF renderer is disabled by default, fixing black or frozen windows on Fedora 43 / Wayland / NVIDIA (set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to opt out).
 - Voice playback works in installed builds (the CSP allows `data:`/`blob:` audio).
-- RPM/DEB packages pull in the GStreamer plugins the webview needs for audio.
+- The AppImage bundles GStreamer and the RPM/DEB packages depend on its plugins, so webview audio no longer crashes or freezes the UI.
 
 ## [0.8.0] - 2026-10-05
 
