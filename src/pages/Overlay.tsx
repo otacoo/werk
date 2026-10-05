@@ -433,7 +433,8 @@ export default function Overlay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Live input level while recording, so the pill visibly listens.
+  // Live input level while recording, so the pill visibly listens. After
+  // speech stops, a few quiet seconds end the take and transcribe it.
   useEffect(() => {
     if (!recording) {
       setLevel(0);
@@ -441,15 +442,27 @@ export default function Overlay() {
     }
     let raf = 0;
     let last = 0;
+    let lastVoice = performance.now();
+    let hadVoice = false;
     const tick = (t: number) => {
+      const lv = recorder.current.level();
       if (t - last > 60) {
         last = t;
-        setLevel(recorder.current.level());
+        setLevel(lv);
+      }
+      if (lv > 0.08) {
+        hadVoice = true;
+        lastVoice = t;
+      }
+      if (hadVoice && t - lastVoice > 3500) {
+        void toggleDictation();
+        return;
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recording]);
 
   const send = async () => {

@@ -1185,6 +1185,160 @@ function VoiceDownloadsCard({
   );
 }
 
+/// Records a global shortcut: focus the field (or press Set) and hit the combo.
+function HotkeyField({
+  label,
+  value,
+  placeholder,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  disabled?: boolean;
+  onChange: (v: string) => void;
+}) {
+  const [capturing, setCapturing] = useState(false);
+
+  useEffect(() => {
+    if (!capturing) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        setCapturing(false);
+        return;
+      }
+      const accel = acceleratorFromEvent(e);
+      if (accel) {
+        onChange(accel);
+        setCapturing(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [capturing, onChange]);
+
+  return (
+    <div className="space-y-1">
+      <span className="text-[0.6875rem] text-dim">{label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          className={`input flex-1 min-w-0 font-mono text-xs ${capturing ? "border-accent" : ""}`}
+          value={capturing ? "Press keys…" : formatHotkey(value)}
+          placeholder={placeholder}
+          readOnly
+          disabled={disabled}
+          onFocus={() => setCapturing(true)}
+          onBlur={() => setCapturing(false)}
+          title="Click, then press the shortcut"
+        />
+        <button
+          className="btn-secondary text-xs py-1 px-2"
+          disabled={disabled}
+          onClick={() => setCapturing(true)}
+        >
+          Set
+        </button>
+        <button
+          className="btn-secondary text-xs py-1 px-2"
+          disabled={disabled || !value}
+          onClick={() => onChange("")}
+        >
+          Clear
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const IS_MAC = /mac/i.test(navigator.userAgent);
+
+/// "CmdOrCtrl+Alt+D" -> "Ctrl+Alt+D" (or "Cmd+Alt+D" on macOS) for display.
+function formatHotkey(value: string): string {
+  return value.replace(/CmdOrCtrl/gi, IS_MAC ? "Cmd" : "Ctrl");
+}
+
+/// Browser key event -> the accelerator syntax the global-shortcut parser takes.
+function acceleratorFromEvent(e: KeyboardEvent): string | null {
+  const mods: string[] = [];
+  if (e.ctrlKey || e.metaKey) mods.push("CmdOrCtrl");
+  if (e.altKey) mods.push("Alt");
+  if (e.shiftKey) mods.push("Shift");
+  if (mods.length === 0) return null; // a bare key would hijack typing
+  const key = keyFromCode(e.code);
+  return key ? [...mods, key].join("+") : null;
+}
+
+function keyFromCode(code: string): string | null {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+  const named: Record<string, string> = {
+    Space: "Space",
+    Enter: "Enter",
+    NumpadEnter: "Enter",
+    Tab: "Tab",
+    Backspace: "Backspace",
+    Delete: "Delete",
+    Insert: "Insert",
+    Home: "Home",
+    End: "End",
+    PageUp: "PageUp",
+    PageDown: "PageDown",
+    ArrowUp: "Up",
+    ArrowDown: "Down",
+    ArrowLeft: "Left",
+    ArrowRight: "Right",
+    Comma: ",",
+    Period: ".",
+    Slash: "/",
+    Semicolon: ";",
+    Quote: "'",
+    Minus: "-",
+    Equal: "=",
+    Backquote: "`",
+    BracketLeft: "[",
+    BracketRight: "]",
+  };
+  return named[code] ?? null;
+}
+
+/// Transcription languages Qwen3-ASR supports (full names, as it tags them).
+const STT_LANGS = [
+  "Chinese",
+  "English",
+  "Cantonese",
+  "Arabic",
+  "German",
+  "French",
+  "Spanish",
+  "Portuguese",
+  "Indonesian",
+  "Italian",
+  "Korean",
+  "Russian",
+  "Thai",
+  "Vietnamese",
+  "Japanese",
+  "Turkish",
+  "Hindi",
+  "Malay",
+  "Dutch",
+  "Swedish",
+  "Danish",
+  "Finnish",
+  "Polish",
+  "Czech",
+  "Filipino",
+  "Persian",
+  "Greek",
+  "Hungarian",
+  "Macedonian",
+  "Romanian",
+];
+
 function VoiceCard() {
   const [voice, setVoice] = useState<{
     enabled: boolean;
@@ -1199,6 +1353,7 @@ function VoiceCard() {
     model: string;
     mmproj: string;
     hotkey: string;
+    lang: string;
   } | null>(null);
   const [testText, setTestText] = useState("Hello! This is my assistant voice.");
   const [busy, setBusy] = useState(false);
@@ -1225,6 +1380,7 @@ function VoiceCard() {
           model: c.assistant?.stt_model ?? "",
           mmproj: c.assistant?.stt_mmproj ?? "",
           hotkey: c.assistant?.stt_hotkey ?? "",
+          lang: c.assistant?.stt_lang ?? "",
         });
       })
       .catch(() => {});
@@ -1241,6 +1397,7 @@ function VoiceCard() {
           next.model || null,
           next.mmproj || null,
           next.hotkey,
+          next.lang,
         ),
       );
     } catch (e) {
@@ -1500,15 +1657,28 @@ function VoiceCard() {
               </div>
             </div>
             <label className="block">
-              <span className="text-[0.6875rem] text-dim">Dictation hotkey (empty disables)</span>
-              <input
-                className="input w-full mt-1 font-mono text-xs"
-                placeholder="Ctrl+Alt+D"
-                value={stt.hotkey}
-                onChange={(e) => setStt({ ...stt, hotkey: e.target.value })}
-                onBlur={() => applyStt(stt)}
-              />
+              <span className="text-[0.6875rem] text-dim">
+                Language (auto-detected when empty)
+              </span>
+              <select
+                className="input w-full mt-1 text-xs"
+                value={stt.lang}
+                onChange={(e) => applyStt({ ...stt, lang: e.target.value })}
+              >
+                <option value="">Auto</option>
+                {STT_LANGS.map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
+              </select>
             </label>
+            <HotkeyField
+              label="Dictation hotkey (empty disables)"
+              value={stt.hotkey}
+              placeholder="Ctrl+Alt+D"
+              onChange={(v) => applyStt({ ...stt, hotkey: v })}
+            />
             <div className="flex items-center gap-2">
               <button
                 className={`${recording ? "btn-danger" : "btn-secondary"} text-xs py-1 px-2 shrink-0`}
@@ -1643,17 +1813,13 @@ function OverlayCard() {
         checked={overlay.enabled}
         onChange={(v) => apply({ ...overlay, enabled: v })}
       />
-      <label className="block">
-        <span className="text-[0.6875rem] text-dim">Summon hotkey (empty disables)</span>
-        <input
-          className="input w-full mt-1 font-mono text-xs"
-          placeholder="Ctrl+Alt+Space"
-          value={overlay.hotkey}
-          disabled={!overlay.enabled}
-          onChange={(e) => setOverlay({ ...overlay, hotkey: e.target.value })}
-          onBlur={() => apply(overlay)}
-        />
-      </label>
+      <HotkeyField
+        label="Summon hotkey (empty disables)"
+        value={overlay.hotkey}
+        placeholder="Ctrl+Alt+Space"
+        disabled={!overlay.enabled}
+        onChange={(v) => apply({ ...overlay, hotkey: v })}
+      />
       <label className="block">
         <span className="text-[0.6875rem] text-dim">Opacity</span>
         <div className="flex items-center gap-2 mt-1">

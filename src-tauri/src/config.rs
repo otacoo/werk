@@ -323,6 +323,9 @@ pub struct AssistantConfig {
     /// Global hotkey that starts/stops dictation; empty disables it.
     #[serde(default = "default_stt_hotkey")]
     pub stt_hotkey: String,
+    /// Forced transcription language (full name, e.g. "German"); empty = auto.
+    #[serde(default)]
+    pub stt_lang: String,
     /// Start werk with the OS session (minimized to the tray).
     #[serde(default)]
     pub autostart: bool,
@@ -393,6 +396,7 @@ impl Default for AssistantConfig {
             stt_model: None,
             stt_mmproj: None,
             stt_hotkey: default_stt_hotkey(),
+            stt_lang: String::new(),
             autostart: false,
             hotkey: default_assistant_hotkey(),
             overlay_enabled: true,

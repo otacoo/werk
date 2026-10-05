@@ -76,12 +76,21 @@ pub async fn assistant_stt_transcribe(
     let wav = dir.join(format!("stt-{millis}.wav"));
     std::fs::write(&wav, &bytes).map_err(|e| e.to_string())?;
 
+    // A forced language prefills the transcript language the way the official
+    // Qwen3-ASR SDK does; empty keeps automatic detection.
+    let lang = app_config.assistant.stt_lang.trim().to_string();
+    let prompt = if lang.is_empty() {
+        "Transcribe the audio.".to_string()
+    } else {
+        format!("language {lang}<asr_text>")
+    };
+
     // GPU first; a CUDA failure retries on the CPU, like llama-tts.
-    let first = run_stt(&exe, &model, &mmproj, &wav, 999).await?;
+    let first = run_stt(&exe, &model, &mmproj, &wav, &prompt, 999).await?;
     let output = if first.status.success() || !crate::voice::is_cuda_error(&first.stderr) {
         first
     } else {
-        run_stt(&exe, &model, &mmproj, &wav, 0).await?
+        run_stt(&exe, &model, &mmproj, &wav, &prompt, 0).await?
     };
     if !output.status.success() {
         let tail: String = String::from_utf8_lossy(&output.stderr)
@@ -104,6 +113,7 @@ async fn run_stt(
     model: &str,
     mmproj: &str,
     wav: &std::path::Path,
+    prompt: &str,
     ngl: u32,
 ) -> Result<std::process::Output, String> {
     let mut cmd = tokio::process::Command::new(exe);
@@ -123,7 +133,7 @@ async fn run_stt(
         .arg(ngl.to_string())
         .arg("--no-warmup")
         .arg("-p")
-        .arg("Transcribe the audio.")
+        .arg(prompt)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());

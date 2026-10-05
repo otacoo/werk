@@ -154,7 +154,7 @@ export const commands = {
 	 *  Voice input: the overlay microphone, its Qwen3-ASR model files, and the
 	 *  dictation hotkey.
 	 */
-	setAssistantStt: (sttEnabled: boolean, sttModel: string | null, sttMmproj: string | null, sttHotkey: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_stt", { sttEnabled, sttModel, sttMmproj, sttHotkey })),
+	setAssistantStt: (sttEnabled: boolean, sttModel: string | null, sttMmproj: string | null, sttHotkey: string, sttLang: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_stt", { sttEnabled, sttModel, sttMmproj, sttHotkey, sttLang })),
 	/**  Speak `text` with the configured voice; returns the WAV path and bytes. */
 	assistantTtsSpeak: (text: string) => typedError<TtsResult, string>(__TAURI_INVOKE("assistant_tts_speak", { text })),
 	/**  Transcribe a base64 WAV (16 kHz mono PCM16) recorded in the webview. */
@@ -602,6 +602,8 @@ export type AssistantConfig_Deserialize = {
 	stt_mmproj?: string | null,
 	/**  Global hotkey that starts/stops dictation; empty disables it. */
 	stt_hotkey?: string,
+	/**  Forced transcription language (full name, e.g. "German"); empty = auto. */
+	stt_lang?: string,
 	/**  Start werk with the OS session (minimized to the tray). */
 	autostart?: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
@@ -677,6 +679,8 @@ export type AssistantConfig_Serialize = {
 	stt_mmproj?: string | null,
 	/**  Global hotkey that starts/stops dictation; empty disables it. */
 	stt_hotkey: string,
+	/**  Forced transcription language (full name, e.g. "German"); empty = auto. */
+	stt_lang: string,
 	/**  Start werk with the OS session (minimized to the tray). */
 	autostart: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */

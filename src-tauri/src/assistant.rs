@@ -406,6 +406,7 @@ pub async fn set_assistant_stt(
     stt_model: Option<String>,
     stt_mmproj: Option<String>,
     stt_hotkey: String,
+    stt_lang: String,
     state: State<'_, crate::AppState>,
 ) -> Result<(), String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -420,6 +421,7 @@ pub async fn set_assistant_stt(
             .map(|m| m.trim().to_string())
             .filter(|m| !m.is_empty());
         cfg.assistant.stt_hotkey = hotkey.clone();
+        cfg.assistant.stt_lang = stt_lang.trim().to_string();
         cfg.save().map_err(|e| e.to_string())?;
         (cfg.assistant.overlay_enabled, cfg.assistant.hotkey.clone())
     };
