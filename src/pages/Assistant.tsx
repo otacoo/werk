@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { AlertTriangle, FolderOpen, ImagePlus, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, FolderOpen, ImagePlus, Play, RefreshCw, X } from "lucide-react";
 import { commands } from "../bindings";
 import type { AssistantConfig, MemoryFileDto, Reminder } from "../bindings";
 import { call } from "../utils/ipc";
@@ -11,7 +11,7 @@ import ProfileAvatar from "../components/ProfileAvatar";
 import { EFFORT_LABELS } from "./chat/external-controls";
 import { SkillsCard } from "./agent/memory";
 
-type Tab = "persona" | "reminders" | "memory" | "access" | "behavior";
+type Tab = "persona" | "reminders" | "memory" | "voice" | "access" | "behavior";
 
 /// Assistant settings: persona, reminders, memory, access, and behavior.
 /// The conversation lives in its own Chat tab.
@@ -107,6 +107,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
     { id: "persona", label: "Persona" },
     { id: "reminders", label: "Reminders" },
     { id: "memory", label: "Memory" },
+    { id: "voice", label: "Voice" },
     { id: "access", label: "Access" },
     { id: "behavior", label: "Behavior" },
   ];
@@ -310,6 +311,8 @@ export default function Assistant({ active = true }: { active?: boolean }) {
 
         {tab === "reminders" && <RemindersCard />}
 
+        {tab === "voice" && <VoiceCard />}
+
         {tab === "access" && (
           <div className="grid grid-cols-2 gap-4 items-start">
             <SystemControlCard />
@@ -324,6 +327,7 @@ export default function Assistant({ active = true }: { active?: boolean }) {
           <div className="grid grid-cols-2 gap-4 items-start">
             <BehaviorCard />
             <OverlayCard />
+            <LocalServerCard />
           </div>
         )}
       </div>
@@ -894,7 +898,6 @@ function BehaviorCard() {
     hotkey: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [idleDraft, setIdleDraft] = useState("5");
 
   const load = () => {
     call(commands.getConfig())
@@ -908,7 +911,6 @@ function BehaviorCard() {
           overlay_enabled: c.assistant?.overlay_enabled ?? true,
           hotkey: c.assistant?.hotkey ?? "",
         });
-        setIdleDraft(String(c.server_idle_unload_minutes ?? 5));
       })
       .catch(() => {});
   };
@@ -968,10 +970,39 @@ function BehaviorCard() {
         checked={behavior.reflection}
         onChange={(v) => apply({ ...behavior, reflection: v })}
       />
+      <Toggle
+        label="Start with the system"
+        hint="Launch werk at login, minimized to the tray."
+        checked={behavior.autostart}
+        onChange={(v) => apply({ ...behavior, autostart: v })}
+      />
+      {error && <p className="text-xs text-accent-red">{error}</p>}
+    </div>
+  );
+}
+
+/// Local server lifecycle: the idle unload window (shared with the Agent
+/// profile's Local server card).
+function LocalServerCard() {
+  const [idleDraft, setIdleDraft] = useState("5");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    call(commands.getConfig())
+      .then((c) => setIdleDraft(String(c.server_idle_unload_minutes ?? 5)))
+      .catch(() => {});
+  }, []);
+
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h2 className="section-title mb-0">Local server</h2>
+        <p className="section-desc">
+          Unload models when the server sits idle.
+        </p>
+      </div>
       <label className="block">
-        <span className="text-[0.6875rem] text-dim">
-          Unload the local server after (minutes, 0 = never)
-        </span>
+        <span className="text-[0.6875rem] text-dim">Unload after (minutes, 0 = never) </span>
         <input
           type="number"
           min={0}
@@ -990,13 +1021,200 @@ function BehaviorCard() {
           }}
         />
       </label>
-      <Toggle
-        label="Start with the system"
-        hint="Launch werk at login, minimized to the tray."
-        checked={behavior.autostart}
-        onChange={(v) => apply({ ...behavior, autostart: v })}
-      />
       {error && <p className="text-xs text-accent-red">{error}</p>}
+    </div>
+  );
+}
+
+/// Text-to-speech via llama.cpp's llama-tts (Qwen3-TTS): model, reference
+/// voice, and a test phrase.
+function VoiceCard() {
+  const [voice, setVoice] = useState<{
+    enabled: boolean;
+    model: string;
+    speaker: string;
+    lang: string;
+    autoplay: boolean;
+  } | null>(null);
+  const [testText, setTestText] = useState("Hello! This is my assistant voice.");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastPath, setLastPath] = useState<string | null>(null);
+
+  const load = () => {
+    call(commands.getConfig())
+      .then((c) =>
+        setVoice({
+          enabled: c.assistant?.tts_enabled ?? false,
+          model: c.assistant?.tts_model ?? "",
+          speaker: c.assistant?.tts_speaker ?? "",
+          lang: c.assistant?.tts_lang ?? "en",
+          autoplay: c.assistant?.tts_autoplay ?? false,
+        }),
+      )
+      .catch(() => {});
+  };
+  useEffect(load, []);
+
+  const apply = async (next: NonNullable<typeof voice>) => {
+    setVoice(next);
+    setError(null);
+    try {
+      await call(
+        commands.setAssistantVoice(
+          next.enabled,
+          next.model || null,
+          next.speaker || null,
+          next.lang,
+          next.autoplay,
+        ),
+      );
+    } catch (e) {
+      setError(String(e));
+      load();
+    }
+  };
+
+  const browse = async (kind: "model" | "speaker") => {
+    if (!voice) return;
+    const picked = await openDialog({
+      multiple: false,
+      directory: false,
+      title: kind === "model" ? "Pick a Qwen3-TTS GGUF" : "Pick a reference voice",
+      filters:
+        kind === "model"
+          ? [{ name: "GGUF", extensions: ["gguf"] }]
+          : [{ name: "Audio", extensions: ["wav", "mp3", "flac", "ogg", "m4a"] }],
+    }).catch(() => null);
+    if (typeof picked === "string" && picked) {
+      await apply({ ...voice, [kind]: picked });
+    }
+  };
+
+  const speak = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await call(commands.assistantTtsSpeak(testText));
+      setLastPath(res.path);
+      await new Audio(`data:audio/wav;base64,${res.audio}`).play();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!voice) return null;
+  return (
+    <div className="grid grid-cols-2 gap-4 items-start">
+      <div className="card space-y-3">
+        <div>
+          <h2 className="section-title mb-0">Voice</h2>
+          <p className="section-desc">
+            Speak & hear locally with llama.cpp's llama-tts. Nothing leaves
+            the machine.
+          </p>
+        </div>
+        <Toggle
+          label="Enable voice"
+          hint="Allow speaking replies and narration."
+          checked={voice.enabled}
+          onChange={(v) => apply({ ...voice, enabled: v })}
+        />
+        {voice.enabled && (
+          <>
+            <div className="space-y-1">
+              <span className="text-[0.6875rem] text-dim">TTS model (GGUF)</span>
+              <div className="flex items-center gap-2">
+                <input
+                  className="input flex-1 min-w-0 font-mono text-xs"
+                  placeholder="…/Qwen3-TTS-12Hz-0.6B-Base-Q8_0.gguf"
+                  value={voice.model}
+                  onChange={(e) => setVoice({ ...voice, model: e.target.value })}
+                  onBlur={() => apply(voice)}
+                />
+                <button
+                  className="btn-secondary text-xs py-1 px-2"
+                  onClick={() => void browse("model")}
+                  title="Browse"
+                >
+                  <FolderOpen size={12} />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <span className="text-[0.6875rem] text-dim">
+                Reference voice (optional, for cloning)
+              </span>
+              <div className="flex items-center gap-2">
+                <input
+                  className="input flex-1 min-w-0 font-mono text-xs"
+                  placeholder="speaker.wav"
+                  value={voice.speaker}
+                  onChange={(e) => setVoice({ ...voice, speaker: e.target.value })}
+                  onBlur={() => apply(voice)}
+                />
+                <button
+                  className="btn-secondary text-xs py-1 px-2"
+                  onClick={() => void browse("speaker")}
+                  title="Browse"
+                >
+                  <FolderOpen size={12} />
+                </button>
+              </div>
+            </div>
+            <label className="block">
+              <span className="text-[0.6875rem] text-dim">Language</span>
+              <select
+                className="input w-full mt-1 text-xs"
+                value={voice.lang}
+                onChange={(e) => apply({ ...voice, lang: e.target.value })}
+              >
+                {["en", "de", "es", "fr", "it", "pt", "ru", "zh", "ja", "ko"].map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Toggle
+              label="Narrate replies"
+              hint="Speak each assistant reply as soon as it finishes."
+              checked={voice.autoplay}
+              onChange={(v) => apply({ ...voice, autoplay: v })}
+            />
+          </>
+        )}
+        {error && <p className="text-xs text-accent-red">{error}</p>}
+      </div>
+      {voice.enabled && (
+        <div className="card space-y-3">
+          <div>
+            <h2 className="section-title mb-0">Test voice</h2>
+            <p className="section-desc">Synthesize a phrase and play it back.</p>
+          </div>
+          <textarea
+            className="input w-full text-xs min-h-[4rem]"
+            value={testText}
+            onChange={(e) => setTestText(e.target.value)}
+          />
+          <div className="flex items-center gap-2">
+            <button
+              className="btn-secondary text-xs py-1 px-2"
+              disabled={busy}
+              onClick={() => void speak()}
+            >
+              {busy ? <RefreshCw size={12} className="animate-spin" /> : <Play size={12} />}
+              {busy ? "Synthesizing…" : "Speak"}
+            </button>
+            {lastPath && <span className="text-[0.625rem] text-faint truncate">{lastPath}</span>}
+          </div>
+          <p className="text-[0.625rem] text-faint">
+            The first run loads the model, so it can take a few seconds.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1059,7 +1277,7 @@ function OverlayCard() {
       <div>
         <h2 className="section-title mb-0">Overlay</h2>
         <p className="section-desc">
-          The pulsating circle that floats above the desktop while the assistant profile is
+          A pulsating circle that floats above the desktop while the assistant profile is
           active; click it (or press the hotkey) to type an instruction.
         </p>
       </div>
@@ -1090,7 +1308,7 @@ function OverlayCard() {
           Show now
         </button>
         <span className="text-[0.625rem] text-faint">
-          The overlay only appears in the assistant profile.
+          The overlay only appears with the assistant profile.
         </span>
       </div>
       {error && <p className="text-xs text-accent-red">{error}</p>}

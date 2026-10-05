@@ -355,6 +355,30 @@ pub async fn set_assistant_fs(
     cfg.save().map_err(|e| e.to_string())
 }
 
+/// Save the assistant's voice settings (TTS via llama-tts).
+#[tauri::command]
+#[specta::specta]
+pub async fn set_assistant_voice(
+    tts_enabled: bool,
+    tts_model: Option<String>,
+    tts_speaker: Option<String>,
+    tts_lang: String,
+    tts_autoplay: bool,
+    state: State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let mut cfg = state.config.lock().unwrap();
+    cfg.assistant.tts_enabled = tts_enabled;
+    cfg.assistant.tts_model = tts_model
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty());
+    cfg.assistant.tts_speaker = tts_speaker
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    cfg.assistant.tts_lang = tts_lang.trim().to_string();
+    cfg.assistant.tts_autoplay = tts_autoplay;
+    cfg.save().map_err(|e| e.to_string())
+}
+
 /// The temp workspace path, for the File system card.
 #[tauri::command]
 #[specta::specta]

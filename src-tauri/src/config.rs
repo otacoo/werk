@@ -293,6 +293,21 @@ pub struct AssistantConfig {
     /// Unix seconds of the last reflection pass (scheduler bookkeeping).
     #[serde(default)]
     pub reflection_last: u32,
+    /// Speak assistant replies with llama-tts (Qwen3-TTS).
+    #[serde(default)]
+    pub tts_enabled: bool,
+    /// GGUF path for the TTS model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_model: Option<String>,
+    /// Reference voice audio for Qwen3-TTS cloning (wav or mp3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_speaker: Option<String>,
+    /// Qwen3-TTS language code (en, de, es, fr, it, pt, ru, zh, ja, ko).
+    #[serde(default = "default_tts_lang")]
+    pub tts_lang: String,
+    /// Speak every assistant reply as soon as it finishes.
+    #[serde(default)]
+    pub tts_autoplay: bool,
     /// Start werk with the OS session (minimized to the tray).
     #[serde(default)]
     pub autostart: bool,
@@ -353,6 +368,11 @@ impl Default for AssistantConfig {
             auto_distill: false,
             reflection: false,
             reflection_last: 0,
+            tts_enabled: false,
+            tts_model: None,
+            tts_speaker: None,
+            tts_lang: default_tts_lang(),
+            tts_autoplay: false,
             autostart: false,
             hotkey: default_assistant_hotkey(),
             overlay_enabled: true,
@@ -524,6 +544,10 @@ fn default_true() -> bool {
 
 fn default_idle_unload() -> u32 {
     5
+}
+
+fn default_tts_lang() -> String {
+    "en".to_string()
 }
 
 fn default_assistant_name() -> String {

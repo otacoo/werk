@@ -96,6 +96,10 @@ export default function AssistantChat({
   const [error, setError] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<"loading" | "thinking" | null>(null);
   const [assistantName, setAssistantName] = useState("Werk");
+  const [voice, setVoice] = useState<{ enabled: boolean; autoplay: boolean }>({
+    enabled: false,
+    autoplay: false,
+  });
   const [avatar, setAvatar] = useState<string | null>(null);
   const [externalMode, setExternalMode] = useState(false);
   const [externalTarget, setExternalTarget] = useState("");
@@ -145,6 +149,10 @@ export default function AssistantChat({
     setExternalMode(external);
     setExternalTarget(external ? (c.external_target ?? "").trim() : "");
     setAssistantName(c.assistant?.name?.trim() || "Werk");
+    setVoice({
+      enabled: c.assistant?.tts_enabled ?? false,
+      autoplay: c.assistant?.tts_autoplay ?? false,
+    });
   };
 
   const restore = async () => {
@@ -531,6 +539,12 @@ export default function AssistantChat({
       ]);
       setAttachments([]);
       void playNotificationSound("agent");
+      // Narrate the reply when voice is on; failures stay silent.
+      if (voice.enabled && voice.autoplay && res.text) {
+        call(commands.assistantTtsSpeak(res.text))
+          .then((r) => new Audio(`data:audio/wav;base64,${r.audio}`).play())
+          .catch(() => {});
+      }
     } catch (e) {
       const msg = String(e);
       const aborted = msg.includes("aborted");

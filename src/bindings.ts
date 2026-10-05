@@ -146,6 +146,10 @@ export const commands = {
 	setAssistantFs: (workspace: string | null, tempEnabled: boolean, folders: string[]) => typedError<null, string>(__TAURI_INVOKE("set_assistant_fs", { workspace, tempEnabled, folders })),
 	/**  The temp workspace path, for the File system card. */
 	assistantTempDir: () => typedError<string, string>(__TAURI_INVOKE("assistant_temp_dir")),
+	/**  Save the assistant's voice settings (TTS via llama-tts). */
+	setAssistantVoice: (ttsEnabled: boolean, ttsModel: string | null, ttsSpeaker: string | null, ttsLang: string, ttsAutoplay: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_voice", { ttsEnabled, ttsModel, ttsSpeaker, ttsLang, ttsAutoplay })),
+	/**  Speak `text` with the configured voice; returns the WAV path and bytes. */
+	assistantTtsSpeak: (text: string) => typedError<TtsResult, string>(__TAURI_INVOKE("assistant_tts_speak", { text })),
 	/**  Import (or clear) the assistant's profile image. */
 	assistantSetAvatar: (path: string | null) => typedError<null, string>(__TAURI_INVOKE("assistant_set_avatar", { path })),
 	/**  The assistant's avatar as a data URL, when one is set. */
@@ -569,6 +573,16 @@ export type AssistantConfig_Deserialize = {
 	reflection?: boolean,
 	/**  Unix seconds of the last reflection pass (scheduler bookkeeping). */
 	reflection_last?: number,
+	/**  Speak assistant replies with llama-tts (Qwen3-TTS). */
+	tts_enabled?: boolean,
+	/**  GGUF path for the TTS model. */
+	tts_model?: string | null,
+	/**  Reference voice audio for Qwen3-TTS cloning (wav or mp3). */
+	tts_speaker?: string | null,
+	/**  Qwen3-TTS language code (en, de, es, fr, it, pt, ru, zh, ja, ko). */
+	tts_lang?: string,
+	/**  Speak every assistant reply as soon as it finishes. */
+	tts_autoplay?: boolean,
 	/**  Start werk with the OS session (minimized to the tray). */
 	autostart?: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
@@ -624,6 +638,16 @@ export type AssistantConfig_Serialize = {
 	reflection: boolean,
 	/**  Unix seconds of the last reflection pass (scheduler bookkeeping). */
 	reflection_last: number,
+	/**  Speak assistant replies with llama-tts (Qwen3-TTS). */
+	tts_enabled: boolean,
+	/**  GGUF path for the TTS model. */
+	tts_model?: string | null,
+	/**  Reference voice audio for Qwen3-TTS cloning (wav or mp3). */
+	tts_speaker?: string | null,
+	/**  Qwen3-TTS language code (en, de, es, fr, it, pt, ru, zh, ja, ko). */
+	tts_lang: string,
+	/**  Speak every assistant reply as soon as it finishes. */
+	tts_autoplay: boolean,
 	/**  Start werk with the OS session (minimized to the tray). */
 	autostart: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
@@ -1716,6 +1740,12 @@ export type ToolsList = {
 	plugins: PluginDto[],
 	plugin_errors: PluginErrorDto[],
 	plugins_dir: string,
+};
+
+export type TtsResult = {
+	path: string,
+	/**  Base64 WAV so the webview can play it without asset-protocol setup. */
+	audio: string,
 };
 
 /**

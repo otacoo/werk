@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 use crate::config::{ActiveRuntime, AppConfig, CustomRuntime, ManagedRuntime};
@@ -362,6 +362,41 @@ fn extract_tar_gz(archive: &Path, dir: &Path) -> Result<()> {
     let mut tar = tar::Archive::new(gz);
     tar.unpack(dir)?;
     Ok(())
+}
+
+/// A sibling tool (`llama-tts`) next to the active server binary.
+pub fn sibling_binary(config: &AppConfig, runtimes_base: &Path, name: &str) -> Result<PathBuf> {
+    let server = server_binary(config, runtimes_base)?;
+    let dir = server.parent().context("Server binary has no parent")?;
+    let target = if cfg!(target_os = "windows") {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    };
+    let direct = dir.join(&target);
+    if direct.is_file() {
+        return Ok(direct);
+    }
+    let mut stack = vec![dir.to_path_buf()];
+    let mut depth = 0;
+    while let Some(current) = stack.pop() {
+        depth += 1;
+        if depth > 8 {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().and_then(|n| n.to_str()) == Some(target.as_str()) {
+                return Ok(path);
+            }
+        }
+    }
+    bail!("{name} not found next to the server binary")
 }
 
 /// Find `llama-server(.exe)` under a runtime dir (recursive, shallow first).

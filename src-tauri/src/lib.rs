@@ -25,6 +25,7 @@ pub mod scheduler;
 pub mod server;
 pub mod system;
 pub mod terminal;
+pub mod voice;
 pub mod worktree;
 
 use std::collections::HashMap;
@@ -274,6 +275,8 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         assistant::set_assistant_access,
         assistant::set_assistant_fs,
         assistant::assistant_temp_dir,
+        assistant::set_assistant_voice,
+        voice::assistant_tts_speak,
         assistant::assistant_set_avatar,
         assistant::assistant_avatar,
         scheduler::assistant_reminders_list,

@@ -24,10 +24,13 @@ export default function Overlay() {
   /// Click opens; a press that moves past the threshold drags the window.
   const dragging = useRef(false);
   const pressAt = useRef<{ x: number; y: number } | null>(null);
+  /// Expanded state at press time: the input blurs before the click lands.
+  const wasExpanded = useRef(false);
 
   const onPressDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0) return;
     dragging.current = false;
+    wasExpanded.current = expandedRef.current;
     pressAt.current = { x: e.screenX, y: e.screenY };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -59,7 +62,7 @@ export default function Overlay() {
       dragging.current = false;
       return;
     }
-    if (expanded) void collapse();
+    if (wasExpanded.current) void collapse();
     else void expand();
   };
 
@@ -244,7 +247,7 @@ export default function Overlay() {
         } ${expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"}`}
       >
         <button
-          className="relative w-11 h-11 rounded-full bg-surface-3 flex items-center justify-center shrink-0 overflow-hidden cursor-grab active:cursor-grabbing"
+          className="relative w-11 h-11 rounded-full bg-surface-3 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer"
           onPointerDown={onPressDown}
           onPointerMove={(e) => void onPressMove(e)}
           onPointerUp={onPressUp}
@@ -254,7 +257,13 @@ export default function Overlay() {
         >
           <span className={`absolute inset-0 rounded-full opacity-30 ${dot}`} />
           {avatar ? (
-            <img src={avatar} alt="" className="relative w-full h-full object-cover" />
+            <img
+              src={avatar}
+              alt=""
+              draggable={false}
+              onDragStart={(e) => e.preventDefault()}
+              className="relative w-full h-full object-cover"
+            />
           ) : (
             <Sparkles size={16} className="relative text-ink" />
           )}

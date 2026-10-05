@@ -4,6 +4,7 @@
 
 ### Added
 
+- Assistant Voice tab: local text-to-speech through llama.cpp's `llama-tts` with a Qwen3-TTS GGUF — model and optional reference voice (cloning), language, a test phrase with playback, and a "narrate replies" mode that speaks each finished answer.
 - A `delete_file` tool moves files to the OS trash (recycle bin) — never a hard delete — for the assistant and the agent, inside the same jail and File system roots; folders and protected paths are refused.
 - The assistant can extend its own toolset: `skill_write` saves reusable procedures as skills, `plugin_write` creates local-command plugins, and `mcp` lists/adds/removes MCP servers — all in the shared folders, so the agent profile sees them too.
 - Assistant learning polish: an auto-distill toggle summarizes a session into memory with the utility model when it is reset, and an opt-in daily reflection merges duplicate memories and extracts durable facts.
@@ -11,6 +12,7 @@
 
 ### Changed
 
+- The local server's idle-unload setting has its own Local server card in the Assistant Behavior tab, shared with the Agent profile's card.
 - The overlay button can be dragged anywhere to reposition it — a plain click still opens the input — and it dims while idle.
 - The Assistant Behavior tab gains the local server's "unload after N minutes" setting, shared with the Local server card.
 - Prompts retrieve the memory entries most relevant to the current message (the newest entries always survive) instead of truncating the file head, so assistant, roleplay, and agent memory can grow past the old 16 KiB fold.
