@@ -24,6 +24,22 @@
         "shadow": false,
         "visible": false,
         "backgroundColor": "#141414"
+      },
+      {
+        "label": "overlay",
+        "title": "Werk Assistant",
+        "url": "index.html?overlay=1",
+        "width": 84,
+        "height": 84,
+        "resizable": false,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": false
       }
     ],
     "security": {

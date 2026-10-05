@@ -611,7 +611,7 @@ function SystemControlCard() {
       <div>
         <h2 className="section-title mb-0">System control</h2>
         <p className="section-desc">
-          Off by default. Warning: Any tool enabled here doesn't require permissions.
+          Off by default. Warning: Use with caution. Tools enabled here do not require approval.
         </p>
       </div>
       <div className="flex items-start gap-2">
@@ -636,7 +636,7 @@ function SystemControlCard() {
           <div className="w-full space-y-3 border border-border rounded px-3 py-2">
           <Toggle
             label="File tools"
-            hint="Read, write, edit, find, search, and trash files in the folders from the File system card."
+            hint="Read, write, edit, find, search, and trash files in the allowed folders."
             checked={access.files}
             onChange={(v) => apply({ ...access, files: v })}
           />
@@ -713,8 +713,7 @@ function BuiltInToolsCard() {
       <div>
         <h2 className="section-title mb-0">Built-in tools</h2>
         <p className="section-desc">
-          Always on: these need no switches and no approvals. They are separate from the system
-          tools on the left.
+          Always on: these tools need no switches and no approvals.
         </p>
       </div>
       <div className="space-y-1.5">
@@ -895,10 +894,11 @@ function BehaviorCard() {
     hotkey: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [idleDraft, setIdleDraft] = useState("5");
 
   const load = () => {
     call(commands.getConfig())
-      .then((c) =>
+      .then((c) => {
         setBehavior({
           notify: c.assistant?.notify ?? true,
           proactive: c.assistant?.proactive ?? true,
@@ -907,8 +907,9 @@ function BehaviorCard() {
           autostart: c.assistant?.autostart ?? false,
           overlay_enabled: c.assistant?.overlay_enabled ?? true,
           hotkey: c.assistant?.hotkey ?? "",
-        }),
-      )
+        });
+        setIdleDraft(String(c.server_idle_unload_minutes ?? 5));
+      })
       .catch(() => {});
   };
   useEffect(load, []);
@@ -940,8 +941,7 @@ function BehaviorCard() {
       <div>
         <h2 className="section-title mb-0">Behavior</h2>
         <p className="section-desc">
-          How the assistant behaves when the window is closed or idle. Hiding to the tray follows
-          the "Show in notification area" setting in Settings → General.
+          How the assistant behaves when the window is closed or idle.
         </p>
       </div>
       <Toggle
@@ -968,6 +968,28 @@ function BehaviorCard() {
         checked={behavior.reflection}
         onChange={(v) => apply({ ...behavior, reflection: v })}
       />
+      <label className="block">
+        <span className="text-[0.6875rem] text-dim">
+          Unload the local server after (minutes, 0 = never)
+        </span>
+        <input
+          type="number"
+          min={0}
+          max={1440}
+          className="input w-24 mt-1"
+          value={idleDraft}
+          onChange={(e) => setIdleDraft(e.target.value)}
+          onBlur={async () => {
+            const n = Math.max(0, Math.min(1440, Number(idleDraft) || 0));
+            setIdleDraft(String(n));
+            try {
+              await call(commands.setServerLifecycle(n));
+            } catch (e) {
+              setError(String(e));
+            }
+          }}
+        />
+      </label>
       <Toggle
         label="Start with the system"
         hint="Launch werk at login, minimized to the tray."

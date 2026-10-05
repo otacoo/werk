@@ -205,10 +205,10 @@ pub async fn set_assistant_behavior(
             .register(hotkey.as_str())
             .map_err(|e| format!("Invalid hotkey: {e}"))?;
     }
-    // Disabling the overlay tears it down right away.
+    // Disabling the overlay hides it right away.
     if !overlay_enabled {
         if let Some(win) = app.get_webview_window("overlay") {
-            let _ = win.destroy();
+            let _ = win.hide();
         }
     }
     Ok(())

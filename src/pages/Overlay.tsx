@@ -164,6 +164,8 @@ export default function Overlay() {
     setState("working");
     setInput("");
     try {
+      // The local server may be stopped; start it like the Chat composer does.
+      await call(commands.ensureServer());
       await call(commands.assistantSend(text, null, null));
       setState("sent");
       if (sentTimer.current) window.clearTimeout(sentTimer.current);

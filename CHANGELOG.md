@@ -11,6 +11,7 @@
 
 ### Changed
 
+- The Assistant Behavior tab gains the local server's "unload after N minutes" setting, shared with the Local server card.
 - Prompts retrieve the memory entries most relevant to the current message (the newest entries always survive) instead of truncating the file head, so assistant, roleplay, and agent memory can grow past the old 16 KiB fold.
 - The Profiles section moved from the Settings menu to the Debug section.
 - Model downloads no longer re-read and sha256-check the finished file, so they complete as soon as the last byte arrives.
@@ -18,6 +19,8 @@
 
 ### Fixed
 
+- The overlay window is created with the app again and only shown or hidden; building it on demand blocked the main thread at startup and timed out every dashboard command.
+- Sending from the overlay starts the local server first, like the Chat composer, instead of failing when it is stopped.
 - Absolute tool paths resolve symlinks in their existing ancestors, so macOS `/var` spellings land inside the jail and symlinked escapes are rejected.
 - The NERV and Future borders orbit a square layer sized to the card's diagonal; the old 300%-wide rectangle left a moving edge line on wide or short cards because the rotated layer stopped covering them.
 - The Future theme's cards trade their translucent glass for an opaque pane so the orbiting border stays hidden inside; the rim and active glow moved to the pane.
