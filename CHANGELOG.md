@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-05
+
 ### Added
 
 - Voice input: local speech-to-text with Qwen3-ASR 0.6B — one-click download and model pickers in the Voice tab, and the overlay microphone dictates into the pill (record, transcribe, fill the input).
@@ -15,11 +17,6 @@
 ### Fixed
 
 - The faint blurred square behind the overlay is gone.
-
-## [0.8.1] - 2026-10-05
-
-### Fixed
-
 - Linux: WebKitGTK's DMA-BUF renderer is disabled by default, fixing black or frozen windows on Fedora 43 / Wayland / NVIDIA (set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to opt out).
 - Voice playback works in installed builds (the CSP allows `data:`/`blob:` audio).
 - The AppImage bundles GStreamer and the RPM/DEB packages depend on its plugins, so webview audio no longer crashes or freezes the UI.
