@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { AlertTriangle, FolderOpen, ImagePlus, Play, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, Download, FolderOpen, ImagePlus, Play, RefreshCw, X } from "lucide-react";
 import { commands } from "../bindings";
 import type { AssistantConfig, MemoryFileDto, Reminder } from "../bindings";
 import { call } from "../utils/ipc";
@@ -1028,6 +1028,14 @@ function LocalServerCard() {
 
 /// Text-to-speech via llama.cpp's llama-tts (Qwen3-TTS): model, reference
 /// voice, and a test phrase.
+const TTS_REPO = "mradermacher/Qwen3-TTS-12Hz-0.6B-Base-GGUF";
+const TTS_MMPROJ = "Qwen3-TTS-12Hz-0.6B-Base.mmproj-Q8_0.gguf";
+const TTS_SUGGESTED: { file: string; label: string }[] = [
+  { file: "Qwen3-TTS-12Hz-0.6B-Base.Q8_0.gguf", label: "Q8_0 · 646 MB" },
+  { file: "Qwen3-TTS-12Hz-0.6B-Base.Q6_K.gguf", label: "Q6_K · 500 MB" },
+  { file: "Qwen3-TTS-12Hz-0.6B-Base.Q4_K_M.gguf", label: "Q4_K_M · 361 MB" },
+];
+
 function VoiceCard() {
   const [voice, setVoice] = useState<{
     enabled: boolean;
@@ -1102,6 +1110,22 @@ function VoiceCard() {
       const res = await call(commands.assistantTtsSpeak(testText));
       setLastPath(res.path);
       await new Audio(`data:audio/wav;base64,${res.audio}`).play();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /// Fetch a suggested quant plus its mmproj and point the config at both.
+  const install = async (file: string) => {
+    if (!voice) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const modelPath = await call(commands.downloadModel(TTS_REPO, file, null, null));
+      const mmprojPath = await call(commands.downloadModel(TTS_REPO, TTS_MMPROJ, null, null));
+      await apply({ ...voice, enabled: true, model: modelPath, mmproj: mmprojPath });
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1203,6 +1227,29 @@ function VoiceCard() {
                 ))}
               </select>
             </label>
+            <div className="space-y-1.5 border-t border-border pt-3">
+              <span className="text-[0.6875rem] text-dim">
+                Suggested (downloads the model and its mmproj, then pairs them)
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {TTS_SUGGESTED.map((s) => (
+                  <button
+                    key={s.file}
+                    className="btn-secondary text-xs py-1 px-2"
+                    disabled={busy}
+                    onClick={() => void install(s.file)}
+                    title={s.file}
+                  >
+                    {busy ? (
+                      <RefreshCw size={12} className="animate-spin" />
+                    ) : (
+                      <Download size={12} />
+                    )}
+                    Qwen3-TTS 0.6B · {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <Toggle
               label="Narrate replies"
               hint="Speak each assistant reply as soon as it finishes."

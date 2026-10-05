@@ -38,46 +38,28 @@ pub async fn synthesize(state: &crate::AppState, text: &str) -> Result<TtsResult
         .unwrap_or(0);
     let out = dir.join(format!("tts-{millis}.wav"));
 
-    let mut cmd = tokio::process::Command::new(&exe);
-    crate::hidden::hide_tokio(&mut cmd);
-    cmd.kill_on_drop(true)
-        .arg("-m")
-        .arg(&model)
-        .arg("-p")
-        .arg(text)
-        .arg("--tts-lang")
-        .arg(app_config.assistant.tts_lang.trim())
-        .arg("-n")
-        .arg("2048")
-        .arg("-ngl")
-        .arg("999")
-        .arg("--output")
-        .arg(&out)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped());
-    if let Some(mmproj) = app_config
+    let mmproj = app_config
         .assistant
         .tts_mmproj
         .as_deref()
         .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        cmd.arg("-mm").arg(mmproj);
-    }
-    if let Some(speaker) = app_config
+        .filter(|s| !s.is_empty());
+    let speaker = app_config
         .assistant
         .tts_speaker
         .as_deref()
         .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        cmd.arg("--tts-speaker-file").arg(speaker);
-    }
-    let output = tokio::time::timeout(std::time::Duration::from_secs(180), cmd.output())
-        .await
-        .map_err(|_| "llama-tts timed out".to_string())?
-        .map_err(|e| format!("Cannot run llama-tts: {e}"))?;
+        .filter(|s| !s.is_empty());
+    let lang = app_config.assistant.tts_lang.trim();
+
+    // GPU first; a CUDA failure (some TTS graphs hit it) retries on the CPU.
+    let first = run_tts(&exe, &model, mmproj, speaker, lang, text, &out, 999).await?;
+    let output = if first.status.success() || !tts_is_cuda_error(&first.stderr) {
+        first
+    } else {
+        let _ = std::fs::remove_file(&out);
+        run_tts(&exe, &model, mmproj, speaker, lang, text, &out, 0).await?
+    };
     if !output.status.success() {
         return Err(format!(
             "llama-tts exited with {}: {}",
@@ -90,6 +72,53 @@ pub async fn synthesize(state: &crate::AppState, text: &str) -> Result<TtsResult
         path: out.to_string_lossy().to_string(),
         audio: crate::roleplay::encode_base64(&bytes),
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_tts(
+    exe: &std::path::Path,
+    model: &str,
+    mmproj: Option<&str>,
+    speaker: Option<&str>,
+    lang: &str,
+    text: &str,
+    out: &std::path::Path,
+    ngl: u32,
+) -> Result<std::process::Output, String> {
+    let mut cmd = tokio::process::Command::new(exe);
+    crate::hidden::hide_tokio(&mut cmd);
+    cmd.kill_on_drop(true)
+        .arg("-m")
+        .arg(model)
+        .arg("-p")
+        .arg(text)
+        .arg("--tts-lang")
+        .arg(lang)
+        .arg("-n")
+        .arg("2048")
+        .arg("-ngl")
+        .arg(ngl.to_string())
+        .arg("--output")
+        .arg(out)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    if let Some(mmproj) = mmproj {
+        cmd.arg("-mm").arg(mmproj);
+    }
+    if let Some(speaker) = speaker {
+        cmd.arg("--tts-speaker-file").arg(speaker);
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(180), cmd.output())
+        .await
+        .map_err(|_| "llama-tts timed out".to_string())?
+        .map_err(|e| format!("Cannot run llama-tts: {e}"))
+}
+
+/// A CUDA abort inside llama-tts: retry on the CPU instead of surfacing it.
+fn tts_is_cuda_error(stderr: &[u8]) -> bool {
+    let lower = String::from_utf8_lossy(stderr).to_lowercase();
+    lower.contains("cuda error") || lower.contains("ggml-cuda")
 }
 
 /// llama-tts streams a progress meter on stderr; surface real errors first,

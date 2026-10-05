@@ -4,6 +4,7 @@
 
 ### Added
 
+- The Voice tab suggests Qwen3-TTS 0.6B quants (Q8_0, Q6_K, Q4_K_M); one click downloads the model plus its mmproj and pairs them.
 - Assistant Voice tab: local text-to-speech through llama.cpp's `llama-tts` with a Qwen3-TTS GGUF — model and optional reference voice (cloning), language, a test phrase with playback, and a "narrate replies" mode that speaks each finished answer.
 - A `delete_file` tool moves files to the OS trash (recycle bin) — never a hard delete — for the assistant and the agent, inside the same jail and File system roots; folders and protected paths are refused.
 - The assistant can extend its own toolset: `skill_write` saves reusable procedures as skills, `plugin_write` creates local-command plugins, and `mcp` lists/adds/removes MCP servers — all in the shared folders, so the agent profile sees them too.
@@ -12,6 +13,7 @@
 
 ### Changed
 
+- The overlay remembers where it was dragged and restores that position on the next run, clamped into the monitor work area.
 - The local server no longer unloads by default: the idle-unload window starts at 0 (never), and the setting has its own Local server card in the Assistant Behavior tab.
 - The overlay button can be dragged anywhere to reposition it — a plain click still opens the input — and it dims while idle.
 - The Assistant Behavior tab gains the local server's "unload after N minutes" setting, shared with the Local server card.
@@ -22,6 +24,7 @@
 
 ### Fixed
 
+- A CUDA failure inside llama-tts retries synthesis on the CPU instead of surfacing the abort.
 - The Voice tab takes the TTS audio projector (mmproj) that ships with the Qwen3-TTS GGUF, and llama-tts failures report the real error message and exit code instead of progress output.
 - The overlay window is created with the app again and only shown or hidden; building it on demand blocked the main thread at startup and timed out every dashboard command.
 - Sending from the overlay starts the local server first, like the Chat composer, instead of failing when it is stopped.

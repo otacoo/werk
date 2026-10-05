@@ -9,6 +9,7 @@ import { loadAppearance } from "../utils/appearance";
 const COLLAPSED = 84;
 const EXPANDED_W = 404;
 const EXPANDED_H = 84;
+const POS_KEY = "werk.overlay.pos";
 
 /// Always-on-top assistant overlay: a pulsing circle that expands into a
 /// floating input. Enter sends to the assistant; Esc collapses.
@@ -93,6 +94,25 @@ export default function Overlay() {
       const raise = Math.round(16 * scale);
       // Prefer the work area so the pill never sits over the taskbar.
       const area = await commands.overlayWorkArea().catch(() => null);
+      // A dragged position is remembered; clamp it into the work area.
+      const saved = localStorage.getItem(POS_KEY);
+      if (saved) {
+        try {
+          const pos = JSON.parse(saved) as { x: number; y: number };
+          const x = area
+            ? Math.min(Math.max(pos.x, area.left), area.right - pw)
+            : pos.x;
+          const y = area
+            ? Math.min(Math.max(pos.y, area.top), area.bottom - ph)
+            : pos.y;
+          await win.setSize(new PhysicalSize(pw, ph));
+          await win.setPosition(new PhysicalPosition(x, y));
+          await win.setAlwaysOnTop(true);
+          return;
+        } catch {
+          // Corrupt entry: fall through to the default corner.
+        }
+      }
       if (area) {
         await win.setSize(new PhysicalSize(pw, ph));
         await win.setPosition(
@@ -128,6 +148,22 @@ export default function Overlay() {
     call(commands.assistantAvatar())
       .then(setAvatar)
       .catch(() => {});
+  }, []);
+
+  // Remember where the pill was dragged to (debounced; moves are frequent).
+  useEffect(() => {
+    const win = getCurrentWindow();
+    let timer: number | null = null;
+    const unlisten = win.onMoved(({ payload }) => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        localStorage.setItem(POS_KEY, JSON.stringify({ x: payload.x, y: payload.y }));
+      }, 250);
+    });
+    return () => {
+      unlisten.then((f) => f());
+      if (timer) window.clearTimeout(timer);
+    };
   }, []);
 
   const expand = async () => {
