@@ -10,7 +10,7 @@
   &nbsp;&nbsp;<img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6?style=for-the-badge">
 </p>
 
-<p align="center"><b>werk. runs your local GGUF models with <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a> and puts an agentic harness on top — tool-using chat, subagents, MCP servers and language-server diagnostics in one lean desktop app for Windows, macOS and Linux.</b></p>
+<p align="center"><b>werk runs your local GGUF models with <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a> and puts an agentic harness on top — tool-using chat, subagents, MCP servers and language-server diagnostics in one lean desktop app for Windows, macOS and Linux.</b></p>
 
 ---
 
@@ -25,8 +25,8 @@
 
 ## Status
 >[!WARNING]
->Beta software.
->**werk.** is in *active development* and evolving rapidly. Bug reports and ideas are welcome via [issues](https://github.com/otacoo/werk/issues).
+>Beta software.\
+>**werk** is in *active development* and evolving rapidly. Bug reports and ideas are welcome via [issues](https://github.com/otacoo/werk/issues).
 
 ## Goals
 
@@ -92,7 +92,7 @@ npm run typecheck  # tsc --noEmit
 
 ## How it works
 
-**werk.** is a [Tauri 2](https://tauri.app/) desktop app:
+**werk** is a [Tauri 2](https://tauri.app/) desktop app:
 
 - `crates/harness/` — the agent core: model loop, tools, permissions, compaction. Plain Rust, no Tauri and no I/O globals, so it stays testable.
 - `src-tauri/` — the drivers: server lifecycle, model scanning, runtimes, downloads, sessions, and the thin Tauri command layer.
@@ -102,7 +102,7 @@ npm run typecheck  # tsc --noEmit
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).\
-The third-party components that **werk.** bundles, with their license texts, are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+The third-party components that **werk** bundles, with their license texts, are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 <p align="right">
 <sub><i>
