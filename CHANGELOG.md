@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-05
+
 ### Fixed
 
 - Linux: dropdowns follow the theme (native select chrome is replaced) and notification sounds play (PCM WAV assets, pre-unlocked players, cached toggles).
