@@ -464,12 +464,21 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// NVIDIA's kernel driver is the common trigger for WebKitGTK's broken
+/// DMA-BUF first paint (proprietary and open modules both expose these).
+#[cfg(target_os = "linux")]
+fn linux_nvidia() -> bool {
+    std::path::Path::new("/proc/driver/nvidia/version").exists()
+        || std::path::Path::new("/sys/module/nvidia/version").exists()
+}
+
 pub fn run() {
-    // WebKitGTK's DMA-BUF renderer fails to produce a first paint on many
-    // Linux GPU stacks (Fedora 43, Wayland/NVIDIA: black or frozen windows).
-    // Disable it unless the user opted back in, before GTK/WebKit initialize.
+    // WebKitGTK's DMA-BUF renderer fails to produce a first paint on NVIDIA
+    // systems (Fedora 43, Wayland: black or frozen windows). Disable it only
+    // there, so everyone else keeps the faster GPU compositing path; the env
+    // var stays the manual override either way.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() && linux_nvidia() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
     let mut config = match config::AppConfig::load() {

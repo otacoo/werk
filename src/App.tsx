@@ -130,7 +130,7 @@ export default function App() {
         setProfileMirror((c.chat_profile ?? "agent") as Profile);
         setCloseToTray(c.close_to_tray ?? false);
         setWebuiEnabled(c.webui_enabled ?? false);
-        setOverlayEnabled(c.assistant?.overlay_enabled ?? true);
+        setOverlayEnabled(c.assistant?.overlay_enabled ?? false);
       })
       .catch(() => setWizard(false));
     call(commands.getPlatformStyle())
@@ -187,7 +187,7 @@ export default function App() {
             setProfileMirror((c.chat_profile ?? "agent") as Profile);
             setCloseToTray(c.close_to_tray ?? false);
             setWebuiEnabled(c.webui_enabled ?? false);
-            setOverlayEnabled(c.assistant?.overlay_enabled ?? true);
+            setOverlayEnabled(c.assistant?.overlay_enabled ?? false);
             if (external) setTab((t) => (t === "run" ? "chat" : t));
           })
           .catch(() => {});

@@ -919,7 +919,7 @@ function BehaviorCard() {
           auto_distill: c.assistant?.auto_distill ?? false,
           reflection: c.assistant?.reflection ?? false,
           autostart: c.assistant?.autostart ?? false,
-          overlay_enabled: c.assistant?.overlay_enabled ?? true,
+          overlay_enabled: c.assistant?.overlay_enabled ?? false,
           hotkey: c.assistant?.hotkey ?? "",
         });
       })
@@ -1772,7 +1772,7 @@ function OverlayCard() {
     call(commands.getConfig())
       .then((c) =>
         setOverlay({
-          enabled: c.assistant?.overlay_enabled ?? true,
+          enabled: c.assistant?.overlay_enabled ?? false,
           hotkey: c.assistant?.hotkey ?? "",
           notify: c.assistant?.notify ?? true,
           proactive: c.assistant?.proactive ?? true,

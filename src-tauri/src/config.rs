@@ -333,7 +333,7 @@ pub struct AssistantConfig {
     #[serde(default = "default_assistant_hotkey")]
     pub hotkey: String,
     /// Show the always-on-top overlay while the assistant profile is active.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub overlay_enabled: bool,
     /// Master switch for the system-control tools (opt-in).
     #[serde(default)]
@@ -399,7 +399,7 @@ impl Default for AssistantConfig {
             stt_lang: String::new(),
             autostart: false,
             hotkey: default_assistant_hotkey(),
-            overlay_enabled: true,
+            overlay_enabled: false,
             system_control: false,
             workspace: None,
             temp_enabled: true,

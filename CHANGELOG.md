@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Linux: the DMA-BUF renderer workaround applies only to NVIDIA systems now (Intel/AMD keep the fast GPU compositing path); `WEBKIT_DISABLE_DMABUF_RENDERER=1` still forces it.
+- The overlay is off by default for new installs.
+
 ## [0.8.2] - 2026-10-05
 
 ### Fixed
