@@ -334,9 +334,11 @@ export default function Assistant({ active = true }: { active?: boolean }) {
 
         {tab === "behavior" && (
           <div className="grid grid-cols-2 gap-4 items-start">
-            <BehaviorCard />
+            <div className="space-y-4">
+              <BehaviorCard />
+              <LocalServerCard />
+            </div>
             <OverlayCard />
-            <LocalServerCard />
           </div>
         )}
       </div>

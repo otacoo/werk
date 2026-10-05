@@ -644,10 +644,6 @@ export default function Mode({
             <div className="section-desc space-y-1">
               <p>Use this if you want to use llama-server's own chat UI.</p>
               <p>
-                The WebUI profile keeps the server's <b>Web UI</b> enabled automatically — the Run
-                → Extra toggle is locked while it's active.
-              </p>
-              <p>
                 Note: The Web UI talks to the model with the server's own chat template —{" "}
                 <b>not</b> werk's agent system prompt — this means werk's tools, subagents, LSP, are
                 not available, only MCPs.
