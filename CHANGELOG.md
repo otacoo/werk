@@ -15,7 +15,8 @@
 
 ### Changed
 
-- While the assistant is working, a slow, bright arc orbits the avatar; opening the pill moves the orbit around the whole pill.
+- While the assistant is generating, a fast bright arc orbits the avatar; opening the pill moves the orbit around the whole pill. Idle, loading, and failed runs do not glow.
+- After a quiet spell the idle overlay dozes off, with little z's drifting up from the avatar.
 - The overlay drags by the pill body too (not just the avatar), and clicking the empty pill body collapses it.
 - Overlay styles live in their own `themes/overlay.css`, ready for user-chosen overlay themes later.
 - The Model downloads card leads with a generic description and names Qwen3-TTS 0.6B as a subsection, ready for more model families later.

@@ -19,9 +19,14 @@ export default function Overlay() {
   const [state, setState] = useState<"idle" | "working" | "sent" | "attention" | "error">("idle");
   const [avatar, setAvatar] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /// Generation events are flowing: the only thing that lights the glow.
+  const [generating, setGenerating] = useState(false);
+  /// Quiet for a while: the avatar dozes off with floating z's.
+  const [sleeping, setSleeping] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const expandedRef = useRef(false);
   const sentTimer = useRef<number | null>(null);
+  const sleepTimer = useRef<number | null>(null);
   /// Click opens; a press that moves past the threshold drags the window.
   const dragging = useRef(false);
   const pressAt = useRef<{ x: number; y: number } | null>(null);
@@ -37,6 +42,7 @@ export default function Overlay() {
     // A press anywhere on a handle must keep the input's blur from collapsing
     // the pill while the user is dragging (avatar or pill body).
     pillPress.current = true;
+    wake();
     dragging.current = false;
     wasExpanded.current = expandedRef.current;
     pressAt.current = { x: e.screenX, y: e.screenY };
@@ -95,6 +101,26 @@ export default function Overlay() {
     }
     if (expandedRef.current && !input.trim()) void collapse();
   };
+
+  const wake = () => {
+    if (sleepTimer.current) window.clearTimeout(sleepTimer.current);
+    sleepTimer.current = null;
+    setSleeping(false);
+  };
+
+  // Doze off after a quiet spell; any activity restarts the countdown.
+  useEffect(() => {
+    setSleeping(false);
+    if (sleepTimer.current) window.clearTimeout(sleepTimer.current);
+    sleepTimer.current = null;
+    if (state === "idle" && !expanded) {
+      sleepTimer.current = window.setTimeout(() => setSleeping(true), 30000);
+    }
+    return () => {
+      if (sleepTimer.current) window.clearTimeout(sleepTimer.current);
+      sleepTimer.current = null;
+    };
+  }, [state, expanded, input]);
 
   // Transparent page: the pill owns all visible pixels. The theme is applied
   // here too: the overlay renders outside App, which normally loads it.
@@ -231,6 +257,10 @@ export default function Overlay() {
         case "tool_call":
         case "tool_result":
           setState("working");
+          setGenerating(true);
+          break;
+        case "done":
+          setGenerating(false);
           break;
         case "notice":
           if (typeof ev.text === "string" && /failed/i.test(ev.text)) {
@@ -272,6 +302,7 @@ export default function Overlay() {
     sending.current = true;
     setError(null);
     setState("working");
+    setGenerating(false);
     setInput("");
     try {
       // The local server may be stopped; start it like the Chat composer does.
@@ -292,6 +323,7 @@ export default function Overlay() {
         .catch(() => {});
     } catch (e) {
       const msg = String(e);
+      setGenerating(false);
       if (!msg.includes("aborted")) {
         setError(msg);
         setState("error");
@@ -328,7 +360,7 @@ export default function Overlay() {
         onPointerCancel={onPressUp}
         onClick={onPillClick}
       >
-        {expanded && (
+        {expanded && generating && (
           <span className="overlay-ring" aria-hidden>
             <span className="overlay-ring-rotor" />
           </span>
@@ -354,12 +386,19 @@ export default function Overlay() {
           ) : (
             <Sparkles size={16} className="relative text-ink" />
           )}
-          {!expanded && state === "working" && (
+          {!expanded && generating && (
             <span className="overlay-ring" aria-hidden>
               <span className="overlay-ring-rotor" />
             </span>
           )}
         </button>
+        {sleeping && !expanded && (
+          <span className="overlay-zzz" aria-hidden>
+            <span>z</span>
+            <span>z</span>
+            <span>z</span>
+          </span>
+        )}
         {expanded && (
           <>
             <input

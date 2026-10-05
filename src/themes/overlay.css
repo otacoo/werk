@@ -2,12 +2,13 @@
    The always-on-top pill keeps its own stylesheet so it can grow separate
    overlay themes later; overlay-only rules must not leak into the app. */
 
-/* An arc orbits the border — the NERV/Future card trick, tuned slower and
+/* An arc orbits the border — the NERV/Future card trick, tuned faster and
    brighter. The rotor is an oversized conic square turned with `transform`
    (compositor-only) and a ring mask keeps only the border band, so whatever
-   sits underneath (glassy pill, avatar) keeps its own background. */
+   sits underneath (glassy pill, avatar) keeps its own background. Shown only
+   while the model is actually generating. */
 .overlay-ring {
-  --overlay-ring-width: 2px;
+  --overlay-ring-width: 3px;
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -27,12 +28,12 @@
   width: 160%;
   aspect-ratio: 1 / 1;
   background: conic-gradient(
-    rgb(var(--accent) / 0.1),
-    rgb(var(--accent) / 0.95),
-    rgb(var(--accent) / 0.1)
+    rgb(var(--accent) / 0.05),
+    rgb(var(--accent)),
+    rgb(var(--accent) / 0.05)
   );
   will-change: transform;
-  animation: overlay-orbit 8s linear infinite;
+  animation: overlay-orbit 5s linear infinite;
 }
 @keyframes overlay-orbit {
   from {
@@ -42,3 +43,47 @@
     transform: translate(-50%, -50%) rotate(360deg);
   }
 }
+
+/* Dozing off: little z's drift up from the avatar after a quiet spell. */
+.overlay-zzz {
+  position: absolute;
+  left: 12px;
+  bottom: 100%;
+  width: 26px;
+  height: 22px;
+  pointer-events: none;
+}
+.overlay-zzz span {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  font-size: 9px;
+  font-weight: 600;
+  color: rgb(var(--dim));
+  opacity: 0;
+  animation: overlay-zzz-float 2.7s ease-in-out infinite;
+}
+.overlay-zzz span:nth-child(2) {
+  left: 8px;
+  font-size: 11px;
+  animation-delay: 0.9s;
+}
+.overlay-zzz span:nth-child(3) {
+  left: 16px;
+  font-size: 13px;
+  animation-delay: 1.8s;
+}
+@keyframes overlay-zzz-float {
+  0% {
+    transform: translateY(6px) rotate(-6deg);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateY(-10px) rotate(8deg);
+    opacity: 0;
+  }
+}
+
