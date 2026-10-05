@@ -179,23 +179,30 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let dest = dir.join("f.bin");
         let cancel = Arc::new(AtomicBool::new(false));
-        let flag = cancel.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-            flag.store(true, Ordering::SeqCst);
-        });
+        let stop_flag = cancel.clone();
         let mut flowed = 0u64;
-        let err = download_to(
-            &client,
-            &format!("http://{addr}/f.bin"),
-            &dest,
-            &move || cancel.load(Ordering::SeqCst),
-            |p| {
-                flowed = p.downloaded;
-            },
+        let mut stopped = false;
+        // Cancel only after bytes actually flowed, from the progress callback:
+        // a wall-clock timer would race the server's first chunk on slow CI.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            download_to(
+                &client,
+                &format!("http://{addr}/f.bin"),
+                &dest,
+                &move || cancel.load(Ordering::SeqCst),
+                |p| {
+                    flowed = p.downloaded;
+                    if p.downloaded > 0 && !stopped {
+                        stopped = true;
+                        stop_flag.store(true, Ordering::SeqCst);
+                    }
+                },
+            ),
         )
         .await
-        .unwrap_err();
+        .expect("download timed out");
+        let err = result.unwrap_err();
         assert!(err.to_string().contains("cancelled"), "{err}");
         assert!(flowed > 0, "bytes flowed before the stop");
         let _ = std::fs::remove_dir_all(&dir);
