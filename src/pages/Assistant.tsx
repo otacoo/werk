@@ -7,6 +7,7 @@ import { commands } from "../bindings";
 import type { AssistantConfig, MemoryFileDto, Reminder } from "../bindings";
 import { call } from "../utils/ipc";
 import { subscribeConfigChanged } from "../utils/appSettings";
+import { getOverlayOpacity, OVERLAY_OPACITY_MIN, setOverlayOpacity } from "../utils/overlayPrefs";
 import Toggle from "../components/Toggle";
 import ProfileAvatar from "../components/ProfileAvatar";
 import { EFFORT_LABELS } from "./chat/external-controls";
@@ -999,7 +1000,7 @@ function LocalServerCard() {
       <div>
         <h2 className="section-title mb-0">Local server</h2>
         <p className="section-desc">
-          Unload models when the server sits idle.
+          Stop the server after this many minutes without chat activity; 0 disables.
         </p>
       </div>
       <label className="block">
@@ -1397,6 +1398,7 @@ function OverlayCard() {
     autostart: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [opacity, setOpacity] = useState(getOverlayOpacity);
 
   const load = () => {
     call(commands.getConfig())
@@ -1462,6 +1464,26 @@ function OverlayCard() {
           onChange={(e) => setOverlay({ ...overlay, hotkey: e.target.value })}
           onBlur={() => apply(overlay)}
         />
+      </label>
+      <label className="block">
+        <span className="text-[0.6875rem] text-dim">Opacity</span>
+        <div className="flex items-center gap-2 mt-1">
+          <input
+            type="range"
+            min={OVERLAY_OPACITY_MIN}
+            max={100}
+            step={5}
+            value={opacity}
+            disabled={!overlay.enabled}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setOpacity(v);
+              setOverlayOpacity(v);
+            }}
+            className="flex-1 accent-accent"
+          />
+          <span className="text-xs font-mono text-ink w-10 text-right">{opacity}%</span>
+        </div>
       </label>
       <div className="flex items-center gap-2">
         <button

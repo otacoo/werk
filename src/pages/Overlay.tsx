@@ -5,6 +5,8 @@ import { ArrowUp, Mic, Sparkles } from "lucide-react";
 import { commands } from "../bindings";
 import { call } from "../utils/ipc";
 import { loadAppearance } from "../utils/appearance";
+import { getOverlayOpacity } from "../utils/overlayPrefs";
+import { SpeechQueue } from "../utils/speechQueue";
 
 const COLLAPSED = 84;
 const EXPANDED_W = 404;
@@ -23,6 +25,10 @@ export default function Overlay() {
   const [generating, setGenerating] = useState(false);
   /// Quiet for a while: the avatar dozes off with floating z's.
   const [sleeping, setSleeping] = useState(false);
+  /// User-chosen pill opacity (appearance preference).
+  const [opacity, setOpacity] = useState(getOverlayOpacity);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const inputRef = useRef<HTMLInputElement>(null);
   const expandedRef = useRef(false);
   const sentTimer = useRef<number | null>(null);
@@ -36,6 +42,11 @@ export default function Overlay() {
   const pillPress = useRef(false);
   /// A send is in flight: key repeat must not fire it twice.
   const sending = useRef(false);
+  /// The growing reply text and its narration queue (sentences synthesize
+  /// while the model is still writing).
+  const reply = useRef("");
+  const speech = useRef(new SpeechQueue());
+  const narrate = useRef(false);
 
   const beginPress = (e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
@@ -106,20 +117,20 @@ export default function Overlay() {
     if (sleepTimer.current) window.clearTimeout(sleepTimer.current);
     sleepTimer.current = null;
     setSleeping(false);
+    // Re-arm: a drag or nudge restarts the countdown instead of ending it.
+    if (stateRef.current === "idle" && !expandedRef.current) {
+      sleepTimer.current = window.setTimeout(() => setSleeping(true), 30000);
+    }
   };
 
   // Doze off after a quiet spell; any activity restarts the countdown.
   useEffect(() => {
-    setSleeping(false);
-    if (sleepTimer.current) window.clearTimeout(sleepTimer.current);
-    sleepTimer.current = null;
-    if (state === "idle" && !expanded) {
-      sleepTimer.current = window.setTimeout(() => setSleeping(true), 30000);
-    }
+    wake();
     return () => {
       if (sleepTimer.current) window.clearTimeout(sleepTimer.current);
       sleepTimer.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, expanded, input]);
 
   // Transparent page: the pill owns all visible pixels. The theme is applied
@@ -131,9 +142,13 @@ export default function Overlay() {
     document.body.style.overflow = "hidden";
   }, []);
 
-  // Theme/accent/font changes in the main window re-apply here live.
+  // Theme/accent/font changes in the main window re-apply here live; the
+  // overlay opacity is an appearance preference too.
   useEffect(() => {
-    const unlisten = listen("appearance_changed", () => loadAppearance());
+    const unlisten = listen("appearance_changed", () => {
+      loadAppearance();
+      setOpacity(getOverlayOpacity());
+    });
     return () => {
       unlisten.then((f) => f());
     };
@@ -252,12 +267,19 @@ export default function Overlay() {
     const unlisten = listen<Record<string, unknown>>("assistant_event", (event) => {
       const ev = event.payload;
       switch (ev.type) {
-        case "content":
+        case "content": {
+          reply.current += (ev.text as string) ?? "";
+          setState("working");
+          setGenerating(true);
+          if (sending.current && narrate.current) speech.current.push(reply.current);
+          break;
+        }
         case "reasoning_delta":
         case "tool_call":
         case "tool_result":
           setState("working");
           setGenerating(true);
+          if (ev.type === "tool_call") speech.current.abort();
           break;
         case "done":
           setGenerating(false);
@@ -304,26 +326,24 @@ export default function Overlay() {
     setState("working");
     setGenerating(false);
     setInput("");
+    reply.current = "";
+    speech.current.reset();
     try {
       // The local server may be stopped; start it like the Chat composer does.
+      const cfg = call(commands.getConfig()).catch(() => null);
       await call(commands.ensureServer());
+      const config = await cfg;
+      narrate.current = !!(config?.assistant?.tts_enabled && config?.assistant?.tts_autoplay);
       const res = await call(commands.assistantSend(text, null, null));
       setState("sent");
       if (sentTimer.current) window.clearTimeout(sentTimer.current);
       sentTimer.current = window.setTimeout(() => setState("idle"), 2500);
       // Narrate when voice narration is on; failures stay silent.
-      call(commands.getConfig())
-        .then((c) => {
-          if (c.assistant?.tts_enabled && c.assistant?.tts_autoplay && res.text) {
-            return call(commands.assistantTtsSpeak(res.text)).then((r) =>
-              new Audio(`data:audio/wav;base64,${r.audio}`).play(),
-            );
-          }
-        })
-        .catch(() => {});
+      if (narrate.current && res.text) void speech.current.finish(res.text);
     } catch (e) {
       const msg = String(e);
       setGenerating(false);
+      speech.current.abort();
       if (!msg.includes("aborted")) {
         setError(msg);
         setState("error");
@@ -349,11 +369,14 @@ export default function Overlay() {
             : "bg-accent/80 animate-[pulse_3s_ease-in-out_infinite]";
 
   return (
-    <div className="h-screen w-screen flex items-end justify-end p-2 select-none">
+    <div
+      className="h-screen w-screen flex items-end justify-end p-2 select-none"
+      style={opacity < 100 ? { opacity: opacity / 100 } : undefined}
+    >
       <div
         className={`relative flex items-center gap-2 rounded-full border border-border bg-surface-2/95 shadow-lg backdrop-blur transition-all ${
-          state === "idle" && !expanded ? "opacity-70 hover:opacity-100" : "opacity-100"
-        } ${expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"}`}
+          expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"
+        }`}
         onPointerDown={onPillDown}
         onPointerMove={(e) => void onPressMove(e)}
         onPointerUp={onPressUp}

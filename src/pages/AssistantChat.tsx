@@ -22,6 +22,7 @@ import { call } from "../utils/ipc";
 import { subscribeConfigChanged } from "../utils/appSettings";
 import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
 import { playNotificationSound } from "../utils/sounds";
+import { SpeechQueue } from "../utils/speechQueue";
 import ProfileAvatar from "../components/ProfileAvatar";
 import { Markdown } from "./chat/markdown";
 import { ContextRing, CopyButton, ReasoningBlock, SysNotice, ToolCard } from "./chat/components";
@@ -133,6 +134,14 @@ export default function AssistantChat({
   const activeRef = useRef(active);
   const streamingRef = useRef(streaming);
   const startingRef = useRef(false);
+  /// Narration settings for the event listener (state is render-lagged).
+  const voiceRef = useRef({ enabled: false, autoplay: false });
+  /// Reply narration: sentences synthesize while the model is still writing.
+  const speech = useRef(new SpeechQueue());
+
+  useEffect(() => {
+    voiceRef.current = voice;
+  }, [voice]);
 
   const refreshConfig = () => {
     call(commands.getConfig())
@@ -260,6 +269,10 @@ export default function AssistantChat({
           accRef.current += (ev.text as string) ?? "";
           setStreamText(accRef.current);
           if (!streamingRef.current) setRunStatus("thinking");
+          // Narrate this run only; foreign runs are spoken by their starter.
+          if (streamingRef.current && voiceRef.current.enabled && voiceRef.current.autoplay) {
+            speech.current.push(accRef.current);
+          }
           break;
         case "reasoning_delta":
           reasoningAccRef.current += (ev.text as string) ?? "";
@@ -276,6 +289,7 @@ export default function AssistantChat({
           setReasoningText(null);
           setReasoningOpen(false);
           setReasoningLive(false);
+          speech.current.abort();
           setItems((prev) => {
             const extra: Item[] =
               preCallReasoning.trim().length > 0
@@ -336,6 +350,7 @@ export default function AssistantChat({
           if (!streamingRef.current) {
             accRef.current = "";
             reasoningAccRef.current = "";
+            speech.current.abort();
             setStreamText(null);
             setReasoningText(null);
             setReasoningOpen(false);
@@ -541,6 +556,7 @@ export default function AssistantChat({
     setInput("");
     setAttachments([]);
     if (!(await ensureServerReady())) return;
+    streamingRef.current = true;
     setStreaming(true);
     setStreamText("");
     setReasoningText(null);
@@ -550,6 +566,7 @@ export default function AssistantChat({
     setError(null);
     accRef.current = "";
     reasoningAccRef.current = "";
+    speech.current.reset();
 
     try {
       const res = await call(
@@ -583,15 +600,15 @@ export default function AssistantChat({
       ]);
       setAttachments([]);
       void playNotificationSound("agent");
-      // Narrate the reply when voice is on; failures stay silent.
+      // Narrate the reply when voice is on; the queue already synthesized the
+      // sentences that finished while the model was still writing.
       if (voice.enabled && voice.autoplay && res.text) {
-        call(commands.assistantTtsSpeak(res.text))
-          .then((r) => new Audio(`data:audio/wav;base64,${r.audio}`).play())
-          .catch(() => {});
+        void speech.current.finish(res.text);
       }
     } catch (e) {
       const msg = String(e);
       const aborted = msg.includes("aborted");
+      speech.current.abort();
       if (accRef.current) {
         const leftover = accRef.current;
         accRef.current = "";
@@ -605,6 +622,7 @@ export default function AssistantChat({
         void playNotificationSound("errors");
       }
     } finally {
+      streamingRef.current = false;
       setStreaming(false);
       setStreamText(null);
       setReasoningText(null);

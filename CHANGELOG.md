@@ -6,6 +6,7 @@
 
 - The Voice tab has a Model downloads card with quantization tags and live progress for the suggested Qwen3-TTS 0.6B quants (Q8_0, Q6_K, Q4_K_M); one click downloads the model plus its mmproj and pairs them.
 - A skull button (and `/forget`) wipes every assistant memory and the conversation behind a warning about lobotomizing it; `/new` now truly starts fresh.
+- The Assistant Overlay card has an opacity slider for the pill.
 - The overlay shows a greyed-out microphone button next to Send as a placeholder for voice input.
 - Assistant Voice tab: local text-to-speech through llama.cpp's `llama-tts` with a Qwen3-TTS GGUF — model and optional reference voice (cloning), language, a test phrase with playback, and a "narrate replies" mode that speaks each finished answer.
 - A `delete_file` tool moves files to the OS trash (recycle bin) — never a hard delete — for the assistant and the agent, inside the same jail and File system roots; folders and protected paths are refused.
@@ -15,6 +16,7 @@
 
 ### Changed
 
+- Narration is pipelined: sentences are synthesized while the reply is still streaming, so the voice starts right after the text ends instead of after a full model load.
 - While the assistant is generating, a fast bright arc orbits the avatar; opening the pill moves the orbit around the whole pill. Idle, loading, and failed runs do not glow.
 - After a quiet spell the idle overlay dozes off, with little z's drifting up from the avatar.
 - The overlay drags by the pill body too (not just the avatar), and clicking the empty pill body collapses it.
@@ -22,7 +24,7 @@
 - The Model downloads card leads with a generic description and names Qwen3-TTS 0.6B as a subsection, ready for more model families later.
 - The overlay remembers where it was dragged and restores that position on the next run, clamped into the monitor work area.
 - The local server no longer unloads by default: the idle-unload window starts at 0 (never), and the setting has its own Local server card in the Assistant Behavior tab.
-- The overlay button can be dragged anywhere to reposition it — a plain click still opens the input — and it dims while idle.
+- The overlay button can be dragged anywhere to reposition it — a plain click still opens the input — and its opacity slider (100% = fully opaque) replaces the fixed idle dim.
 - The Assistant Behavior tab gains the local server's "unload after N minutes" setting, shared with the Local server card.
 - Prompts retrieve the memory entries most relevant to the current message (the newest entries always survive) instead of truncating the file head, so assistant, roleplay, and agent memory can grow past the old 16 KiB fold.
 - The Profiles section moved from the Settings menu to the Debug section.
@@ -31,6 +33,7 @@
 
 ### Fixed
 
+- The idle overlay's z's come back after the pill is dragged or nudged; waking now re-arms the doze timer.
 - Overlay messages no longer show up doubled in the assistant chat: runs emit a completion event, and the chat page folds in runs it did not start instead of leaving a stale live bubble.
 - The overlay narrates replies through voice when narration is on, like the chat page does.
 - Dragging the open overlay no longer collapses the pill, and holding Enter can no longer send the same overlay message twice.
