@@ -234,6 +234,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::assistant_context_stats,
         chat::assistant_question_answer,
         chat::assistant_reset,
+        chat::assistant_forget,
         chat::assistant_decide,
         chat::roleplay_list_discussions,
         chat::roleplay_load_discussion,

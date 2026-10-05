@@ -279,8 +279,10 @@ export default function Overlay() {
       <div
         data-tauri-drag-region
         className={`flex items-center gap-2 rounded-full border border-border bg-surface-2/95 shadow-lg backdrop-blur transition-all ${
-          state === "idle" && !expanded ? "opacity-70 hover:opacity-100" : "opacity-100"
-        } ${expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"}`}
+          expanded || state === "working" ? "overlay-glow overlay-glow-on" : ""
+        } ${state === "idle" && !expanded ? "opacity-70 hover:opacity-100" : "opacity-100"} ${
+          expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"
+        }`}
       >
         <button
           className="relative w-11 h-11 rounded-full bg-surface-3 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer"

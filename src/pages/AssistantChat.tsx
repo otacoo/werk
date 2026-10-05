@@ -10,6 +10,7 @@ import {
   RefreshCw,
   RotateCcw,
   Scissors,
+  Skull,
   Sparkles,
   Square,
   Undo2,
@@ -69,6 +70,7 @@ const SLASH = [
   { name: "/distill", hint: "Save what it learned into memory, then start fresh" },
   { name: "/rewind", hint: "Drop the last exchange" },
   { name: "/new", hint: "Start a fresh conversation" },
+  { name: "/forget", hint: "Wipe every memory and start over (lobotomy)" },
   { name: "/help", hint: "List the assistant commands" },
 ];
 
@@ -449,6 +451,29 @@ export default function AssistantChat({
     }
   };
 
+  /// Full reset: conversation and every memory, behind a cheeky warning.
+  const forget = async () => {
+    if (streaming || starting) return;
+    if (
+      !window.confirm(
+        "Lobotomize the assistant?\n\nThis wipes every memory and the current conversation. " +
+          "It will forget you, your projects, and everything it has learned about you.\n\n" +
+          "There is no undo.",
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setPendingQuestion(null);
+    setQuestionDraft("");
+    try {
+      await call(commands.assistantForget());
+      setItems([{ kind: "sys", text: "Lobotomy complete — it has no idea who you are." }]);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const send = async () => {
     const text = input.trim();
     if (!text || streaming || starting) return;
@@ -478,6 +503,11 @@ export default function AssistantChat({
     if (text === "/new") {
       setInput("");
       await restart();
+      return;
+    }
+    if (text === "/forget") {
+      setInput("");
+      await forget();
       return;
     }
     if (!canSend) return;
@@ -734,6 +764,14 @@ export default function AssistantChat({
             title="Start a fresh conversation (also /new)"
           >
             <RotateCcw size={11} />
+          </button>
+          <button
+            className="btn-ghost py-1 px-2 text-[0.625rem] hover:!text-accent-red"
+            onClick={forget}
+            disabled={streaming || starting}
+            title="Wipe every memory and start over — a full lobotomy (also /forget)"
+          >
+            <Skull size={11} />
           </button>
         </div>
       </div>

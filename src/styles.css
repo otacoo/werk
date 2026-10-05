@@ -225,3 +225,54 @@ textarea::placeholder {
     color: #f48771;
   }
 
+/* ── Overlay activity glow ──
+   While the assistant works (or the pill is open), a slow bright arc orbits
+   the border — the NERV/Future card trick, tuned slower and more noticeable.
+   Outside @layer components so it beats the pill's shadow-lg utility. */
+.overlay-glow {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.overlay-glow::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 160%;
+  aspect-ratio: 1 / 1;
+  z-index: -2;
+  background: conic-gradient(
+    rgb(var(--accent) / 0.15),
+    rgb(var(--accent) / 0.95),
+    rgb(var(--accent) / 0.15)
+  );
+  opacity: 0;
+  will-change: transform;
+  transition: opacity 500ms ease;
+}
+.overlay-glow.overlay-glow-on::before {
+  opacity: 1;
+  animation: overlay-glow-orbit 8s linear infinite;
+}
+@keyframes overlay-glow-orbit {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+.overlay-glow::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: rgb(var(--surface-2));
+  pointer-events: none;
+}
+.overlay-glow.overlay-glow-on {
+  box-shadow: 0 0 22px rgb(var(--accent) / 0.35);
+}
+

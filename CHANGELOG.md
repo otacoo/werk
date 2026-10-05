@@ -5,6 +5,7 @@
 ### Added
 
 - The Voice tab has a Model downloads card with quantization tags and live progress for the suggested Qwen3-TTS 0.6B quants (Q8_0, Q6_K, Q4_K_M); one click downloads the model plus its mmproj and pairs them.
+- A skull button (and `/forget`) wipes every assistant memory and the conversation behind a warning about lobotomizing it; `/new` now truly starts fresh.
 - The overlay shows a greyed-out microphone button next to Send as a placeholder for voice input.
 - Assistant Voice tab: local text-to-speech through llama.cpp's `llama-tts` with a Qwen3-TTS GGUF — model and optional reference voice (cloning), language, a test phrase with playback, and a "narrate replies" mode that speaks each finished answer.
 - A `delete_file` tool moves files to the OS trash (recycle bin) — never a hard delete — for the assistant and the agent, inside the same jail and File system roots; folders and protected paths are refused.
@@ -14,6 +15,8 @@
 
 ### Changed
 
+- While the assistant is working (or the overlay pill is open), a slow, bright arc orbits the pill's border.
+- The Model downloads card leads with a generic description and names Qwen3-TTS 0.6B as a subsection, ready for more model families later.
 - The overlay remembers where it was dragged and restores that position on the next run, clamped into the monitor work area.
 - The local server no longer unloads by default: the idle-unload window starts at 0 (never), and the setting has its own Local server card in the Assistant Behavior tab.
 - The overlay button can be dragged anywhere to reposition it — a plain click still opens the input — and it dims while idle.
@@ -25,6 +28,7 @@
 
 ### Fixed
 
+- Starting a new assistant conversation archives the old transcript instead of leaving it on disk, where it was restored on the next visit and made `/new` look broken.
 - A CUDA failure inside llama-tts retries synthesis on the CPU instead of surfacing the abort.
 - The Voice tab takes the TTS audio projector (mmproj) that ships with the Qwen3-TTS GGUF, and llama-tts failures report the real error message and exit code instead of progress output.
 - The overlay window is created with the app again and only shown or hidden; building it on demand blocked the main thread at startup and timed out every dashboard command.

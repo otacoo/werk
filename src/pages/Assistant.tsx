@@ -1097,11 +1097,16 @@ function VoiceDownloadsCard({
       <div>
         <h2 className="section-title mb-0">Model downloads</h2>
         <p className="section-desc">
-          Qwen3-TTS 0.6B quants; each download also fetches the{" "}
-          <span className="font-mono">{TTS_MMPROJ}</span> projector ({TTS_MMPROJ_SIZE}).
+          Download local voice models; each one fetches everything it needs to run.
         </p>
       </div>
       <div className="space-y-2.5">
+        <div>
+          <p className="text-xs font-medium text-ink">Qwen3-TTS 0.6B</p>
+          <p className="text-[0.6875rem] text-dim">
+            Text-to-speech; each download also fetches the audio projector ({TTS_MMPROJ_SIZE}).
+          </p>
+        </div>
         {TTS_SUGGESTED.map((s) => {
           const inUse =
             activeModel === s.file ||

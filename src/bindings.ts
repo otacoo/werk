@@ -65,6 +65,8 @@ export const commands = {
 	assistantQuestionAnswer: (answer: string) => typedError<null, string>(__TAURI_INVOKE("assistant_question_answer", { answer })),
 	/**  Clear the assistant thread (a fresh conversation). */
 	assistantReset: () => typedError<null, string>(__TAURI_INVOKE("assistant_reset")),
+	/**  Wipe the assistant's memory and current conversation — a full lobotomy. */
+	assistantForget: () => typedError<null, string>(__TAURI_INVOKE("assistant_forget")),
 	/**  Resolve the assistant's parked approval request. */
 	assistantDecide: (grant: string | null) => typedError<null, string>(__TAURI_INVOKE("assistant_decide", { grant })),
 	/**  Every saved discussion for the active character, newest first. */

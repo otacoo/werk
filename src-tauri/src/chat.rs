@@ -2697,6 +2697,51 @@ pub async fn assistant_reset(app: AppHandle, state: State<'_, AppState>) -> Resu
         .await;
     }
     reset_runtime(&state.assistant);
+    // The transcript must go too, or assistant_history restores it on the
+    // next mount and the "new" conversation is the old one again.
+    archive_assistant_transcript();
+    Ok(())
+}
+
+/// Move the assistant's current transcript aside so a reset starts clean.
+fn archive_assistant_transcript() {
+    let Some(path) = transcript_path("current", RunMode::Assistant) else {
+        return;
+    };
+    if !path.is_file() {
+        return;
+    }
+    if let Some(dir) = path.parent().map(|p| p.join("archive")) {
+        if std::fs::create_dir_all(&dir).is_ok() {
+            let base = format!("s{}", now_secs());
+            let mut target = dir.join(format!("{base}.json"));
+            let mut n = 2;
+            while target.exists() {
+                target = dir.join(format!("{base}-{n}.json"));
+                n += 1;
+            }
+            if std::fs::rename(&path, &target).is_ok() {
+                return;
+            }
+        }
+    }
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Wipe the assistant's memory and current conversation — a full lobotomy.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_forget(state: State<'_, AppState>) -> Result<(), String> {
+    if state.assistant.running.load(Ordering::SeqCst) {
+        return Err("Stop the running assistant first".to_string());
+    }
+    reset_runtime(&state.assistant);
+    archive_assistant_transcript();
+    if let Some(path) = crate::assistant::memory_path() {
+        if path.is_file() {
+            std::fs::remove_file(&path).map_err(|e| format!("Cannot clear memory: {e}"))?;
+        }
+    }
     Ok(())
 }
 
