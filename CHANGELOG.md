@@ -10,6 +10,7 @@
 
 - Overlay: dragging it more than half off-screen pops a sweat drop and eases the pill back into view; while recording it shows live mic levels and a "Listening…" placeholder, and the dictation hotkey (default `Ctrl+Alt+D`) starts and stops it.
 - Voice input: a language picker forces the transcription language (auto-detect when empty), a take ends after ~3.5 s of silence and transcribes itself, and the summon/dictation hotkeys are set by pressing the combo (Set/Clear buttons).
+- The Assistant Overlay card has an Appearance section (opacity, "Disable animations" for the z's and sweat drop), and turning voice input off removes the microphone from the pill entirely.
 
 ### Fixed
 

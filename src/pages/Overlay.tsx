@@ -5,7 +5,7 @@ import { ArrowUp, Droplets, Mic, RefreshCw, Sparkles, Square } from "lucide-reac
 import { commands } from "../bindings";
 import { call } from "../utils/ipc";
 import { loadAppearance } from "../utils/appearance";
-import { getOverlayOpacity } from "../utils/overlayPrefs";
+import { getOverlayAnimations, getOverlayOpacity } from "../utils/overlayPrefs";
 import { VoiceRecorder } from "../utils/recorder";
 import { SpeechQueue } from "../utils/speechQueue";
 
@@ -28,6 +28,8 @@ export default function Overlay() {
   const [sleeping, setSleeping] = useState(false);
   /// User-chosen pill opacity (appearance preference).
   const [opacity, setOpacity] = useState(getOverlayOpacity);
+  /// Decorative motion: sleeping z's and the sweat drop.
+  const [animations, setAnimations] = useState(getOverlayAnimations);
   const stateRef = useRef(state);
   stateRef.current = state;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +51,7 @@ export default function Overlay() {
   const speech = useRef(new SpeechQueue());
   const narrate = useRef(false);
   /// Voice input: dictation through the configured Qwen3-ASR model.
+  const [sttEnabled, setSttEnabled] = useState(false);
   const [micReady, setMicReady] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -157,6 +160,7 @@ export default function Overlay() {
     const unlisten = listen("appearance_changed", () => {
       loadAppearance();
       setOpacity(getOverlayOpacity());
+      setAnimations(getOverlayAnimations());
     });
     return () => {
       unlisten.then((f) => f());
@@ -279,7 +283,11 @@ export default function Overlay() {
   /// Voice input is ready when the Voice tab has an STT model enabled.
   const refreshMic = () => {
     call(commands.getConfig())
-      .then((c) => setMicReady(!!(c.assistant?.stt_enabled && c.assistant?.stt_model)))
+      .then((c) => {
+        const enabled = !!c.assistant?.stt_enabled;
+        setSttEnabled(enabled);
+        setMicReady(enabled && !!c.assistant?.stt_model);
+      })
       .catch(() => {});
   };
 
@@ -566,14 +574,14 @@ export default function Overlay() {
             </span>
           )}
         </button>
-        {sleeping && !expanded && (
+        {sleeping && !expanded && animations && (
           <span className="overlay-zzz" aria-hidden>
             <span>z</span>
             <span>z</span>
             <span>z</span>
           </span>
         )}
-        {sweat && (
+        {sweat && animations && (
           <span className="overlay-sweat" aria-hidden>
             <Droplets size={12} />
           </span>
@@ -610,41 +618,43 @@ export default function Overlay() {
                 ))}
               </span>
             )}
-            <button
-              className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-                recording
-                  ? "bg-accent-red text-white animate-pulse"
-                  : micReady
-                    ? "bg-surface-3 text-ink hover:bg-accent/20"
-                    : "bg-surface-3 text-faint opacity-40 cursor-not-allowed"
-              }`}
-              disabled={!micReady || transcribing}
-              onPointerDown={() => {
-                // Keep the input's blur from collapsing the pill mid-press.
-                pillPress.current = true;
-              }}
-              onPointerUp={() => {
-                pillPress.current = false;
-              }}
-              onClick={() => void toggleDictation()}
-              title={
-                !micReady
-                  ? "Set up voice input on the Assistant Voice tab"
-                  : transcribing
-                    ? "Transcribing…"
-                    : recording
-                      ? "Stop and transcribe"
-                      : "Dictate"
-              }
-            >
-              {transcribing ? (
-                <RefreshCw size={13} className="animate-spin" />
-              ) : recording ? (
-                <Square size={13} />
-              ) : (
-                <Mic size={13} />
-              )}
-            </button>
+            {sttEnabled && (
+              <button
+                className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                  recording
+                    ? "bg-accent-red text-white animate-pulse"
+                    : micReady
+                      ? "bg-surface-3 text-ink hover:bg-accent/20"
+                      : "bg-surface-3 text-faint opacity-40 cursor-not-allowed"
+                }`}
+                disabled={!micReady || transcribing}
+                onPointerDown={() => {
+                  // Keep the input's blur from collapsing the pill mid-press.
+                  pillPress.current = true;
+                }}
+                onPointerUp={() => {
+                  pillPress.current = false;
+                }}
+                onClick={() => void toggleDictation()}
+                title={
+                  !micReady
+                    ? "Set up voice input on the Assistant Voice tab"
+                    : transcribing
+                      ? "Transcribing…"
+                      : recording
+                        ? "Stop and transcribe"
+                        : "Dictate"
+                }
+              >
+                {transcribing ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : recording ? (
+                  <Square size={13} />
+                ) : (
+                  <Mic size={13} />
+                )}
+              </button>
+            )}
             <button
               className="btn-primary shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
               onClick={() => void send()}

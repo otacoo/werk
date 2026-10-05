@@ -7,7 +7,13 @@ import { commands } from "../bindings";
 import type { AssistantConfig, MemoryFileDto, Reminder } from "../bindings";
 import { call } from "../utils/ipc";
 import { subscribeConfigChanged } from "../utils/appSettings";
-import { getOverlayOpacity, OVERLAY_OPACITY_MIN, setOverlayOpacity } from "../utils/overlayPrefs";
+import {
+  getOverlayAnimations,
+  getOverlayOpacity,
+  OVERLAY_OPACITY_MIN,
+  setOverlayAnimations,
+  setOverlayOpacity,
+} from "../utils/overlayPrefs";
 import { VoiceRecorder } from "../utils/recorder";
 import Toggle from "../components/Toggle";
 import ProfileAvatar from "../components/ProfileAvatar";
@@ -1758,6 +1764,7 @@ function OverlayCard() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [opacity, setOpacity] = useState(getOverlayOpacity);
+  const [animations, setAnimations] = useState(getOverlayAnimations);
 
   const load = () => {
     call(commands.getConfig())
@@ -1820,26 +1827,38 @@ function OverlayCard() {
         disabled={!overlay.enabled}
         onChange={(v) => apply({ ...overlay, hotkey: v })}
       />
-      <label className="block">
-        <span className="text-[0.6875rem] text-dim">Opacity</span>
-        <div className="flex items-center gap-2 mt-1">
-          <input
-            type="range"
-            min={OVERLAY_OPACITY_MIN}
-            max={100}
-            step={5}
-            value={opacity}
-            disabled={!overlay.enabled}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              setOpacity(v);
-              setOverlayOpacity(v);
-            }}
-            className="flex-1 accent-accent"
-          />
-          <span className="text-xs font-mono text-ink w-10 text-right">{opacity}%</span>
-        </div>
-      </label>
+      <div className="space-y-3 border-t border-border pt-3">
+        <p className="text-xs font-medium text-ink">Appearance</p>
+        <label className="block">
+          <span className="text-[0.6875rem] text-dim">Opacity</span>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="range"
+              min={OVERLAY_OPACITY_MIN}
+              max={100}
+              step={5}
+              value={opacity}
+              disabled={!overlay.enabled}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setOpacity(v);
+                setOverlayOpacity(v);
+              }}
+              className="flex-1 accent-accent"
+            />
+            <span className="text-xs font-mono text-ink w-10 text-right">{opacity}%</span>
+          </div>
+        </label>
+        <Toggle
+          label="Disable animations"
+          hint="Assistant won't emote."
+          checked={!animations}
+          onChange={(v) => {
+            setAnimations(!v);
+            setOverlayAnimations(!v);
+          }}
+        />
+      </div>
       <div className="flex items-center gap-2">
         <button
           className="btn-secondary text-xs py-1 px-2"
