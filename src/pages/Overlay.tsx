@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { ArrowUp, Sparkles } from "lucide-react";
@@ -21,6 +21,47 @@ export default function Overlay() {
   const inputRef = useRef<HTMLInputElement>(null);
   const expandedRef = useRef(false);
   const sentTimer = useRef<number | null>(null);
+  /// Click opens; a press that moves past the threshold drags the window.
+  const dragging = useRef(false);
+  const pressAt = useRef<{ x: number; y: number } | null>(null);
+
+  const onPressDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    dragging.current = false;
+    pressAt.current = { x: e.screenX, y: e.screenY };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onPressMove = async (e: ReactPointerEvent<HTMLButtonElement>) => {
+    const from = pressAt.current;
+    if (!from || dragging.current) return;
+    if (Math.hypot(e.screenX - from.x, e.screenY - from.y) < 4) return;
+    dragging.current = true;
+    pressAt.current = null;
+    try {
+      await getCurrentWindow().startDragging();
+    } catch {
+      // Best effort; a plain click still opens the input.
+    }
+  };
+
+  const onPressUp = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    pressAt.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Capture may already be gone after an OS drag.
+    }
+  };
+
+  const onPressClick = () => {
+    if (dragging.current) {
+      dragging.current = false;
+      return;
+    }
+    if (expanded) void collapse();
+    else void expand();
+  };
 
   // Transparent page: the pill owns all visible pixels. The theme is applied
   // here too: the overlay renders outside App, which normally loads it.
@@ -199,13 +240,17 @@ export default function Overlay() {
       <div
         data-tauri-drag-region
         className={`flex items-center gap-2 rounded-full border border-border bg-surface-2/95 shadow-lg backdrop-blur transition-all ${
-          expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"
-        }`}
+          state === "idle" && !expanded ? "opacity-70 hover:opacity-100" : "opacity-100"
+        } ${expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"}`}
       >
         <button
-          className="relative w-11 h-11 rounded-full bg-surface-3 flex items-center justify-center shrink-0 overflow-hidden"
-          onClick={() => (expanded ? void collapse() : void expand())}
-          title={expanded ? "Collapse" : "Ask the assistant"}
+          className="relative w-11 h-11 rounded-full bg-surface-3 flex items-center justify-center shrink-0 overflow-hidden cursor-grab active:cursor-grabbing"
+          onPointerDown={onPressDown}
+          onPointerMove={(e) => void onPressMove(e)}
+          onPointerUp={onPressUp}
+          onPointerCancel={onPressUp}
+          onClick={onPressClick}
+          title={expanded ? "Collapse" : "Ask the assistant (drag to move)"}
         >
           <span className={`absolute inset-0 rounded-full opacity-30 ${dot}`} />
           {avatar ? (

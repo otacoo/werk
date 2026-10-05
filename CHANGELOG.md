@@ -11,6 +11,7 @@
 
 ### Changed
 
+- The overlay button can be dragged anywhere to reposition it — a plain click still opens the input — and it dims while idle.
 - The Assistant Behavior tab gains the local server's "unload after N minutes" setting, shared with the Local server card.
 - Prompts retrieve the memory entries most relevant to the current message (the newest entries always survive) instead of truncating the file head, so assistant, roleplay, and agent memory can grow past the old 16 KiB fold.
 - The Profiles section moved from the Settings menu to the Debug section.

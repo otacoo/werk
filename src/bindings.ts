@@ -9,10 +9,7 @@ export const commands = {
 	/**  Crate version for the About surface. */
 	appVersion: () => __TAURI_INVOKE<string>("app_version"),
 	getConfig: () => typedError<AppConfig_Serialize, string>(__TAURI_INVOKE("get_config")),
-	/**
-	 *  Show or fully tear down the assistant overlay (the frontend owns profile
-	 *  awareness). Destroying frees the WebView; it is rebuilt on demand.
-	 */
+	/**  Show or hide the assistant overlay (the frontend owns profile awareness). */
 	setOverlayVisible: (visible: boolean) => typedError<null, string>(__TAURI_INVOKE("set_overlay_visible", { visible })),
 	/**
 	 *  The overlay's work area; None outside Windows (the frontend falls back to
