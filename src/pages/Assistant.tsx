@@ -636,7 +636,7 @@ function SystemControlCard() {
           <div className="w-full space-y-3 border border-border rounded px-3 py-2">
           <Toggle
             label="File tools"
-            hint="Read, write, edit, find, and search in the folders from the File system card."
+            hint="Read, write, edit, find, search, and trash files in the folders from the File system card."
             checked={access.files}
             onChange={(v) => apply({ ...access, files: v })}
           />
@@ -741,7 +741,7 @@ function BuiltInToolsCard() {
   );
 }
 
-/// Where the assistant may read and write; everything else is barred.
+/// Where the assistant may read, write, and trash files; everything else is barred.
 function FileSystemCard() {
   const [fs, setFs] = useState<{
     workspace: string | null;
@@ -813,8 +813,8 @@ function FileSystemCard() {
       <div>
         <h2 className="section-title mb-0">File system</h2>
         <p className="section-desc">
-          Where the assistant may read and write. Everything outside these locations is completely
-          blocked.
+          Where the assistant may read, write, and trash files. Everything outside these
+          locations is completely blocked.
         </p>
       </div>
       <Toggle
@@ -875,7 +875,7 @@ function FileSystemCard() {
             </button>
           </div>
         ))}
-        <p className="text-[0.625rem] text-faint">Read and write access for the assistant.</p>
+        <p className="text-[0.625rem] text-faint">Read, write, and trash access for the assistant.</p>
       </div>
       {error && <p className="text-xs text-accent-red">{error}</p>}
     </div>

@@ -173,6 +173,47 @@ impl Tool for WriteFileTool {
     }
 }
 
+// ── delete_file ──────────────────────────────────────────────────────────
+
+/// Move a file to the OS trash (recycle bin); never a hard delete.
+pub struct DeleteFileTool {
+    jail: Arc<PathJail>,
+}
+
+impl Tool for DeleteFileTool {
+    fn name(&self) -> String {
+        "delete_file".to_string()
+    }
+    fn description(&self) -> String {
+        "Move a file to the trash (recycle bin) so it stays recoverable. Files only, not \
+         folders."
+            .to_string()
+    }
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string" }
+            },
+            "required": ["path"]
+        })
+    }
+    fn approval_key(&self, _args: &Value) -> Option<ApprovalKey> {
+        Some(ApprovalKey { tool: self.name(), command: None })
+    }
+    fn execute(&self, args: &Value) -> Result<String> {
+        let path = self.jail.check_write(&str_arg(args, "path")?)?;
+        if !path.exists() {
+            bail!("No such file: {}", path.display());
+        }
+        if !path.is_file() {
+            bail!("Only files can be trashed (not folders): {}", path.display());
+        }
+        trash::delete(&path).map_err(|e| anyhow::anyhow!("Cannot move to the trash: {e}"))?;
+        Ok(format!("Moved to the trash: {}", path.display()))
+    }
+}
+
 // ── edit_file ─────────────────────────────────────────────────────────────
 
 pub struct EditFileTool {
@@ -1188,6 +1229,7 @@ impl ToolRegistry {
                 Arc::new(ReadFileTool { jail: jail.clone() }),
                 Arc::new(WriteFileTool { jail: jail.clone(), lsp: None }),
                 Arc::new(EditFileTool { jail: jail.clone(), lsp: None }),
+                Arc::new(DeleteFileTool { jail: jail.clone() }),
                 Arc::new(FindFilesTool { jail: jail.clone() }),
                 Arc::new(SearchContentTool { jail: jail.clone() }),
                 Arc::new(ExecTool { jail: jail.clone() }),
@@ -1334,6 +1376,7 @@ impl ToolRegistry {
             BuiltinToolInfo { name: "read_file", summary: "Read file contents.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "write_file", summary: "Create or overwrite files.", approval: "approval", note: "" },
             BuiltinToolInfo { name: "edit_file", summary: "Exact-match search/replace edits.", approval: "approval", note: "" },
+        BuiltinToolInfo { name: "delete_file", summary: "Move files to the trash.", approval: "approval", note: "" },
             BuiltinToolInfo { name: "find_files", summary: "Glob file search.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "search_content", summary: "Regex content search.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "exec", summary: "Shell commands; read-only runs free.", approval: "conditional", note: "" },
@@ -1454,6 +1497,25 @@ mod tests {
         assert!(out.contains("Wrote 5 bytes"));
         let out = reg.get("read_file").unwrap().execute(&json!({"path": "docs/a.txt"})).unwrap();
         assert_eq!(out, "hello");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn delete_moves_files_to_the_trash() {
+        let root = temp_dir("delete");
+        let reg = registry_for(&root);
+        std::fs::write(root.join("gone.txt"), "x").unwrap();
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        let tool = reg.get("delete_file").unwrap();
+        assert!(tool.approval_key(&json!({})).is_some());
+        let out = tool.execute(&json!({"path": "gone.txt"})).unwrap();
+        assert!(out.contains("trash"), "{out}");
+        assert!(!root.join("gone.txt").exists());
+        // Folders and missing files are rejected.
+        assert!(tool.execute(&json!({"path": "sub"})).is_err());
+        assert!(tool.execute(&json!({"path": "nope.txt"})).is_err());
+        // Escapes are rejected by the jail.
+        assert!(tool.execute(&json!({"path": "../evil.txt"})).is_err());
         std::fs::remove_dir_all(&root).unwrap();
     }
 

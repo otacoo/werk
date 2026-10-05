@@ -9,6 +9,8 @@ description = "Werk agent harness core: loop, tools, permissions, compaction"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Files are trashed, never hard-deleted, so deletions stay recoverable.
+trash = "5"
 # Pinned exact with src-tauri; Type derives only (no Tauri dependency).
 specta = "=2.0.0-rc.25"
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls", "blocking"], default-features = false }

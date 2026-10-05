@@ -1676,6 +1676,7 @@ async fn agent_send_impl(
                                     "read_file",
                                     "write_file",
                                     "edit_file",
+                                    "delete_file",
                                     "find_files",
                                     "search_content",
                                 ],
