@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Voice playback works in installed builds: the content-security policy now allows `data:`/`blob:` audio, which the packaged webview had blocked with `NotSupportedError`.
+
 ## [0.8.0] - 2026-10-05
 
 ### Added
