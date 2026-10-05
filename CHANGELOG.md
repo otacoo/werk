@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-05
+
 ### Added
 
 - The Voice tab has a Model downloads card with quantization tags and live progress for the suggested Qwen3-TTS 0.6B quants (Q8_0, Q6_K, Q4_K_M); one click downloads the model plus its mmproj and pairs them.

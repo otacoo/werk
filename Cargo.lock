@@ -1644,7 +1644,7 @@ dependencies = [
 
 [[package]]
 name = "export-bindings"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "specta-typescript",
  "werk",
@@ -2259,7 +2259,7 @@ dependencies = [
 
 [[package]]
 name = "harness"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -6727,7 +6727,7 @@ checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 
 [[package]]
 name = "werk"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "accessibility",
  "anyhow",
