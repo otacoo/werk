@@ -12,7 +12,7 @@
 
 ### Changed
 
-- The local server's idle-unload setting has its own Local server card in the Assistant Behavior tab, shared with the Agent profile's card.
+- The local server no longer unloads by default: the idle-unload window starts at 0 (never), and the setting has its own Local server card in the Assistant Behavior tab.
 - The overlay button can be dragged anywhere to reposition it — a plain click still opens the input — and it dims while idle.
 - The Assistant Behavior tab gains the local server's "unload after N minutes" setting, shared with the Local server card.
 - Prompts retrieve the memory entries most relevant to the current message (the newest entries always survive) instead of truncating the file head, so assistant, roleplay, and agent memory can grow past the old 16 KiB fold.
@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- The Voice tab takes the TTS audio projector (mmproj) that ships with the Qwen3-TTS GGUF, and llama-tts failures report the real error message and exit code instead of progress output.
 - The overlay window is created with the app again and only shown or hidden; building it on demand blocked the main thread at startup and timed out every dashboard command.
 - Sending from the overlay starts the local server first, like the Chat composer, instead of failing when it is stopped.
 - Absolute tool paths resolve symlinks in their existing ancestors, so macOS `/var` spellings land inside the jail and symlinked escapes are rejected.

@@ -361,6 +361,7 @@ pub async fn set_assistant_fs(
 pub async fn set_assistant_voice(
     tts_enabled: bool,
     tts_model: Option<String>,
+    tts_mmproj: Option<String>,
     tts_speaker: Option<String>,
     tts_lang: String,
     tts_autoplay: bool,
@@ -369,6 +370,9 @@ pub async fn set_assistant_voice(
     let mut cfg = state.config.lock().unwrap();
     cfg.assistant.tts_enabled = tts_enabled;
     cfg.assistant.tts_model = tts_model
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty());
+    cfg.assistant.tts_mmproj = tts_mmproj
         .map(|m| m.trim().to_string())
         .filter(|m| !m.is_empty());
     cfg.assistant.tts_speaker = tts_speaker

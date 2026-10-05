@@ -147,7 +147,7 @@ export const commands = {
 	/**  The temp workspace path, for the File system card. */
 	assistantTempDir: () => typedError<string, string>(__TAURI_INVOKE("assistant_temp_dir")),
 	/**  Save the assistant's voice settings (TTS via llama-tts). */
-	setAssistantVoice: (ttsEnabled: boolean, ttsModel: string | null, ttsSpeaker: string | null, ttsLang: string, ttsAutoplay: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_voice", { ttsEnabled, ttsModel, ttsSpeaker, ttsLang, ttsAutoplay })),
+	setAssistantVoice: (ttsEnabled: boolean, ttsModel: string | null, ttsMmproj: string | null, ttsSpeaker: string | null, ttsLang: string, ttsAutoplay: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_voice", { ttsEnabled, ttsModel, ttsMmproj, ttsSpeaker, ttsLang, ttsAutoplay })),
 	/**  Speak `text` with the configured voice; returns the WAV path and bytes. */
 	assistantTtsSpeak: (text: string) => typedError<TtsResult, string>(__TAURI_INVOKE("assistant_tts_speak", { text })),
 	/**  Import (or clear) the assistant's profile image. */
@@ -577,6 +577,8 @@ export type AssistantConfig_Deserialize = {
 	tts_enabled?: boolean,
 	/**  GGUF path for the TTS model. */
 	tts_model?: string | null,
+	/**  Audio projector (mmproj) that ships with the TTS GGUF. */
+	tts_mmproj?: string | null,
 	/**  Reference voice audio for Qwen3-TTS cloning (wav or mp3). */
 	tts_speaker?: string | null,
 	/**  Qwen3-TTS language code (en, de, es, fr, it, pt, ru, zh, ja, ko). */
@@ -642,6 +644,8 @@ export type AssistantConfig_Serialize = {
 	tts_enabled: boolean,
 	/**  GGUF path for the TTS model. */
 	tts_model?: string | null,
+	/**  Audio projector (mmproj) that ships with the TTS GGUF. */
+	tts_mmproj?: string | null,
 	/**  Reference voice audio for Qwen3-TTS cloning (wav or mp3). */
 	tts_speaker?: string | null,
 	/**  Qwen3-TTS language code (en, de, es, fr, it, pt, ru, zh, ja, ko). */

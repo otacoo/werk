@@ -989,7 +989,7 @@ function LocalServerCard() {
 
   useEffect(() => {
     call(commands.getConfig())
-      .then((c) => setIdleDraft(String(c.server_idle_unload_minutes ?? 5)))
+      .then((c) => setIdleDraft(String(c.server_idle_unload_minutes ?? 0)))
       .catch(() => {});
   }, []);
 
@@ -1032,6 +1032,7 @@ function VoiceCard() {
   const [voice, setVoice] = useState<{
     enabled: boolean;
     model: string;
+    mmproj: string;
     speaker: string;
     lang: string;
     autoplay: boolean;
@@ -1047,6 +1048,7 @@ function VoiceCard() {
         setVoice({
           enabled: c.assistant?.tts_enabled ?? false,
           model: c.assistant?.tts_model ?? "",
+          mmproj: c.assistant?.tts_mmproj ?? "",
           speaker: c.assistant?.tts_speaker ?? "",
           lang: c.assistant?.tts_lang ?? "en",
           autoplay: c.assistant?.tts_autoplay ?? false,
@@ -1064,6 +1066,7 @@ function VoiceCard() {
         commands.setAssistantVoice(
           next.enabled,
           next.model || null,
+          next.mmproj || null,
           next.speaker || null,
           next.lang,
           next.autoplay,
@@ -1075,16 +1078,17 @@ function VoiceCard() {
     }
   };
 
-  const browse = async (kind: "model" | "speaker") => {
+  const browse = async (kind: "model" | "mmproj" | "speaker") => {
     if (!voice) return;
     const picked = await openDialog({
       multiple: false,
       directory: false,
-      title: kind === "model" ? "Pick a Qwen3-TTS GGUF" : "Pick a reference voice",
+      title:
+        kind === "speaker" ? "Pick a reference voice" : "Pick a GGUF file",
       filters:
-        kind === "model"
-          ? [{ name: "GGUF", extensions: ["gguf"] }]
-          : [{ name: "Audio", extensions: ["wav", "mp3", "flac", "ogg", "m4a"] }],
+        kind === "speaker"
+          ? [{ name: "Audio", extensions: ["wav", "mp3", "flac", "ogg", "m4a"] }]
+          : [{ name: "GGUF", extensions: ["gguf"] }],
     }).catch(() => null);
     if (typeof picked === "string" && picked) {
       await apply({ ...voice, [kind]: picked });
@@ -1137,6 +1141,27 @@ function VoiceCard() {
                 <button
                   className="btn-secondary text-xs py-1 px-2"
                   onClick={() => void browse("model")}
+                  title="Browse"
+                >
+                  <FolderOpen size={12} />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <span className="text-[0.6875rem] text-dim">
+                Audio projector (mmproj, ships with the TTS GGUF)
+              </span>
+              <div className="flex items-center gap-2">
+                <input
+                  className="input flex-1 min-w-0 font-mono text-xs"
+                  placeholder="…/mmproj-Qwen3-TTS-….gguf"
+                  value={voice.mmproj}
+                  onChange={(e) => setVoice({ ...voice, mmproj: e.target.value })}
+                  onBlur={() => apply(voice)}
+                />
+                <button
+                  className="btn-secondary text-xs py-1 px-2"
+                  onClick={() => void browse("mmproj")}
                   title="Browse"
                 >
                   <FolderOpen size={12} />

@@ -56,6 +56,15 @@ pub async fn synthesize(state: &crate::AppState, text: &str) -> Result<TtsResult
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped());
+    if let Some(mmproj) = app_config
+        .assistant
+        .tts_mmproj
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        cmd.arg("-mm").arg(mmproj);
+    }
     if let Some(speaker) = app_config
         .assistant
         .tts_speaker
@@ -70,22 +79,55 @@ pub async fn synthesize(state: &crate::AppState, text: &str) -> Result<TtsResult
         .map_err(|_| "llama-tts timed out".to_string())?
         .map_err(|e| format!("Cannot run llama-tts: {e}"))?;
     if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        let tail: String = err
-            .chars()
-            .rev()
-            .take(400)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        return Err(format!("llama-tts failed: {}", tail.trim()));
+        return Err(format!(
+            "llama-tts exited with {}: {}",
+            output.status,
+            tts_error_tail(&output.stderr)
+        ));
     }
     let bytes = std::fs::read(&out).map_err(|e| format!("llama-tts produced no audio: {e}"))?;
     Ok(TtsResult {
         path: out.to_string_lossy().to_string(),
         audio: crate::roleplay::encode_base64(&bytes),
     })
+}
+
+/// llama-tts streams a progress meter on stderr; surface real errors first,
+/// otherwise the last few meaningful lines.
+fn tts_error_tail(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let lines: Vec<&str> = text
+        .split(['\r', '\n'])
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let is_error = |l: &str| {
+        let lower = l.to_lowercase();
+        [
+            "error",
+            "failed",
+            "unknown",
+            "invalid",
+            "not found",
+            "cannot",
+            "unable",
+            "requires",
+        ]
+        .iter()
+        .any(|k| lower.contains(k))
+    };
+    let errors: Vec<&str> = lines.iter().rev().filter(|l| is_error(l)).take(3).copied().collect();
+    let picked: Vec<&str> = if errors.is_empty() {
+        lines.iter().rev().take(5).copied().collect()
+    } else {
+        errors
+    };
+    let tail = picked.into_iter().rev().collect::<Vec<_>>().join(" | ");
+    if tail.is_empty() {
+        "no output".to_string()
+    } else {
+        tail
+    }
 }
 
 /// Speak `text` with the configured voice; returns the WAV path and bytes.

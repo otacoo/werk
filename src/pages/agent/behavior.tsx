@@ -82,8 +82,8 @@ export function ServerLifecycleCard({ appConfig, refresh }: {
   refresh: () => Promise<void>;
 }) {
   const [flash, setFlash] = useState<string | null>(null);
-  const [idleDraft, setIdleDraft] = useState("5");
-  const idle = appConfig?.server_idle_unload_minutes ?? 5;
+  const [idleDraft, setIdleDraft] = useState("0");
+  const idle = appConfig?.server_idle_unload_minutes ?? 0;
 
   useEffect(() => setIdleDraft(String(idle)), [idle]);
 

@@ -299,6 +299,9 @@ pub struct AssistantConfig {
     /// GGUF path for the TTS model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tts_model: Option<String>,
+    /// Audio projector (mmproj) that ships with the TTS GGUF.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_mmproj: Option<String>,
     /// Reference voice audio for Qwen3-TTS cloning (wav or mp3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tts_speaker: Option<String>,
@@ -370,6 +373,7 @@ impl Default for AssistantConfig {
             reflection_last: 0,
             tts_enabled: false,
             tts_model: None,
+            tts_mmproj: None,
             tts_speaker: None,
             tts_lang: default_tts_lang(),
             tts_autoplay: false,
@@ -543,7 +547,7 @@ fn default_true() -> bool {
 }
 
 fn default_idle_unload() -> u32 {
-    5
+    0
 }
 
 fn default_tts_lang() -> String {
