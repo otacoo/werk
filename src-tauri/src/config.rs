@@ -311,6 +311,15 @@ pub struct AssistantConfig {
     /// Speak every assistant reply as soon as it finishes.
     #[serde(default)]
     pub tts_autoplay: bool,
+    /// Dictate to the assistant with the overlay microphone (Qwen3-ASR).
+    #[serde(default)]
+    pub stt_enabled: bool,
+    /// GGUF path for the speech-to-text model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stt_model: Option<String>,
+    /// Audio projector (mmproj) that ships with the STT GGUF.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stt_mmproj: Option<String>,
     /// Start werk with the OS session (minimized to the tray).
     #[serde(default)]
     pub autostart: bool,
@@ -377,6 +386,9 @@ impl Default for AssistantConfig {
             tts_speaker: None,
             tts_lang: default_tts_lang(),
             tts_autoplay: false,
+            stt_enabled: false,
+            stt_model: None,
+            stt_mmproj: None,
             autostart: false,
             hotkey: default_assistant_hotkey(),
             overlay_enabled: true,

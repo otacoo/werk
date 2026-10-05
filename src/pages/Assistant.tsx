@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
-import { AlertTriangle, Download, FolderOpen, ImagePlus, Play, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, Download, FolderOpen, ImagePlus, Mic, Play, RefreshCw, Square, X } from "lucide-react";
 import { commands } from "../bindings";
 import type { AssistantConfig, MemoryFileDto, Reminder } from "../bindings";
 import { call } from "../utils/ipc";
 import { subscribeConfigChanged } from "../utils/appSettings";
 import { getOverlayOpacity, OVERLAY_OPACITY_MIN, setOverlayOpacity } from "../utils/overlayPrefs";
+import { VoiceRecorder } from "../utils/recorder";
 import Toggle from "../components/Toggle";
 import ProfileAvatar from "../components/ProfileAvatar";
 import { EFFORT_LABELS } from "./chat/external-controls";
@@ -1039,19 +1040,29 @@ const TTS_SUGGESTED: { file: string; quant: string; size: string }[] = [
   { file: "Qwen3-TTS-12Hz-0.6B-Base.Q4_K_M.gguf", quant: "Q4_K_M", size: "361 MB" },
 ];
 
-/// Suggested Qwen3-TTS quants with live download progress. Installing a quant
-/// also fetches the matching mmproj and points the voice config at both.
+/// Speech-to-text via llama.cpp's llama-mtmd-cli (Qwen3-ASR).
+const ASR_REPO = "ggml-org/Qwen3-ASR-0.6B-GGUF";
+const ASR_MODEL = "Qwen3-ASR-0.6B-Q8_0.gguf";
+const ASR_MMPROJ = "mmproj-Qwen3-ASR-0.6B-Q8_0.gguf";
+const ASR_SIZE = "805 MB + 214 MB";
+
+/// Suggested voice models with live download progress. Installing a quant
+/// also fetches the matching mmproj and points the config at both.
 function VoiceDownloadsCard({
   activeModel,
   onInstalled,
+  activeSttModel,
+  onSttInstalled,
 }: {
   activeModel: string;
   onInstalled: (model: string, mmproj: string) => Promise<void>;
+  activeSttModel: string;
+  onSttInstalled: (model: string, mmproj: string) => Promise<void>;
 }) {
   const [progress, setProgress] = useState<
     Record<string, { downloaded: number; total: number | null }>
   >({});
-  const [installing, setInstalling] = useState<string | null>(null);
+  const [installing, setInstalling] = useState<{ model: string; mmproj: string } | null>(null);
   const [phase, setPhase] = useState<"model" | "mmproj">("model");
   const [error, setError] = useState<string | null>(null);
 
@@ -1071,15 +1082,20 @@ function VoiceDownloadsCard({
     };
   }, []);
 
-  const install = async (file: string) => {
-    setInstalling(file);
+  const install = async (
+    repo: string,
+    modelFile: string,
+    mmprojFile: string,
+    onDone: (model: string, mmproj: string) => Promise<void>,
+  ) => {
+    setInstalling({ model: modelFile, mmproj: mmprojFile });
     setPhase("model");
     setError(null);
     try {
-      const modelPath = await call(commands.downloadModel(TTS_REPO, file, null, null));
+      const modelPath = await call(commands.downloadModel(repo, modelFile, null, null));
       setPhase("mmproj");
-      const mmprojPath = await call(commands.downloadModel(TTS_REPO, TTS_MMPROJ, null, null));
-      await onInstalled(modelPath, mmprojPath);
+      const mmprojPath = await call(commands.downloadModel(repo, mmprojFile, null, null));
+      await onDone(modelPath, mmprojPath);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1091,6 +1107,51 @@ function VoiceDownloadsCard({
     const p = progress[file];
     if (!p || !p.total) return null;
     return Math.min(100, (p.downloaded / p.total) * 100);
+  };
+
+  const row = (
+    repo: string,
+    modelFile: string,
+    mmprojFile: string,
+    tag: string,
+    size: string,
+    active: string,
+    onDone: (model: string, mmproj: string) => Promise<void>,
+  ) => {
+    const inUse =
+      active === modelFile || active.endsWith(`/${modelFile}`) || active.endsWith(`\\${modelFile}`);
+    const busy = installing?.model === modelFile;
+    const bar = busy ? (phase === "model" ? pct(modelFile) : pct(mmprojFile)) : null;
+    const label = busy ? (phase === "model" ? "Model" : "Audio projector") : tag;
+    return (
+      <div key={modelFile} className="space-y-1">
+        <div className="flex items-center gap-2">
+          <span className="badge-blue text-[0.5625rem] shrink-0">{label}</span>
+          <span className="text-[0.6875rem] text-dim flex-1 min-w-0 truncate">{size}</span>
+          {inUse ? (
+            <span className="badge-green text-[0.5625rem] shrink-0">in use</span>
+          ) : (
+            <button
+              className="btn-secondary text-xs py-0.5 px-2 shrink-0"
+              disabled={installing !== null}
+              onClick={() => void install(repo, modelFile, mmprojFile, onDone)}
+              title={modelFile}
+            >
+              {busy ? <RefreshCw size={11} className="animate-spin" /> : <Download size={11} />}
+              {busy ? "Downloading…" : "Download"}
+            </button>
+          )}
+        </div>
+        {bar !== null && (
+          <div className="h-1 rounded-full bg-surface-3 overflow-hidden">
+            <div
+              className="h-full bg-accent transition-[width] duration-150"
+              style={{ width: `${bar}%` }}
+            />
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -1108,54 +1169,16 @@ function VoiceDownloadsCard({
             Text-to-speech; each download also fetches the audio projector ({TTS_MMPROJ_SIZE}).
           </p>
         </div>
-        {TTS_SUGGESTED.map((s) => {
-          const inUse =
-            activeModel === s.file ||
-            activeModel.endsWith(`/${s.file}`) ||
-            activeModel.endsWith(`\\${s.file}`);
-          const busy = installing === s.file;
-          const bar = busy ? (phase === "model" ? pct(s.file) : pct(TTS_MMPROJ)) : null;
-          const label = busy
-            ? phase === "model"
-              ? "Model"
-              : "Audio projector"
-            : s.quant;
-          return (
-            <div key={s.file} className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="badge-blue text-[0.5625rem] shrink-0">{label}</span>
-                <span className="text-[0.6875rem] text-dim flex-1 min-w-0 truncate">
-                  {s.size}
-                </span>
-                {inUse ? (
-                  <span className="badge-green text-[0.5625rem] shrink-0">in use</span>
-                ) : (
-                  <button
-                    className="btn-secondary text-xs py-0.5 px-2 shrink-0"
-                    disabled={installing !== null}
-                    onClick={() => void install(s.file)}
-                    title={s.file}
-                  >
-                    {busy ? (
-                      <RefreshCw size={11} className="animate-spin" />
-                    ) : (
-                      <Download size={11} />
-                    )}
-                    {busy ? "Downloading…" : "Download"}
-                  </button>
-                )}
-              </div>
-              {bar !== null && (
-                <div className="h-1 rounded-full bg-surface-3 overflow-hidden">
-                  <div
-                    className="h-full bg-accent transition-[width] duration-150"
-                    style={{ width: `${bar}%` }}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {TTS_SUGGESTED.map((s) =>
+          row(TTS_REPO, s.file, TTS_MMPROJ, s.quant, s.size, activeModel, onInstalled),
+        )}
+        <div className="border-t border-border pt-2.5">
+          <p className="text-xs font-medium text-ink">Qwen3-ASR 0.6B</p>
+          <p className="text-[0.6875rem] text-dim">
+            Speech-to-text for the overlay microphone; also fetches the audio projector ({ASR_SIZE}).
+          </p>
+        </div>
+        {row(ASR_REPO, ASR_MODEL, ASR_MMPROJ, "Q8_0", ASR_SIZE, activeSttModel, onSttInstalled)}
       </div>
       {error && <p className="text-xs text-accent-red">{error}</p>}
     </div>
@@ -1171,14 +1194,23 @@ function VoiceCard() {
     lang: string;
     autoplay: boolean;
   } | null>(null);
+  const [stt, setStt] = useState<{
+    enabled: boolean;
+    model: string;
+    mmproj: string;
+  } | null>(null);
   const [testText, setTestText] = useState("Hello! This is my assistant voice.");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastPath, setLastPath] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const [sttError, setSttError] = useState<string | null>(null);
+  const recorder = useRef(new VoiceRecorder());
 
   const load = () => {
     call(commands.getConfig())
-      .then((c) =>
+      .then((c) => {
         setVoice({
           enabled: c.assistant?.tts_enabled ?? false,
           model: c.assistant?.tts_model ?? "",
@@ -1186,11 +1218,66 @@ function VoiceCard() {
           speaker: c.assistant?.tts_speaker ?? "",
           lang: c.assistant?.tts_lang ?? "en",
           autoplay: c.assistant?.tts_autoplay ?? false,
-        }),
-      )
+        });
+        setStt({
+          enabled: c.assistant?.stt_enabled ?? false,
+          model: c.assistant?.stt_model ?? "",
+          mmproj: c.assistant?.stt_mmproj ?? "",
+        });
+      })
       .catch(() => {});
   };
   useEffect(load, []);
+
+  const applyStt = async (next: NonNullable<typeof stt>) => {
+    setStt(next);
+    setSttError(null);
+    try {
+      await call(commands.setAssistantStt(next.enabled, next.model || null, next.mmproj || null));
+    } catch (e) {
+      setSttError(String(e));
+      load();
+    }
+  };
+
+  const browseStt = async (kind: "model" | "mmproj") => {
+    if (!stt) return;
+    const picked = await openDialog({
+      multiple: false,
+      directory: false,
+      title: "Pick a GGUF file",
+      filters: [{ name: "GGUF", extensions: ["gguf"] }],
+    }).catch(() => null);
+    if (typeof picked === "string" && picked) {
+      await applyStt({ ...stt, [kind]: picked });
+    }
+  };
+
+  /// Record from the mic, transcribe, and show the text.
+  const toggleRecording = async () => {
+    setSttError(null);
+    if (recording) {
+      setRecording(false);
+      setBusy(true);
+      try {
+        const audio = await recorder.current.stop();
+        if (!audio) return;
+        const res = await call(commands.assistantSttTranscribe(audio));
+        setTranscript(res.text || "(nothing heard)");
+      } catch (e) {
+        setSttError(String(e));
+      } finally {
+        setBusy(false);
+      }
+    } else {
+      try {
+        await recorder.current.start();
+        setRecording(true);
+      } catch (e) {
+        setSttError(`Microphone unavailable: ${e}`);
+      }
+    }
+  };
 
   const apply = async (next: NonNullable<typeof voice>) => {
     setVoice(next);
@@ -1243,10 +1330,10 @@ function VoiceCard() {
     }
   };
 
-  /// Fetch a suggested quant plus its mmproj and point the config at both.
-  if (!voice) return null;
+  if (!voice || !stt) return null;
   return (
     <div className="grid grid-cols-2 gap-4 items-start">
+      <div className="space-y-4">
       <div className="card space-y-3">
         <div>
           <h2 className="section-title mb-0">Voice</h2>
@@ -1348,6 +1435,87 @@ function VoiceCard() {
         )}
         {error && <p className="text-xs text-accent-red">{error}</p>}
       </div>
+      <div className="card space-y-3">
+        <div>
+          <h2 className="section-title mb-0">Voice input</h2>
+          <p className="section-desc">
+            Dictate with the overlay microphone; Qwen3-ASR transcribes locally.
+          </p>
+        </div>
+        <Toggle
+          label="Enable voice input"
+          hint="Shows a microphone in the overlay pill."
+          checked={stt.enabled}
+          onChange={(v) => applyStt({ ...stt, enabled: v })}
+        />
+        {stt.enabled && (
+          <>
+            <div className="space-y-1">
+              <span className="text-[0.6875rem] text-dim">STT model (GGUF)</span>
+              <div className="flex items-center gap-2">
+                <input
+                  className="input flex-1 min-w-0 font-mono text-xs"
+                  placeholder="…/Qwen3-ASR-0.6B-Q8_0.gguf"
+                  value={stt.model}
+                  onChange={(e) => setStt({ ...stt, model: e.target.value })}
+                  onBlur={() => applyStt(stt)}
+                />
+                <button
+                  className="btn-secondary text-xs py-1 px-2"
+                  onClick={() => void browseStt("model")}
+                  title="Browse"
+                >
+                  <FolderOpen size={12} />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <span className="text-[0.6875rem] text-dim">
+                Audio projector (mmproj, ships with the STT GGUF)
+              </span>
+              <div className="flex items-center gap-2">
+                <input
+                  className="input flex-1 min-w-0 font-mono text-xs"
+                  placeholder="…/mmproj-Qwen3-ASR-….gguf"
+                  value={stt.mmproj}
+                  onChange={(e) => setStt({ ...stt, mmproj: e.target.value })}
+                  onBlur={() => applyStt(stt)}
+                />
+                <button
+                  className="btn-secondary text-xs py-1 px-2"
+                  onClick={() => void browseStt("mmproj")}
+                  title="Browse"
+                >
+                  <FolderOpen size={12} />
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                className={`${recording ? "btn-danger" : "btn-secondary"} text-xs py-1 px-2 shrink-0`}
+                disabled={busy}
+                onClick={() => void toggleRecording()}
+              >
+                {busy ? (
+                  <RefreshCw size={12} className="animate-spin" />
+                ) : recording ? (
+                  <Square size={12} />
+                ) : (
+                  <Mic size={12} />
+                )}
+                {busy ? "Transcribing…" : recording ? "Stop & transcribe" : "Record test"}
+              </button>
+              {transcript && (
+                <span className="text-xs text-dim flex-1 min-w-0 truncate" title={transcript}>
+                  {transcript}
+                </span>
+              )}
+            </div>
+            {sttError && <p className="text-xs text-accent-red">{sttError}</p>}
+          </>
+        )}
+      </div>
+      </div>
       <div className="space-y-4">
         {voice.enabled && (
           <div className="card space-y-3">
@@ -1379,6 +1547,8 @@ function VoiceCard() {
         <VoiceDownloadsCard
           activeModel={voice.model}
           onInstalled={(model, mmproj) => apply({ ...voice, enabled: true, model, mmproj })}
+          activeSttModel={stt.model}
+          onSttInstalled={(model, mmproj) => applyStt({ ...stt, enabled: true, model, mmproj })}
         />
       </div>
     </div>

@@ -150,8 +150,12 @@ export const commands = {
 	assistantTempDir: () => typedError<string, string>(__TAURI_INVOKE("assistant_temp_dir")),
 	/**  Save the assistant's voice settings (TTS via llama-tts). */
 	setAssistantVoice: (ttsEnabled: boolean, ttsModel: string | null, ttsMmproj: string | null, ttsSpeaker: string | null, ttsLang: string, ttsAutoplay: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_voice", { ttsEnabled, ttsModel, ttsMmproj, ttsSpeaker, ttsLang, ttsAutoplay })),
+	/**  Voice input: the overlay microphone and its Qwen3-ASR model files. */
+	setAssistantStt: (sttEnabled: boolean, sttModel: string | null, sttMmproj: string | null) => typedError<null, string>(__TAURI_INVOKE("set_assistant_stt", { sttEnabled, sttModel, sttMmproj })),
 	/**  Speak `text` with the configured voice; returns the WAV path and bytes. */
 	assistantTtsSpeak: (text: string) => typedError<TtsResult, string>(__TAURI_INVOKE("assistant_tts_speak", { text })),
+	/**  Transcribe a base64 WAV (16 kHz mono PCM16) recorded in the webview. */
+	assistantSttTranscribe: (audio: string) => typedError<SttResult_Serialize, string>(__TAURI_INVOKE("assistant_stt_transcribe", { audio })),
 	/**  Import (or clear) the assistant's profile image. */
 	assistantSetAvatar: (path: string | null) => typedError<null, string>(__TAURI_INVOKE("assistant_set_avatar", { path })),
 	/**  The assistant's avatar as a data URL, when one is set. */
@@ -587,6 +591,12 @@ export type AssistantConfig_Deserialize = {
 	tts_lang?: string,
 	/**  Speak every assistant reply as soon as it finishes. */
 	tts_autoplay?: boolean,
+	/**  Dictate to the assistant with the overlay microphone (Qwen3-ASR). */
+	stt_enabled?: boolean,
+	/**  GGUF path for the speech-to-text model. */
+	stt_model?: string | null,
+	/**  Audio projector (mmproj) that ships with the STT GGUF. */
+	stt_mmproj?: string | null,
 	/**  Start werk with the OS session (minimized to the tray). */
 	autostart?: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
@@ -654,6 +664,12 @@ export type AssistantConfig_Serialize = {
 	tts_lang: string,
 	/**  Speak every assistant reply as soon as it finishes. */
 	tts_autoplay: boolean,
+	/**  Dictate to the assistant with the overlay microphone (Qwen3-ASR). */
+	stt_enabled: boolean,
+	/**  GGUF path for the speech-to-text model. */
+	stt_model?: string | null,
+	/**  Audio projector (mmproj) that ships with the STT GGUF. */
+	stt_mmproj?: string | null,
 	/**  Start werk with the OS session (minimized to the tray). */
 	autostart: boolean,
 	/**  Global hotkey that summons the overlay; empty disables it. */
@@ -1684,6 +1700,21 @@ export type SkillDto = {
 	description: string,
 	scope: string,
 	dir: string,
+};
+
+/**  Transcription result: the text plus the model's detected language. */
+export type SttResult = SttResult_Serialize | SttResult_Deserialize;
+
+/**  Transcription result: the text plus the model's detected language. */
+export type SttResult_Deserialize = {
+	text: string,
+	language?: string | null,
+};
+
+/**  Transcription result: the text plus the model's detected language. */
+export type SttResult_Serialize = {
+	text: string,
+	language?: string | null,
 };
 
 /**  Suggested launch knobs; the estimator always picks an explicit context. */

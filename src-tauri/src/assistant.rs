@@ -383,6 +383,26 @@ pub async fn set_assistant_voice(
     cfg.save().map_err(|e| e.to_string())
 }
 
+/// Voice input: the overlay microphone and its Qwen3-ASR model files.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_assistant_stt(
+    stt_enabled: bool,
+    stt_model: Option<String>,
+    stt_mmproj: Option<String>,
+    state: State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let mut cfg = state.config.lock().unwrap();
+    cfg.assistant.stt_enabled = stt_enabled;
+    cfg.assistant.stt_model = stt_model
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty());
+    cfg.assistant.stt_mmproj = stt_mmproj
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty());
+    cfg.save().map_err(|e| e.to_string())
+}
+
 /// The temp workspace path, for the File system card.
 #[tauri::command]
 #[specta::specta]

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
-import { ArrowUp, Mic, Sparkles } from "lucide-react";
+import { ArrowUp, Mic, RefreshCw, Sparkles, Square } from "lucide-react";
 import { commands } from "../bindings";
 import { call } from "../utils/ipc";
 import { loadAppearance } from "../utils/appearance";
 import { getOverlayOpacity } from "../utils/overlayPrefs";
+import { VoiceRecorder } from "../utils/recorder";
 import { SpeechQueue } from "../utils/speechQueue";
 
 const COLLAPSED = 84;
@@ -47,6 +48,11 @@ export default function Overlay() {
   const reply = useRef("");
   const speech = useRef(new SpeechQueue());
   const narrate = useRef(false);
+  /// Voice input: dictation through the configured Qwen3-ASR model.
+  const [micReady, setMicReady] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const recorder = useRef(new VoiceRecorder());
 
   const beginPress = (e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
@@ -218,7 +224,45 @@ export default function Overlay() {
     call(commands.assistantAvatar())
       .then(setAvatar)
       .catch(() => {});
+    refreshMic();
   }, []);
+
+  /// Voice input is ready when the Voice tab has an STT model enabled.
+  const refreshMic = () => {
+    call(commands.getConfig())
+      .then((c) => setMicReady(!!(c.assistant?.stt_enabled && c.assistant?.stt_model)))
+      .catch(() => {});
+  };
+
+  const toggleDictation = async () => {
+    if (transcribing) return;
+    setError(null);
+    if (recording) {
+      setRecording(false);
+      setTranscribing(true);
+      try {
+        const audio = await recorder.current.stop();
+        if (audio) {
+          const res = await call(commands.assistantSttTranscribe(audio));
+          if (res.text) {
+            setInput((prev) => (prev ? `${prev} ${res.text}` : res.text));
+            inputRef.current?.focus();
+          }
+        }
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setTranscribing(false);
+      }
+    } else {
+      try {
+        await recorder.current.start();
+        setRecording(true);
+      } catch (e) {
+        setError(`Microphone unavailable: ${e}`);
+      }
+    }
+  };
 
   // Remember where the pill was dragged to (debounced; moves are frequent).
   useEffect(() => {
@@ -241,6 +285,7 @@ export default function Overlay() {
       inputRef.current?.focus();
       return;
     }
+    refreshMic();
     expandedRef.current = true;
     setExpanded(true);
     await anchor(EXPANDED_W, EXPANDED_H);
@@ -255,6 +300,9 @@ export default function Overlay() {
     setExpanded(false);
     setInput("");
     setError(null);
+    // A recording without a pill has nowhere to land: stop and drop it.
+    if (recorder.current.active) void recorder.current.stop();
+    setRecording(false);
     await anchor(COLLAPSED, COLLAPSED);
   };
 
@@ -308,6 +356,7 @@ export default function Overlay() {
   useEffect(() => {
     const unlisten = listen("assistant_focus", () => {
       void expand();
+      refreshMic();
       call(commands.assistantAvatar())
         .then(setAvatar)
         .catch(() => {});
@@ -444,11 +493,39 @@ export default function Overlay() {
               }}
             />
             <button
-              className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-surface-3 text-faint opacity-40 cursor-not-allowed"
-              disabled
-              title="Voice input — coming soon (hotkey TBD)"
+              className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                recording
+                  ? "bg-accent-red text-white animate-pulse"
+                  : micReady
+                    ? "bg-surface-3 text-ink hover:bg-accent/20"
+                    : "bg-surface-3 text-faint opacity-40 cursor-not-allowed"
+              }`}
+              disabled={!micReady || transcribing}
+              onPointerDown={() => {
+                // Keep the input's blur from collapsing the pill mid-press.
+                pillPress.current = true;
+              }}
+              onPointerUp={() => {
+                pillPress.current = false;
+              }}
+              onClick={() => void toggleDictation()}
+              title={
+                !micReady
+                  ? "Set up voice input on the Assistant Voice tab"
+                  : transcribing
+                    ? "Transcribing…"
+                    : recording
+                      ? "Stop and transcribe"
+                      : "Dictate"
+              }
             >
-              <Mic size={13} />
+              {transcribing ? (
+                <RefreshCw size={13} className="animate-spin" />
+              ) : recording ? (
+                <Square size={13} />
+              ) : (
+                <Mic size={13} />
+              )}
             </button>
             <button
               className="btn-primary shrink-0 w-8 h-8 rounded-full flex items-center justify-center"

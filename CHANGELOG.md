@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Voice input: local speech-to-text with Qwen3-ASR 0.6B — one-click download and model pickers in the Voice tab, and the overlay microphone dictates into the pill (record, transcribe, fill the input).
+
 ## [0.8.1] - 2026-10-05
 
 ### Fixed

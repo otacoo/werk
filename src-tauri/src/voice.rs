@@ -54,7 +54,7 @@ pub async fn synthesize(state: &crate::AppState, text: &str) -> Result<TtsResult
 
     // GPU first; a CUDA failure (some TTS graphs hit it) retries on the CPU.
     let first = run_tts(&exe, &model, mmproj, speaker, lang, text, &out, 999).await?;
-    let output = if first.status.success() || !tts_is_cuda_error(&first.stderr) {
+    let output = if first.status.success() || !is_cuda_error(&first.stderr) {
         first
     } else {
         let _ = std::fs::remove_file(&out);
@@ -115,8 +115,8 @@ async fn run_tts(
         .map_err(|e| format!("Cannot run llama-tts: {e}"))
 }
 
-/// A CUDA abort inside llama-tts: retry on the CPU instead of surfacing it.
-fn tts_is_cuda_error(stderr: &[u8]) -> bool {
+/// A CUDA abort inside a llama.cpp tool: retry on the CPU instead.
+pub(crate) fn is_cuda_error(stderr: &[u8]) -> bool {
     let lower = String::from_utf8_lossy(stderr).to_lowercase();
     lower.contains("cuda error") || lower.contains("ggml-cuda")
 }
