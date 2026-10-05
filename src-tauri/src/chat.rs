@@ -2267,6 +2267,7 @@ async fn agent_send_impl(
                     serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
                 );
             }
+            let _ = app.emit(event_name, serde_json::json!({"type": "done"}));
             return Err(e.to_string());
         }
     };
@@ -2321,6 +2322,9 @@ async fn agent_send_impl(
             );
         }
     }
+    // Tell every surface the run ended, so pages that did not start it (the
+    // overlay, reminders) can fold the live stream into the transcript.
+    let _ = app.emit(event_name, serde_json::json!({"type": "done"}));
     Ok(RunResult {
         text: outcome.text,
         model,

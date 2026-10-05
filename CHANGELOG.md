@@ -30,6 +30,9 @@
 
 ### Fixed
 
+- Overlay messages no longer show up doubled in the assistant chat: runs emit a completion event, and the chat page folds in runs it did not start instead of leaving a stale live bubble.
+- The overlay narrates replies through voice when narration is on, like the chat page does.
+- Dragging the open overlay no longer collapses the pill, and holding Enter can no longer send the same overlay message twice.
 - Starting a new assistant conversation archives the old transcript instead of leaving it on disk, where it was restored on the next visit and made `/new` look broken.
 - A CUDA failure inside llama-tts retries synthesis on the CPU instead of surfacing the abort.
 - The Voice tab takes the TTS audio projector (mmproj) that ships with the Qwen3-TTS GGUF, and llama-tts failures report the real error message and exit code instead of progress output.

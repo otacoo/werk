@@ -330,6 +330,20 @@ export default function AssistantChat({
             setRunStatus("loading");
           }
           break;
+        case "done":
+          // A run this page did not start (overlay, reminder): drop the live
+          // bubble and restore the transcript, or the reply would show twice.
+          if (!streamingRef.current) {
+            accRef.current = "";
+            reasoningAccRef.current = "";
+            setStreamText(null);
+            setReasoningText(null);
+            setReasoningOpen(false);
+            setReasoningLive(false);
+            setRunStatus(null);
+            void restore();
+          }
+          break;
         default:
           break;
       }

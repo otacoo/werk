@@ -29,9 +29,14 @@ export default function Overlay() {
   const wasExpanded = useRef(false);
   /// A press on the pill body: keep the input's blur from collapsing it.
   const pillPress = useRef(false);
+  /// A send is in flight: key repeat must not fire it twice.
+  const sending = useRef(false);
 
   const beginPress = (e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
+    // A press anywhere on a handle must keep the input's blur from collapsing
+    // the pill while the user is dragging (avatar or pill body).
+    pillPress.current = true;
     dragging.current = false;
     wasExpanded.current = expandedRef.current;
     pressAt.current = { x: e.screenX, y: e.screenY };
@@ -45,7 +50,6 @@ export default function Overlay() {
   /// The pill body drags too; controls keep their own behavior.
   const onPillDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest("input, button, textarea, select, a")) return;
-    pillPress.current = true;
     beginPress(e);
   };
 
@@ -264,17 +268,28 @@ export default function Overlay() {
 
   const send = async () => {
     const text = input.trim();
-    if (!text || state === "working") return;
+    if (!text || sending.current) return;
+    sending.current = true;
     setError(null);
     setState("working");
     setInput("");
     try {
       // The local server may be stopped; start it like the Chat composer does.
       await call(commands.ensureServer());
-      await call(commands.assistantSend(text, null, null));
+      const res = await call(commands.assistantSend(text, null, null));
       setState("sent");
       if (sentTimer.current) window.clearTimeout(sentTimer.current);
       sentTimer.current = window.setTimeout(() => setState("idle"), 2500);
+      // Narrate when voice narration is on; failures stay silent.
+      call(commands.getConfig())
+        .then((c) => {
+          if (c.assistant?.tts_enabled && c.assistant?.tts_autoplay && res.text) {
+            return call(commands.assistantTtsSpeak(res.text)).then((r) =>
+              new Audio(`data:audio/wav;base64,${r.audio}`).play(),
+            );
+          }
+        })
+        .catch(() => {});
     } catch (e) {
       const msg = String(e);
       if (!msg.includes("aborted")) {
@@ -285,6 +300,8 @@ export default function Overlay() {
       } else {
         setState("idle");
       }
+    } finally {
+      sending.current = false;
     }
   };
 
