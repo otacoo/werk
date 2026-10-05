@@ -399,6 +399,13 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // WebKitGTK's DMA-BUF renderer fails to produce a first paint on many
+    // Linux GPU stacks (Fedora 43, Wayland/NVIDIA: black or frozen windows).
+    // Disable it unless the user opted back in, before GTK/WebKit initialize.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     let mut config = match config::AppConfig::load() {
         Ok(c) => c,
         Err(e) => {

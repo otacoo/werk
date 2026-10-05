@@ -50,6 +50,14 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "linux": {
+      "rpm": {
+        "depends": ["gstreamer1-plugins-base", "gstreamer1-plugins-good"]
+      },
+      "deb": {
+        "depends": ["gstreamer1.0-plugins-base", "gstreamer1.0-plugins-good"]
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
