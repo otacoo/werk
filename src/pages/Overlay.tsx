@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { ArrowUp, Droplets, Mic, Paperclip, RefreshCw, Sparkles, Square } from "lucide-react";
 import { commands } from "../bindings";
 import { call } from "../utils/ipc";
 import { loadAppearance } from "../utils/appearance";
 import { getOverlayAnimations, getOverlayOpacity } from "../utils/overlayPrefs";
-import { VoiceRecorder } from "../utils/recorder";
+import { bytesToBase64, VoiceRecorder } from "../utils/recorder";
 import { SpeechQueue } from "../utils/speechQueue";
 
 const COLLAPSED = 84;
@@ -22,7 +21,8 @@ const POS_KEY = "werk.overlay.pos";
 type OverlayAttachment = {
   name: string;
   kind: "image" | "text";
-  path: string;
+  /// Set for dialog-picked files; dropped files arrive as bytes instead.
+  path?: string;
   preview?: string;
   text?: string;
 };
@@ -509,27 +509,6 @@ export default function Overlay() {
     };
   }, []);
 
-  // OS file drops land on the webview; attach them and open the pill.
-  useEffect(() => {
-    const unlisten = getCurrentWebview().onDragDropEvent((event) => {
-      const p = event.payload;
-      if (p.type === "enter" || p.type === "over") {
-        setDropping(true);
-      } else if (p.type === "leave") {
-        setDropping(false);
-      } else if (p.type === "drop") {
-        setDropping(false);
-        // Attach in place: no expanding, the avatar gets a clip badge.
-        wake();
-        void attachPaths(p.paths);
-      }
-    });
-    return () => {
-      unlisten.then((f) => f());
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Grow the pill while working or speaking so the status label has room.
   useEffect(() => {
     if (expandedRef.current) return;
@@ -583,7 +562,7 @@ export default function Overlay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recording]);
 
-  /// Read picked/dropped paths into attachments (images get previews).
+  /// Read picked paths into attachments (images get previews).
   const attachPaths = async (paths: string[]) => {
     for (const path of paths) {
       try {
@@ -619,6 +598,44 @@ export default function Overlay() {
     }
   };
 
+  /// HTML5 drops: the overlay webview handles them (its native Tauri drop
+  /// target never accepts drops), so files arrive as File objects.
+  const attachDropped = async (files: File[]) => {
+    for (const file of files) {
+      try {
+        const name = file.name;
+        if (/\.(png|jpe?g|webp|gif|bmp)$/i.test(name)) {
+          if (file.size > 15 * 1024 * 1024) {
+            throw new Error(`${name} is larger than 15 MB`);
+          }
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          const ext = (name.split(".").pop() ?? "png").toLowerCase();
+          const mime =
+            ext === "jpg" || ext === "jpeg"
+              ? "image/jpeg"
+              : ext === "webp"
+                ? "image/webp"
+                : ext === "gif"
+                  ? "image/gif"
+                  : ext === "bmp"
+                    ? "image/bmp"
+                    : "image/png";
+          const b64 = bytesToBase64(bytes);
+          setAttachments((prev) => [
+            ...prev,
+            { name, kind: "image", preview: `data:${mime};base64,${b64}` },
+          ]);
+        } else {
+          const text = (await file.text()).slice(0, 200_000);
+          setAttachments((prev) => [...prev, { name, kind: "text", text }]);
+        }
+      } catch (e) {
+        setError(String(e));
+        if (!expandedRef.current) await expand();
+      }
+    }
+  };
+
   const attachFiles = async () => {
     const picked = await openDialog({ multiple: true, directory: false }).catch(() => null);
     const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
@@ -649,7 +666,7 @@ export default function Overlay() {
       const payload = attachments.map((a) => ({
         name: a.name,
         kind: a.kind,
-        path: a.path,
+        path: a.path ?? null,
         data_base64:
           a.kind === "image" && a.preview ? a.preview.split(",", 2)[1] ?? null : null,
         text: a.kind === "text" ? (a.text ?? "") : null,
@@ -700,10 +717,33 @@ export default function Overlay() {
         ? "Loading model…"
         : "Waking up…";
 
+  // HTML5 drag & drop on the window: highlight, then attach the dropped files.
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    setDropping(true);
+  };
+
+  const onDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget === e.target) setDropping(false);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDropping(false);
+    wake();
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length > 0) void attachDropped(files);
+  };
+
   return (
     <div
       className="h-screen w-screen flex items-end justify-end p-2 select-none"
       style={opacity < 100 ? { opacity: opacity / 100 } : undefined}
+      onDragEnter={onDragOver}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
     >
       <div
         className={`relative flex items-center gap-2 rounded-full border border-border bg-surface-2/95 shadow-lg transition-all max-w-full ${

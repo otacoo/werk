@@ -87,3 +87,13 @@ export async function playNotificationSound(kind: NotificationKind): Promise<voi
     await el.play();
   } catch {}
 }
+
+/// Play a sound regardless of the toggle and surface failures, for the
+/// Settings "Test" button (Linux audio issues are otherwise invisible).
+export async function testNotificationSound(kind: NotificationKind): Promise<void> {
+  const el = elementFor(kind);
+  el.muted = false;
+  el.volume = 0.8;
+  el.currentTime = 0;
+  await el.play();
+}

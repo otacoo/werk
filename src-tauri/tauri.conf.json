@@ -37,6 +37,7 @@
         "transparent": true,
         "backgroundColor": "#00000000",
         "shadow": false,
+        "dragDropEnabled": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "visible": false,

@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Info,
   Palette,
+  Play,
   RefreshCw,
   SlidersHorizontal,
   type LucideIcon,
@@ -21,7 +22,8 @@ import { useAppConfig } from "../utils/useAppConfig";
 import Toggle from "./Toggle";
 import { THEME_OPTIONS, ThemeIcon } from "./ThemeIcon";
 import { notifyConfigChanged } from "../utils/appSettings";
-import { playNotificationSound } from "../utils/sounds";
+import { playNotificationSound, testNotificationSound } from "../utils/sounds";
+import { getDevtools, setDevtools } from "../utils/debugPrefs";
 import {
   FONT_SIZES,
   accentPalette,
@@ -326,6 +328,61 @@ function UpdatesCard() {
 }
 
 
+/// Webview devtools: reopen on start while enabled, so users can inspect
+/// errors without a dev build.
+function DevtoolsCard() {
+  const [on, setOn] = useState(getDevtools);
+  const toggle = (v: boolean) => {
+    setOn(v);
+    setDevtools(v);
+    void call(commands.setDevtools(v)).catch(() => {});
+  };
+  return (
+    <div className="card">
+      <h2 className="section-title mb-1">Developer console</h2>
+      <p className="section-desc">
+        Open the webview devtools to inspect errors and network activity. It reopens on
+        start while enabled.
+      </p>
+      <div className="mt-3">
+        <Toggle label="Open devtools" checked={on} onChange={toggle} />
+      </div>
+    </div>
+  );
+}
+
+/// Play each notification sound and surface playback errors; some platform
+/// audio stacks fail silently otherwise.
+function SoundTestCard() {
+  const [error, setError] = useState<string | null>(null);
+  const rows: { key: "agent" | "permissions" | "errors"; label: string }[] = [
+    { key: "agent", label: "Agent" },
+    { key: "permissions", label: "Permissions" },
+    { key: "errors", label: "Errors" },
+  ];
+  return (
+    <div className="card">
+      <h2 className="section-title mb-1">Sound test</h2>
+      <p className="section-desc">Play each notification sound; playback errors appear here.</p>
+      <div className="flex items-center gap-2 mt-3">
+        {rows.map((r) => (
+          <button
+            key={r.key}
+            className="btn-secondary text-xs py-1 px-2"
+            onClick={() => {
+              setError(null);
+              testNotificationSound(r.key).catch((e) => setError(`${r.label}: ${e}`));
+            }}
+          >
+            <Play size={12} /> {r.label}
+          </button>
+        ))}
+      </div>
+      {error && <p className="text-xs text-accent-red mt-2 break-words">{error}</p>}
+    </div>
+  );
+}
+
 /// Enable/disable Mode profiles; disabled ones disappear everywhere.
 function ProfilesCard({
   appConfig,
@@ -569,6 +626,8 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange,
                 </button>
               </div>
               <ProfilesCard appConfig={appConfig} setAppConfig={setAppConfig} refresh={refreshConfig} />
+              <DevtoolsCard />
+              <SoundTestCard />
             </>
           )}
           {section === "about" && (

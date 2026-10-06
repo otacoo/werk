@@ -15,7 +15,7 @@ name = "werk"
 path = "src/main.rs"
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "devtools"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"

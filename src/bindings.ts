@@ -28,6 +28,8 @@ export const commands = {
 	 *  memory there.
 	 */
 	sessionKind: () => typedError<string, string>(__TAURI_INVOKE("session_kind")),
+	/**  Open or close the main window's webview devtools (Debug page toggle). */
+	setDevtools: (open: boolean) => typedError<null, string>(__TAURI_INVOKE("set_devtools", { open })),
 	/**  Send a message to the coding agent; streams over `harness_event`. */
 	harnessAgentSend: (message: string, reasoningEffort: string | null, attachments: SendAttachment_Deserialize[] | null) => typedError<RunResult_Serialize, string>(__TAURI_INVOKE("harness_agent_send", { message, reasoningEffort, attachments })),
 	/**  Stop the running agent loop. */

@@ -35,6 +35,7 @@ import SettingsPanel, { type SettingsSection } from "./components/SettingsPanel"
 import { commands } from "./bindings";
 import { call } from "./utils/ipc";
 import { loadAppearance, setAutoCorners } from "./utils/appearance";
+import { getDevtools } from "./utils/debugPrefs";
 import { getQuickBench, setQuickBench, subscribeQuickBench, subscribeConfigChanged, setProfileMirror, subscribeProfile } from "./utils/appSettings";
 import { startServerStatusPolling, subscribeServerStatus } from "./utils/serverStatus";
 
@@ -119,6 +120,11 @@ export default function App() {
 
   // The Mode page flips the profile through the in-memory mirror.
   useEffect(() => subscribeProfile((p) => setProfile(p as Profile)), []);
+
+  // Debug preference: keep the devtools open across starts while enabled.
+  useEffect(() => {
+    if (getDevtools()) void call(commands.setDevtools(true)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     loadAppearance();

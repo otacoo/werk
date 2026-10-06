@@ -4,6 +4,7 @@
 
 ### Added
 
+- The Debug page has a sound test (plays each notification sound and reports playback errors) and a devtools toggle that reopens the console on start while enabled.
 - Long runs checkpoint the transcript after every completed turn; if the app is killed mid-run, the assistant and agent chats offer Resume (continue from the last turn) or Dismiss.
 - Overlay attachments: a paperclip button or dropping files on the pill attaches them (chip feedback, drop highlight) and sends them with the message.
 - The reference voice is uploaded into app storage instead of linked, so moving the original can never break narration; Remove clears it.
@@ -18,6 +19,7 @@
 
 ### Fixed
 
+- Overlay file drops work: the overlay webview handles HTML5 drops directly (its native drop target only showed a forbidden cursor), attaching dropped files as bytes.
 - Closing the app no longer logs the WebView2 "Failed to unregister class Chrome_WidgetWin_0. Error = 1412" shutdown error (windows are destroyed before exit).
 - The overlay's saved position is restored on the monitor it was on, not the one the window happens to start on, and the pill can no longer overflow its window (the attachment chip shrinks; a failed attach opens the pill so the error is visible).
 - Overlay attachments: the chip shrinks and clips long filenames with the extension visible (no more pill overflow that pushed the avatar off-screen), the paperclip hides once a file is attached, and dropping onto the collapsed circle attaches with a clip badge instead of expanding.

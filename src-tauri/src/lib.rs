@@ -164,6 +164,22 @@ fn overlay_work_area(app: tauri::AppHandle, x: Option<i32>, y: Option<i32>) -> O
     }
 }
 
+/// Open or close the main window's webview devtools (Debug page toggle).
+#[tauri::command]
+#[specta::specta]
+fn set_devtools(app: tauri::AppHandle, open: bool) -> Result<(), String> {
+    use tauri::Manager;
+    let Some(win) = app.get_webview_window("main") else {
+        return Err("Main window is not available".to_string());
+    };
+    if open {
+        win.open_devtools();
+    } else {
+        win.close_devtools();
+    }
+    Ok(())
+}
+
 /// Session kind for platform quirks: Wayland forbids client-side window
 /// positioning, so the overlay disables bounds enforcement and position
 /// memory there.
@@ -289,6 +305,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         set_overlay_visible,
         overlay_work_area,
         session_kind,
+        set_devtools,
         chat::harness_agent_send,
         chat::harness_agent_abort,
         chat::harness_agent_steer,
