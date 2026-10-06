@@ -13,8 +13,8 @@ import { SpeechQueue } from "../utils/speechQueue";
 const COLLAPSED = 84;
 const EXPANDED_W = 404;
 const EXPANDED_H = 84;
-/// Wider pill while a run is starting/working, for the status label.
-const WORKING_W = 176;
+/// Wider pill while a run is starting/working, for the status label and stop.
+const WORKING_W = 210;
 
 /// One file attached to the next overlay message.
 type OverlayAttachment = {
@@ -561,6 +561,17 @@ export default function Overlay() {
   /// Stop narration playback (the stop button on the circle and pill).
   const stopSpeech = () => speech.current.abort();
 
+  /// Stop the in-flight run (ours or one started elsewhere).
+  const stopRun = () => {
+    void call(commands.assistantAbort()).catch(() => {});
+  };
+
+  /// Busy stop button: the run while it is thinking, the voice while speaking.
+  const stopBusy = () => {
+    if (stateRef.current === "working") stopRun();
+    else stopSpeech();
+  };
+
   /// Read picked paths into attachments (images get previews).
   const attachPaths = async (paths: string[]) => {
     for (const path of paths) {
@@ -787,18 +798,18 @@ export default function Overlay() {
           )}
         </button>
         {!expanded && busy && (
-          <span className="text-xs text-dim whitespace-nowrap pr-2" aria-live="polite">
+          <span className="text-xs text-dim truncate min-w-0 pr-1" aria-live="polite">
             {statusLabel}
           </span>
         )}
-        {!expanded && speaking && (
+        {!expanded && busy && (
           <button
             className="shrink-0 w-6 h-6 mr-1 rounded-full flex items-center justify-center bg-surface-3 text-ink hover:bg-accent/20 transition-colors"
             onClick={(e) => {
               e.stopPropagation();
-              stopSpeech();
+              stopBusy();
             }}
-            title="Stop speaking"
+            title={state === "working" ? "Stop" : "Stop speaking"}
           >
             <Square size={10} />
           </button>
@@ -939,29 +950,30 @@ export default function Overlay() {
                 )}
               </button>
             )}
-            {speaking && (
+            {busy ? (
               <button
-                className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-surface-3 text-ink hover:bg-accent/20 transition-colors"
+                className="btn-secondary shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
                 onPointerDown={() => {
                   pillPress.current = true;
                 }}
                 onPointerUp={() => {
                   pillPress.current = false;
                 }}
-                onClick={stopSpeech}
-                title="Stop speaking"
+                onClick={stopBusy}
+                title={state === "working" ? "Stop" : "Stop speaking"}
               >
                 <Square size={13} />
               </button>
+            ) : (
+              <button
+                className="btn-primary shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+                onClick={() => void send()}
+                disabled={!input.trim() && attachments.length === 0}
+                title="Send"
+              >
+                <ArrowUp size={13} />
+              </button>
             )}
-            <button
-              className="btn-primary shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
-              onClick={() => void send()}
-              disabled={!input.trim() || state === "working"}
-              title="Send"
-            >
-              <ArrowUp size={13} />
-            </button>
           </>
         )}
       </div>

@@ -101,6 +101,8 @@ export default function AssistantChat({
   const [runStatus, setRunStatus] = useState<"loading" | "thinking" | null>(null);
   /// The saved transcript ends mid-run; offer resume or dismiss.
   const [interrupted, setInterrupted] = useState(false);
+  /// A run started elsewhere (overlay, reminder) is streaming right now.
+  const [remoteRun, setRemoteRun] = useState(false);
   /// Hold-to-confirm progress on the lobotomy button.
   const [holdPct, setHoldPct] = useState(0);
   const holdRaf = useRef(0);
@@ -282,7 +284,10 @@ export default function AssistantChat({
         case "content":
           accRef.current += (ev.text as string) ?? "";
           setStreamText(accRef.current);
-          if (!streamingRef.current) setRunStatus("thinking");
+          if (!streamingRef.current) {
+            setRunStatus("thinking");
+            setRemoteRun(true);
+          }
           // Narrate this run only; foreign runs are spoken by their starter.
           if (streamingRef.current && voiceRef.current.enabled && voiceRef.current.autoplay) {
             speech.current.push(accRef.current);
@@ -365,6 +370,7 @@ export default function AssistantChat({
             accRef.current = "";
             reasoningAccRef.current = "";
             speech.current.abort();
+            setRemoteRun(false);
             setStreamText(null);
             setReasoningText(null);
             setReasoningOpen(false);
@@ -1163,7 +1169,7 @@ export default function AssistantChat({
               }
             }}
           />
-          {streaming ? (
+          {streaming || remoteRun ? (
             <button className="btn-secondary shrink-0 py-2 px-2.5" onClick={stop} title="Stop">
               <Square size={13} />
             </button>

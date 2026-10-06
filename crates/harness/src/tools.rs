@@ -441,19 +441,23 @@ impl Tool for WebSearchTool {
             .user_agent(USER_AGENT)
             .build()
             .context("Cannot build the search client")?;
-        // Lite first (simpler page, less rate-limiting), then the html endpoint.
-        let endpoints: [SearchEndpoint; 2] = [
+        // Lite first (simpler page, less rate-limiting), then the html endpoint,
+        // then Bing when DuckDuckGo is throttling.
+        let endpoints: [SearchEndpoint; 3] = [
             ("https://lite.duckduckgo.com/lite/", parse_ddg_lite),
             ("https://html.duckduckgo.com/html/", parse_ddg),
+            ("https://www.bing.com/search", parse_bing),
         ];
         let mut results = Vec::new();
+        let mut throttled = false;
         for (endpoint, parse) in endpoints {
             let Ok(resp) = client.get(endpoint).query(&[("q", query.as_str())]).send() else {
                 continue;
             };
-            let Ok(resp) = resp.error_for_status() else {
+            if !resp.status().is_success() {
+                throttled = true;
                 continue;
-            };
+            }
             let Ok(body) = resp.text() else {
                 continue;
             };
@@ -463,7 +467,13 @@ impl Tool for WebSearchTool {
             }
         }
         if results.is_empty() {
-            bail!("No results for '{query}' (the search page may be rate-limiting or changed)");
+            if throttled {
+                bail!(
+                    "Search is being rate-limited right now (the engines returned error pages \
+                     for '{query}') — try again in a minute"
+                );
+            }
+            bail!("No results for '{query}'");
         }
         let mut out = format!("Results for \"{query}\":");
         for (i, (title, url, snippet)) in results.iter().enumerate() {
@@ -776,6 +786,55 @@ fn parse_ddg_lite(html: &str, max: usize) -> Vec<SearchRow> {
         if !title.is_empty() && !href.is_empty() {
             out.push((title, decode_ddg_url(href), snippet));
         }
+    }
+    out
+}
+
+/// Parse Bing's HTML results (`li.b_algo` blocks) as the last-resort engine.
+fn parse_bing(html: &str, max: usize) -> Vec<SearchRow> {
+    let mut out = Vec::new();
+    let mut rest = html;
+    while out.len() < max {
+        let Some(pos) = rest.find("class=\"b_algo\"") else {
+            break;
+        };
+        rest = &rest[pos..];
+        let Some(h2) = find_ci(rest, "<h2", 0) else {
+            break;
+        };
+        let after = &rest[h2..];
+        let Some(a) = find_ci(after, "<a ", 0) else {
+            break;
+        };
+        let tag = &after[a..];
+        let Some(gt) = tag.find('>') else {
+            break;
+        };
+        let href = tag[..gt]
+            .find("href=\"")
+            .and_then(|h| {
+                let s = &tag[h + 6..];
+                s.find('"').map(|e| &s[..e])
+            })
+            .unwrap_or("");
+        let after_tag = &tag[gt + 1..];
+        let close = after_tag.find("</a>").unwrap_or(0);
+        let title = clean_text(&after_tag[..close]);
+        let window_end = find_ci(after_tag, "class=\"b_algo\"", 0).unwrap_or(after_tag.len());
+        let window = &after_tag[..window_end];
+        let snippet = window
+            .find("<p")
+            .and_then(|p| {
+                let s = &window[p..];
+                s.find('>').map(|e| &s[e + 1..])
+            })
+            .and_then(|s| s.split("</p>").next())
+            .map(clean_text)
+            .unwrap_or_default();
+        if !title.is_empty() && href.starts_with("http") {
+            out.push((title, href.to_string(), snippet));
+        }
+        rest = &after_tag[close.max(1)..];
     }
     out
 }
@@ -1804,6 +1863,22 @@ mod tests {
         assert!(results[0].2.contains("snippet here"), "{}", results[0].2);
         assert_eq!(results[1].1, "https://direct.example/b");
         assert_eq!(parse_ddg_lite(html, 1).len(), 1);
+    }
+
+    #[test]
+    fn parses_bing_results() {
+        let html = r#"
+          <li class="b_algo"><h2><a href="https://example.com/a">Example &amp; Co</a></h2>
+            <p>A <b>snippet</b> here.</p></li>
+          <li class="b_algo"><h2><a href="https://direct.example/b">Direct</a></h2>
+            <p>Second snippet.</p></li>
+        "#;
+        let results = parse_bing(html, 5);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].1, "https://example.com/a");
+        assert!(results[0].2.contains("snippet here"), "{}", results[0].2);
+        assert_eq!(results[1].1, "https://direct.example/b");
+        assert_eq!(parse_bing(html, 1).len(), 1);
     }
 
     #[test]

@@ -2,7 +2,10 @@
 
 ## Unreleased
 
+- **Stop a running model:** the overlay (circle and pill) and the assistant chat now show a stop button for runs started anywhere, including overlay sends
 - **Stop speech:** a stop button on the overlay circle and pill while narration plays
+- Fix the overlay stop button being cut off; the busy pill is wider and the status text truncates
+- web_search falls back to Bing when DuckDuckGo throttles, and says when searches are rate-limited instead of a vague "no results"
 - web_fetch reads RSS/Atom feeds as clean headline lists instead of raw XML
 - Fix the overlay sticking on "Waking up…" after a run it did not start (reminders, chat page)
 - **web_fetch tool:** read a page as text after searching (markup and scripts stripped, ~12k chars by default)
