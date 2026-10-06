@@ -1,96 +1,75 @@
 # Changelog
 
-## [Unreleased]
+## 2026-10-06 – v0.8.3
 
-### Added
+### New options & features
 
-- The Debug page has a sound test (plays each notification sound and reports playback errors) and a devtools toggle that reopens the console on start while enabled.
-- Long runs checkpoint the transcript after every completed turn; if the app is killed mid-run, the assistant and agent chats offer Resume (continue from the last turn) or Dismiss.
-- Overlay attachments: a paperclip button or dropping files on the pill attaches them (chip feedback, drop highlight) and sends them with the message.
-- The reference voice is uploaded into app storage instead of linked, so moving the original can never break narration; Remove clears it.
+- **Overlay attachments:** attach files with the paperclip or by dropping them on the pill; the chip shows the filename (long names clip, the extension stays)
+  - Dropping onto the collapsed circle attaches without opening the pill, with a clip badge
+- **Resume:** runs checkpoint the transcript after each turn; after a crash the assistant and agent chats offer *Resume* or *Dismiss*
+- **Reference voices** are uploaded and stored by the app, with a *Remove* button
+- **Debug:** sound test buttons for each notification and a devtools toggle (reopens on start while enabled)
+- Overlay shows what it's doing while busy: "Waking up…", "Loading model…", "Thinking…", "Speaking…"
+- The **/forget** skull now needs a 3-second hold; the overlay prompt uses the assistant's name ("Ask Ada…")
+- The overlay is off by default
 
-### Changed
+### Bug fixes & others
 
-- The overlay's glow and status cover the whole span — server start, model load, generation, and TTS playback — and the expanded input shows the phase ("Waking up…", "Loading model…", "Thinking…", "Speaking…").
-- The overlay pill widens while a run is starting and shows "Waking up…", "Loading model…", or "Thinking…".
-- The lobotomy skull button requires a 3-second hold, and the overlay input suggests the assistant's name ("Ask Ada…").
-- Linux: the DMA-BUF renderer workaround applies only to NVIDIA systems now (Intel/AMD keep the fast GPU compositing path); `WEBKIT_DISABLE_DMABUF_RENDERER=1` still forces it.
-- The overlay is off by default for new installs.
+- Overlay position is stored in the config and restored at startup (it kept resetting to the corner)
+- Overlay file drops work again: the native drop target only showed a forbidden cursor
+- The pill no longer overflows its window with attachments; the paperclip hides once a file is attached
+- Fix TTS running on with gibberish when the model misses its end token
+- Narration failures (e.g. a missing reference voice) now show a notice instead of failing silently
+- The overlay no longer sleeps mid-reply and the glow stays on through narration
+- Off-screen sweat drop works again on Wayland, with a filled droplet
+- Removed the faint blurred square behind the overlay
+- Closing the app no longer logs the WebView2 "Error = 1412" shutdown message
+- Linux: the renderer workaround now only applies to NVIDIA systems (Intel/AMD keep GPU compositing)
 
-### Fixed
+## 2026-10-05 – v0.8.2
 
-- The overlay's position is persisted in the config and restored by the backend at startup; the frontend's own restore raced its layout work and kept resetting the pill to the default corner.
-- The overlay restores its saved position again on startup: the status-label resize ran concurrently with the restore and could move the window back to its old spot.
-- The overlay no longer dozes off mid-reply and the glow stays on through narration, including the model-load gap before the first audio.
-- Overlay file drops work: the overlay webview handles HTML5 drops directly (its native drop target only showed a forbidden cursor), attaching dropped files as bytes.
-- Closing the app no longer logs the WebView2 "Failed to unregister class Chrome_WidgetWin_0. Error = 1412" shutdown error (windows are destroyed before exit).
-- The overlay's saved position is restored on the monitor it was on, not the one the window happens to start on, and the pill can no longer overflow its window (the attachment chip shrinks; a failed attach opens the pill so the error is visible).
-- Overlay attachments: the chip shrinks and clips long filenames with the extension visible (no more pill overflow that pushed the avatar off-screen), the paperclip hides once a file is attached, and dropping onto the collapsed circle attaches with a clip badge instead of expanding.
-- A missing reference-voice file reports a clear error instead of failing silently, and narration failures appear as a notice in the chat.
-- TTS synthesis is capped to about twice the text's speaking length, so a model that misses its end token no longer appends a long gibberish tail.
-- The overlay's off-screen sweat drop is back on Wayland (the bounce stays X11/Windows-only, since Wayland ignores client positioning) and the droplet is filled.
+- Linux: fix unthemed dropdowns and notification sounds not playing
+- Wayland: overlay drags are smooth again and it no longer fights the compositor for position
+- Local server card sits under Behavior instead of after a gap
 
-## [0.8.2] - 2026-10-05
+## 2026-10-05 – v0.8.1
 
-### Fixed
+### New options & features
 
-- Linux: dropdowns follow the theme (native select chrome is replaced) and notification sounds play (PCM WAV assets, pre-unlocked players, cached toggles).
-- Linux/Wayland: the overlay is titled `werk.` and stops enforcing bounds/position memory, since Wayland owns window placement — this removes the choppy drags and the dead bounce.
-- The Local server card sits directly under the Behavior card instead of after a grid gap.
+- **Voice input:** local speech-to-text with Qwen3-ASR 0.6B — download and pick models in the Voice tab, then dictate from the overlay mic
+- Voice tab: language picker, dictation hotkey (default `Ctrl+Alt+D`), recordings that end after ~3.5 s of silence
+- Overlay: live mic levels while recording and an Appearance section (opacity, disable animations); the mic disappears when voice input is off
 
-## [0.8.1] - 2026-10-05
+### Bug fixes & others
 
-### Added
+- Fix Linux black windows/freezes (WebKitGTK DMA-BUF) and voice playback in installed builds (CSP)
+- AppImage bundles GStreamer and RPM/DEB depend on it, so audio no longer crashes the UI
+- Overlay: dragging no longer collapses the pill; hotkeys are captured by pressing the combo
+- The faint blurred square behind the overlay is gone
 
-- Voice input: local speech-to-text with Qwen3-ASR 0.6B — one-click download and model pickers in the Voice tab, and the overlay microphone dictates into the pill (record, transcribe, fill the input).
+## 2026-10-05 – v0.8.0
 
-### Changed
+### New options & features
 
-- Overlay: dragging it more than half off-screen pops a sweat drop and eases the pill back into view; while recording it shows live mic levels and a "Listening…" placeholder, and the dictation hotkey (default `Ctrl+Alt+D`) starts and stops it.
-- Voice input: a language picker forces the transcription language (auto-detect when empty), a take ends after ~3.5 s of silence and transcribes itself, and the summon/dictation hotkeys are set by pressing the combo (Set/Clear buttons).
-- The Assistant Overlay card has an Appearance section (opacity, "Disable animations" for the z's and sweat drop), and turning voice input off removes the microphone from the pill entirely.
+- **Text-to-speech:** local llama-tts with Qwen3-TTS — reference voice, language, test playback, narrate replies
+- Voice tab downloads for the suggested Qwen3-TTS quants with progress
+- **/forget** wipes all assistant memory and the conversation
+- **delete_file** moves files to the OS trash instead of deleting them
+- Assistant can write its own skills and plugins and manage MCP servers
+- Assistant learning: session auto-distill and a daily reflection pass
+- **uia tool:** drive app controls through Windows UIA, macOS Accessibility, or Linux AT-SPI
+- Overlay opacity slider
 
-### Fixed
+### Bug fixes & others
 
-- The faint blurred square behind the overlay is gone.
-- Linux: WebKitGTK's DMA-BUF renderer is disabled by default, fixing black or frozen windows on Fedora 43 / Wayland / NVIDIA (set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to opt out).
-- Voice playback works in installed builds (the CSP allows `data:`/`blob:` audio).
-- The AppImage bundles GStreamer and the RPM/DEB packages depend on its plugins, so webview audio no longer crashes or freezes the UI.
-
-## [0.8.0] - 2026-10-05
-
-### Added
-
-- Local text-to-speech (llama-tts, Qwen3-TTS) with reference-voice cloning, language, test playback, and a narrate-replies mode.
-- Voice tab: one-click downloads of the suggested Qwen3-TTS 0.6B quants (quant + mmproj) with progress.
-- `/forget` and a skull button: wipe all assistant memory and the conversation.
-- Overlay opacity slider.
-- `delete_file` tool: moves files to the OS trash, never deletes them.
-- Assistant can author its own skills and plugins and manage MCP servers (`skill_write`, `plugin_write`, `mcp`).
-- Assistant learning: optional session auto-distill into memory and a daily reflection pass.
-- `uia` tool: drive app controls through Windows UI Automation, macOS Accessibility, or Linux AT-SPI.
-
-### Changed
-
-- Narration synthesizes sentences while the reply streams, so voice starts as soon as the text ends.
-- Overlay: a glowing arc orbits the avatar while generating and the pill when open; idle, loading, and failed runs do not glow, and a quiet overlay dozes with floating z's.
-- Overlay: draggable by the pill body, position remembered across runs.
-- Idle unload defaults to off (0 = never) with its own Local server card in Assistant Behavior.
-- Prompts inject the most relevant memory entries instead of truncating the file head.
-- NERV/Future borders orbit faster; NERV selection gets a pane tint.
-- Model downloads complete as soon as the last byte arrives.
-- Profiles moved from Settings to Debug.
-
-### Fixed
-
-- `/new` archives the old transcript instead of restoring it on the next visit.
-- Overlay runs no longer duplicate in the assistant chat, and overlay replies narrate when narration is on.
-- Dragging the open overlay no longer collapses the pill; Enter key-repeat cannot double-send.
-- llama-tts retries on the CPU when CUDA fails and reports real errors instead of progress output.
-- The overlay window is created at startup (no startup hang) and sending from it starts the server first.
-- NERV/Future borders use a diagonal-sized layer (no moving edge line on wide cards); Future cards are opaque.
-
-- Download progress events are throttled to ~10/s instead of one per chunk, so large downloads stop flooding the webview with IPC and the bar reaches 100%.
+- Replies narrate with pipelined sentence synthesis; the overlay glows while generating and dozes when idle
+- Overlay: draggable by the pill body, position remembered; idle unload defaults to off
+- Prompts inject the most relevant memory entries instead of truncating the file
+- NERV/Future borders orbit faster; NERV selection gets a pane tint
+- Downloads finish as soon as the last byte arrives; Profiles moved to Debug
+- `/new` archives the old transcript; overlay runs no longer duplicate in the chat
+- llama-tts retries on the CPU when CUDA fails and reports real errors
+- The overlay window is created at startup (no startup hang)
 
 ## [0.7.0] - 2026-10-04
 
