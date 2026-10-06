@@ -1048,6 +1048,16 @@ const TTS_SUGGESTED: { file: string; quant: string; size: string }[] = [
   { file: "Qwen3-TTS-12Hz-0.6B-Base.Q4_K_M.gguf", quant: "Q4_K_M", size: "361 MB" },
 ];
 
+/// The 1.7B Qwen3-TTS: bigger and more expressive than 0.6B.
+const TTS17_REPO = "mradermacher/Qwen3-TTS-12Hz-1.7B-Base-GGUF";
+const TTS17_MMPROJ = "Qwen3-TTS-12Hz-1.7B-Base.mmproj-Q8_0.gguf";
+const TTS17_MMPROJ_SIZE = "426 MB";
+const TTS17_SUGGESTED: { file: string; quant: string; size: string }[] = [
+  { file: "Qwen3-TTS-12Hz-1.7B-Base.Q8_0.gguf", quant: "Q8_0", size: "1762 MB" },
+  { file: "Qwen3-TTS-12Hz-1.7B-Base.Q6_K.gguf", quant: "Q6_K", size: "1362 MB" },
+  { file: "Qwen3-TTS-12Hz-1.7B-Base.Q4_K_M.gguf", quant: "Q4_K_M", size: "988 MB" },
+];
+
 /// Speech-to-text via llama.cpp's llama-mtmd-cli (Qwen3-ASR).
 const ASR_REPO = "ggml-org/Qwen3-ASR-0.6B-GGUF";
 const ASR_MODEL = "Qwen3-ASR-0.6B-Q8_0.gguf";
@@ -1228,6 +1238,15 @@ function VoiceDownloadsCard({
         </div>
         {TTS_SUGGESTED.map((s) =>
           row(TTS_REPO, s.file, TTS_MMPROJ, s.quant, s.size, activeModel, onInstalled, onDeleteTts),
+        )}
+        <div className="border-t border-border pt-2.5">
+          <p className="text-xs font-medium text-ink">Qwen3-TTS 1.7B</p>
+          <p className="text-[0.6875rem] text-dim">
+            Bigger, more expressive voice; each download also fetches the audio projector ({TTS17_MMPROJ_SIZE}).
+          </p>
+        </div>
+        {TTS17_SUGGESTED.map((s) =>
+          row(TTS17_REPO, s.file, TTS17_MMPROJ, s.quant, s.size, activeModel, onInstalled, onDeleteTts),
         )}
         <div className="border-t border-border pt-2.5">
           <p className="text-xs font-medium text-ink">Pocket TTS</p>
@@ -1431,6 +1450,7 @@ function VoiceCard() {
     speaker: string;
     lang: string;
     autoplay: boolean;
+    cpu: boolean;
   } | null>(null);
   const [stt, setStt] = useState<{
     enabled: boolean;
@@ -1459,6 +1479,7 @@ function VoiceCard() {
           speaker: c.assistant?.tts_speaker ?? "",
           lang: c.assistant?.tts_lang ?? "en",
           autoplay: c.assistant?.tts_autoplay ?? false,
+          cpu: c.assistant?.tts_cpu ?? false,
         });
         setStt({
           enabled: c.assistant?.stt_enabled ?? false,
@@ -1542,6 +1563,7 @@ function VoiceCard() {
           next.speaker || null,
           next.lang,
           next.autoplay,
+          next.cpu,
         ),
       );
     } catch (e) {
@@ -1751,6 +1773,12 @@ function VoiceCard() {
               hint="Speak each assistant reply as soon as it finishes."
               checked={voice.autoplay}
               onChange={(v) => apply({ ...voice, autoplay: v })}
+            />
+            <Toggle
+              label="Run speech on the CPU"
+              hint="Synthesize without the GPU, leaving VRAM free for the main model."
+              checked={voice.cpu}
+              onChange={(v) => apply({ ...voice, cpu: v })}
             />
           </>
         )}

@@ -178,7 +178,7 @@ export const commands = {
 	/**  The temp workspace path, for the File system card. */
 	assistantTempDir: () => typedError<string, string>(__TAURI_INVOKE("assistant_temp_dir")),
 	/**  Save the assistant's voice settings (TTS via llama-tts). */
-	setAssistantVoice: (ttsEnabled: boolean, ttsModel: string | null, ttsMmproj: string | null, ttsSpeaker: string | null, ttsLang: string, ttsAutoplay: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_voice", { ttsEnabled, ttsModel, ttsMmproj, ttsSpeaker, ttsLang, ttsAutoplay })),
+	setAssistantVoice: (ttsEnabled: boolean, ttsModel: string | null, ttsMmproj: string | null, ttsSpeaker: string | null, ttsLang: string, ttsAutoplay: boolean, ttsCpu: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_voice", { ttsEnabled, ttsModel, ttsMmproj, ttsSpeaker, ttsLang, ttsAutoplay, ttsCpu })),
 	/**
 	 *  Copy a picked reference voice into app storage and point the config at it,
 	 *  so the original file moving can never break narration.
@@ -637,6 +637,8 @@ export type AssistantConfig_Deserialize = {
 	tts_lang?: string,
 	/**  Speak every assistant reply as soon as it finishes. */
 	tts_autoplay?: boolean,
+	/**  Synthesize on the CPU (leaves the GPU free for the main model). */
+	tts_cpu?: boolean,
 	/**  Dictate to the assistant with the overlay microphone (Qwen3-ASR). */
 	stt_enabled?: boolean,
 	/**  GGUF path for the speech-to-text model. */
@@ -716,6 +718,8 @@ export type AssistantConfig_Serialize = {
 	tts_lang: string,
 	/**  Speak every assistant reply as soon as it finishes. */
 	tts_autoplay: boolean,
+	/**  Synthesize on the CPU (leaves the GPU free for the main model). */
+	tts_cpu: boolean,
 	/**  Dictate to the assistant with the overlay microphone (Qwen3-ASR). */
 	stt_enabled: boolean,
 	/**  GGUF path for the speech-to-text model. */

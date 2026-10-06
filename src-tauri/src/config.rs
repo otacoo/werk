@@ -311,6 +311,9 @@ pub struct AssistantConfig {
     /// Speak every assistant reply as soon as it finishes.
     #[serde(default)]
     pub tts_autoplay: bool,
+    /// Synthesize on the CPU (leaves the GPU free for the main model).
+    #[serde(default)]
+    pub tts_cpu: bool,
     /// Dictate to the assistant with the overlay microphone (Qwen3-ASR).
     #[serde(default)]
     pub stt_enabled: bool,
@@ -395,6 +398,7 @@ impl Default for AssistantConfig {
             tts_speaker: None,
             tts_lang: default_tts_lang(),
             tts_autoplay: false,
+            tts_cpu: false,
             stt_enabled: false,
             stt_model: None,
             stt_mmproj: None,

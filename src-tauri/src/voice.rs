@@ -71,8 +71,22 @@ pub async fn synthesize(state: &crate::AppState, text: &str) -> Result<TtsResult
     let frames = (text.chars().count() as u32 * 2 + 48).clamp(96, 2048);
 
     // GPU first; a CUDA failure (some TTS graphs hit it) retries on the CPU.
-    let first = run_tts(&exe, &model, mmproj, speaker, lang, text, frames, &out, 999).await?;
-    let output = if first.status.success() || !is_cuda_error(&first.stderr) {
+    // The Voice tab can also force the CPU, e.g. to keep VRAM free for the
+    // main model while narrating.
+    let cpu = app_config.assistant.tts_cpu;
+    let first = run_tts(
+        &exe,
+        &model,
+        mmproj,
+        speaker,
+        lang,
+        text,
+        frames,
+        &out,
+        if cpu { 0 } else { 999 },
+    )
+    .await?;
+    let output = if cpu || first.status.success() || !is_cuda_error(&first.stderr) {
         first
     } else {
         let _ = std::fs::remove_file(&out);

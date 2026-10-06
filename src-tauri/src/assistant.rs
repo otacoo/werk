@@ -370,6 +370,7 @@ pub async fn set_assistant_fs(
 }
 
 /// Save the assistant's voice settings (TTS via llama-tts).
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 #[specta::specta]
 pub async fn set_assistant_voice(
@@ -379,6 +380,7 @@ pub async fn set_assistant_voice(
     tts_speaker: Option<String>,
     tts_lang: String,
     tts_autoplay: bool,
+    tts_cpu: bool,
     state: State<'_, crate::AppState>,
 ) -> Result<(), String> {
     let mut cfg = state.config.lock().unwrap();
@@ -394,6 +396,7 @@ pub async fn set_assistant_voice(
         .filter(|s| !s.is_empty());
     cfg.assistant.tts_lang = tts_lang.trim().to_string();
     cfg.assistant.tts_autoplay = tts_autoplay;
+    cfg.assistant.tts_cpu = tts_cpu;
     cfg.save().map_err(|e| e.to_string())
 }
 
