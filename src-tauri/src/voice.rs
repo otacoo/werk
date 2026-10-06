@@ -51,14 +51,18 @@ pub async fn synthesize(state: &crate::AppState, text: &str) -> Result<TtsResult
         .map(str::trim)
         .filter(|s| !s.is_empty());
     let lang = app_config.assistant.tts_lang.trim();
+    // Qwen3-TTS runs at 12.5 frames/s and does not always emit EOS, so a flat
+    // 2048-frame cap can append over a minute of gibberish; bound it to about
+    // twice the text's speaking length instead.
+    let frames = (text.chars().count() as u32 * 2 + 48).clamp(96, 2048);
 
     // GPU first; a CUDA failure (some TTS graphs hit it) retries on the CPU.
-    let first = run_tts(&exe, &model, mmproj, speaker, lang, text, &out, 999).await?;
+    let first = run_tts(&exe, &model, mmproj, speaker, lang, text, frames, &out, 999).await?;
     let output = if first.status.success() || !is_cuda_error(&first.stderr) {
         first
     } else {
         let _ = std::fs::remove_file(&out);
-        run_tts(&exe, &model, mmproj, speaker, lang, text, &out, 0).await?
+        run_tts(&exe, &model, mmproj, speaker, lang, text, frames, &out, 0).await?
     };
     if !output.status.success() {
         return Err(format!(
@@ -82,6 +86,7 @@ async fn run_tts(
     speaker: Option<&str>,
     lang: &str,
     text: &str,
+    frames: u32,
     out: &std::path::Path,
     ngl: u32,
 ) -> Result<std::process::Output, String> {
@@ -95,7 +100,7 @@ async fn run_tts(
         .arg("--tts-lang")
         .arg(lang)
         .arg("-n")
-        .arg("2048")
+        .arg(frames.to_string())
         .arg("-ngl")
         .arg(ngl.to_string())
         .arg("--output")

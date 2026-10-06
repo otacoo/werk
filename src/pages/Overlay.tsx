@@ -12,6 +12,8 @@ import { SpeechQueue } from "../utils/speechQueue";
 const COLLAPSED = 84;
 const EXPANDED_W = 404;
 const EXPANDED_H = 84;
+/// Wider pill while a run is starting/working, for the status label.
+const WORKING_W = 176;
 const POS_KEY = "werk.overlay.pos";
 
 /// Always-on-top assistant overlay: a pulsing circle that expands into a
@@ -57,6 +59,8 @@ export default function Overlay() {
   const [micReady, setMicReady] = useState(false);
   /// Assistant name for the input suggestion ("Ask Ada…").
   const [assistantName, setAssistantName] = useState("");
+  /// The server is loading the model for this run ("Waking up…").
+  const [loadingModel, setLoadingModel] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [level, setLevel] = useState(0);
@@ -381,7 +385,7 @@ export default function Overlay() {
     // A recording without a pill has nowhere to land: stop and drop it.
     if (recorder.current.active) void recorder.current.stop();
     setRecording(false);
-    await anchor(COLLAPSED, COLLAPSED);
+    await anchor(stateRef.current === "working" ? WORKING_W : COLLAPSED, COLLAPSED);
   };
 
   useEffect(() => {
@@ -397,6 +401,7 @@ export default function Overlay() {
           reply.current += (ev.text as string) ?? "";
           setState("working");
           setGenerating(true);
+          setLoadingModel(false);
           if (sending.current && narrate.current) speech.current.push(reply.current);
           break;
         }
@@ -444,6 +449,26 @@ export default function Overlay() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The server reports model loads on server_log; during a starting run that
+  // is the "waking up" phase.
+  useEffect(() => {
+    const unlisten = listen<string>("server_log", (e) => {
+      if (/loading model|ensure_model|waiting until model/i.test(e.payload ?? "")) {
+        setLoadingModel(true);
+      }
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+
+  // Grow the pill while working so the status label has room; back when done.
+  useEffect(() => {
+    if (expandedRef.current) return;
+    void anchor(state === "working" ? WORKING_W : COLLAPSED, COLLAPSED);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   // Dictation hotkey: open the pill and start or stop recording.
   useEffect(() => {
@@ -502,6 +527,7 @@ export default function Overlay() {
     setError(null);
     setState("working");
     setGenerating(false);
+    setLoadingModel(false);
     setInput("");
     reply.current = "";
     speech.current.reset();
@@ -592,6 +618,11 @@ export default function Overlay() {
             </span>
           )}
         </button>
+        {!expanded && state === "working" && (
+          <span className="text-xs text-dim whitespace-nowrap pr-2" aria-live="polite">
+            {generating ? "Thinking…" : loadingModel ? "Loading model…" : "Waking up…"}
+          </span>
+        )}
         {sleeping && !expanded && animations && (
           <span className="overlay-zzz" aria-hidden>
             <span>z</span>
