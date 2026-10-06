@@ -2,9 +2,7 @@
 
 ## Unreleased
 
-- **Faster, safer session saves:** transcripts now append to a JSONL file next to a small JSON meta file, so per-turn saves only write the new messages and a crash mid-save can no longer take the whole conversation (old sessions migrate on the next save)
-
-## 2026-10-06 – v0.8.4
+## 2026-10-06 – v0.8.5
 
 ### New options & features
 
@@ -18,6 +16,7 @@
 
 ### Bug fixes & others
 
+- **Faster, safer session saves:** transcripts now append to a JSONL file next to a small JSON meta file, so per-turn saves only write the new messages and a crash mid-save can no longer take the whole conversation (old sessions migrate on the next save)
 - Assistant chat keeps reasoning and tool cards when the transcript reloads (tab switches, restarts, runs started elsewhere)
 - Voice narration spawns fewer llama-tts processes (each one reloads the model), and long sentences cut at clauses so speech starts sooner
 - The busy overlay pill widens to fit the status text and stop button (the stop button was cut off)
