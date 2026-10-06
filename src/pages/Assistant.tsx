@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
-import { AlertTriangle, Download, FolderOpen, ImagePlus, Mic, Play, RefreshCw, Square, Upload, X } from "lucide-react";
+import { AlertTriangle, Download, FolderOpen, ImagePlus, Mic, Play, RefreshCw, Square, Trash2, Upload, X } from "lucide-react";
 import { commands } from "../bindings";
 import type { AssistantConfig, MemoryFileDto, Reminder } from "../bindings";
 import { call } from "../utils/ipc";
@@ -1061,17 +1061,22 @@ function VoiceDownloadsCard({
   onInstalled,
   activeSttModel,
   onSttInstalled,
+  onDeleteTts,
+  onDeleteStt,
 }: {
   activeModel: string;
   onInstalled: (model: string, mmproj: string) => Promise<void>;
   activeSttModel: string;
   onSttInstalled: (model: string, mmproj: string) => Promise<void>;
+  onDeleteTts: () => Promise<void>;
+  onDeleteStt: () => Promise<void>;
 }) {
   const [progress, setProgress] = useState<
     Record<string, { downloaded: number; total: number | null }>
   >({});
   const [installing, setInstalling] = useState<{ model: string; mmproj: string } | null>(null);
   const [phase, setPhase] = useState<"model" | "mmproj">("model");
+  const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1125,6 +1130,7 @@ function VoiceDownloadsCard({
     size: string,
     active: string,
     onDone: (model: string, mmproj: string) => Promise<void>,
+    onDelete: () => Promise<void>,
   ) => {
     const inUse =
       active === modelFile || active.endsWith(`/${modelFile}`) || active.endsWith(`\\${modelFile}`);
@@ -1137,7 +1143,36 @@ function VoiceDownloadsCard({
           <span className="badge-blue text-[0.5625rem] shrink-0">{label}</span>
           <span className="text-[0.6875rem] text-dim flex-1 min-w-0 truncate">{size}</span>
           {inUse ? (
-            <span className="badge-green text-[0.5625rem] shrink-0">in use</span>
+            <>
+              <span className="badge-green text-[0.5625rem] shrink-0">in use</span>
+              <button
+                className={`shrink-0 inline-flex items-center justify-center rounded p-1 transition-colors ${
+                  confirming === modelFile
+                    ? "bg-accent-red text-white"
+                    : "text-dim hover:text-accent-red"
+                }`}
+                disabled={installing !== null}
+                onClick={() => {
+                  if (confirming === modelFile) {
+                    setConfirming(null);
+                    void onDelete();
+                    return;
+                  }
+                  setConfirming(modelFile);
+                  window.setTimeout(
+                    () => setConfirming((c) => (c === modelFile ? null : c)),
+                    3000,
+                  );
+                }}
+                title={
+                  confirming === modelFile
+                    ? "Click again to delete the files"
+                    : "Delete the downloaded files and clear the setting"
+                }
+              >
+                <Trash2 size={11} />
+              </button>
+            </>
           ) : (
             <button
               className="btn-secondary text-xs py-0.5 px-2 shrink-0"
@@ -1178,7 +1213,7 @@ function VoiceDownloadsCard({
           </p>
         </div>
         {TTS_SUGGESTED.map((s) =>
-          row(TTS_REPO, s.file, TTS_MMPROJ, s.quant, s.size, activeModel, onInstalled),
+          row(TTS_REPO, s.file, TTS_MMPROJ, s.quant, s.size, activeModel, onInstalled, onDeleteTts),
         )}
         <div className="border-t border-border pt-2.5">
           <p className="text-xs font-medium text-ink">Qwen3-ASR 0.6B</p>
@@ -1186,7 +1221,7 @@ function VoiceDownloadsCard({
             Speech-to-text for the overlay microphone; also fetches the audio projector ({ASR_SIZE}).
           </p>
         </div>
-        {row(ASR_REPO, ASR_MODEL, ASR_MMPROJ, "Q8_0", ASR_SIZE, activeSttModel, onSttInstalled)}
+        {row(ASR_REPO, ASR_MODEL, ASR_MMPROJ, "Q8_0", ASR_SIZE, activeSttModel, onSttInstalled, onDeleteStt)}
       </div>
       {error && <p className="text-xs text-accent-red">{error}</p>}
     </div>
@@ -1526,6 +1561,28 @@ function VoiceCard() {
     }
   };
 
+  /// Delete the downloaded TTS model files and clear the setting.
+  const deleteTtsModel = async () => {
+    setError(null);
+    try {
+      await call(commands.assistantClearTtsModel());
+      load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  /// Delete the downloaded STT model files and clear the setting.
+  const deleteSttModel = async () => {
+    setSttError(null);
+    try {
+      await call(commands.assistantClearSttModel());
+      load();
+    } catch (e) {
+      setSttError(String(e));
+    }
+  };
+
   const speak = async () => {
     setBusy(true);
     setError(null);
@@ -1800,6 +1857,8 @@ function VoiceCard() {
           onInstalled={(model, mmproj) => apply({ ...voice, enabled: true, model, mmproj })}
           activeSttModel={stt.model}
           onSttInstalled={(model, mmproj) => applyStt({ ...stt, enabled: true, model, mmproj })}
+          onDeleteTts={deleteTtsModel}
+          onDeleteStt={deleteSttModel}
         />
       </div>
     </div>

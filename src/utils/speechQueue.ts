@@ -5,14 +5,22 @@
 import { commands } from "../bindings";
 import { call } from "./ipc";
 
-/// Index just past the last sentence boundary, or 0 when none is long enough
-/// to be worth its own synthesis call.
+/// Cut point for the next synthesis call. Every call spawns llama-tts, which
+/// loads the model again, so chunks are large: the last completed sentence
+/// once ~160 chars accumulated, or a clause boundary for run-on sentences.
 function lastSentenceEnd(text: string): number {
-  const re = /[.!?…]["')\]]*\s|\n/g;
+  const sentence = /[.!?…]["')\]]*\s|\n/g;
   let cut = 0;
-  for (const m of text.matchAll(re)) {
+  for (const m of text.matchAll(sentence)) {
     const end = (m.index ?? 0) + m[0].length;
-    if (end >= 24) cut = end;
+    if (end >= 160) cut = end;
+  }
+  if (cut > 0) return cut;
+  if (text.length < 220) return 0;
+  const clause = /[,;:]\s/g;
+  for (const m of text.matchAll(clause)) {
+    const end = (m.index ?? 0) + m[0].length;
+    if (end >= 160) cut = end;
   }
   return cut;
 }

@@ -203,7 +203,32 @@ export default function AssistantChat({
             content: m.content || "(attachments only)",
             images: m.images ?? undefined,
           });
-        } else if (m.role === "assistant" && m.content && !m.tool_calls) {
+        } else if (m.role === "assistant" && m.tool_calls) {
+          // Tool turns restore as reasoning + tool cards; the tool messages
+          // that follow fill in each card's output.
+          const meta = metaByIndex.get(i);
+          if (meta?.reasoning) {
+            restored.push({ kind: "reasoning", text: meta.reasoning });
+          }
+          for (const call of m.tool_calls) {
+            restored.push({
+              kind: "tool",
+              callId: call.id,
+              tool: call.name,
+              args: call.arguments,
+            });
+          }
+        } else if (m.role === "tool") {
+          const text = m.content ?? "";
+          const ok = !text.trimStart().toLowerCase().startsWith("error:");
+          for (let k = restored.length - 1; k >= 0; k--) {
+            const it = restored[k];
+            if (it.kind === "tool" && it.callId === m.tool_call_id) {
+              it.output = { ok, text: text.slice(0, 4000) };
+              break;
+            }
+          }
+        } else if (m.role === "assistant" && m.content) {
           const meta = metaByIndex.get(i);
           restored.push({
             kind: "msg",

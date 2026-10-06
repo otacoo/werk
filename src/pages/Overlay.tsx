@@ -14,7 +14,7 @@ const COLLAPSED = 84;
 const EXPANDED_W = 404;
 const EXPANDED_H = 84;
 /// Wider pill while a run is starting/working, for the status label and stop.
-const WORKING_W = 210;
+const WORKING_W = 230;
 
 /// One file attached to the next overlay message.
 type OverlayAttachment = {

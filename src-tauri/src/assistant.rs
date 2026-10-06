@@ -449,6 +449,63 @@ pub async fn assistant_remove_voice_reference(
     cfg.save().map_err(|e| e.to_string())
 }
 
+/// Delete the configured TTS model files (only inside the models folder) and
+/// clear the config entries, so other quants can be downloaded.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_clear_tts_model(
+    state: State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let (model, mmproj, models_dir) = {
+        let cfg = state.config.lock().unwrap();
+        (
+            cfg.assistant.tts_model.clone(),
+            cfg.assistant.tts_mmproj.clone(),
+            cfg.models_dir().ok(),
+        )
+    };
+    remove_model_files([model, mmproj], models_dir.as_deref());
+    let mut cfg = state.config.lock().unwrap();
+    cfg.assistant.tts_model = None;
+    cfg.assistant.tts_mmproj = None;
+    cfg.save().map_err(|e| e.to_string())
+}
+
+/// Same for the speech-to-text model.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_clear_stt_model(
+    state: State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let (model, mmproj, models_dir) = {
+        let cfg = state.config.lock().unwrap();
+        (
+            cfg.assistant.stt_model.clone(),
+            cfg.assistant.stt_mmproj.clone(),
+            cfg.models_dir().ok(),
+        )
+    };
+    remove_model_files([model, mmproj], models_dir.as_deref());
+    let mut cfg = state.config.lock().unwrap();
+    cfg.assistant.stt_model = None;
+    cfg.assistant.stt_mmproj = None;
+    cfg.save().map_err(|e| e.to_string())
+}
+
+/// Delete files that live under the models folder; anything else is only
+/// forgotten, never touched.
+fn remove_model_files(paths: [Option<String>; 2], models_dir: Option<&std::path::Path>) {
+    let Some(dir) = models_dir else {
+        return;
+    };
+    for path in paths.into_iter().flatten() {
+        let p = std::path::PathBuf::from(&path);
+        if p.starts_with(dir) {
+            let _ = std::fs::remove_file(&p);
+        }
+    }
+}
+
 /// Uploaded reference voices live here.
 fn voice_dir() -> Result<std::path::PathBuf, String> {
     dir()

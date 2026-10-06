@@ -191,6 +191,13 @@ export const commands = {
 	 *  dictation hotkey.
 	 */
 	setAssistantStt: (sttEnabled: boolean, sttModel: string | null, sttMmproj: string | null, sttHotkey: string, sttLang: string) => typedError<null, string>(__TAURI_INVOKE("set_assistant_stt", { sttEnabled, sttModel, sttMmproj, sttHotkey, sttLang })),
+	/**
+	 *  Delete the configured TTS model files (only inside the models folder) and
+	 *  clear the config entries, so other quants can be downloaded.
+	 */
+	assistantClearTtsModel: () => typedError<null, string>(__TAURI_INVOKE("assistant_clear_tts_model")),
+	/**  Same for the speech-to-text model. */
+	assistantClearSttModel: () => typedError<null, string>(__TAURI_INVOKE("assistant_clear_stt_model")),
 	/**  Speak `text` with the configured voice; returns the WAV path and bytes. */
 	assistantTtsSpeak: (text: string) => typedError<TtsResult, string>(__TAURI_INVOKE("assistant_tts_speak", { text })),
 	/**  Transcribe a base64 WAV (16 kHz mono PCM16) recorded in the webview. */

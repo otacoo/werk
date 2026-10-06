@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Assistant chat keeps reasoning and tool cards when the transcript reloads (tab switches, restarts, runs started elsewhere)
+- **Delete voice models:** a trash button on the in-use rows in Model downloads clears the files and the setting, freeing the space for other quants
+- The busy overlay pill widens to fit the status text and stop button
+- Voice narration spawns fewer llama-tts processes (each one reloads the model), and long sentences cut at clauses so speech starts sooner
 - **Stop a running model:** the overlay (circle and pill) and the assistant chat now show a stop button for runs started anywhere, including overlay sends
 - **Stop speech:** a stop button on the overlay circle and pill while narration plays
 - Fix the overlay stop button being cut off; the busy pill is wider and the status text truncates
