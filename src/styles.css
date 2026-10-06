@@ -236,4 +236,11 @@ textarea::placeholder {
     color: #f48771;
   }
 
+/* ── Reduced motion (software rendering) ──
+   WebKitGTK without the DMA-BUF compositor repaints the card orbits every
+   frame; the backend flags that case and they become static borders. */
+[data-reduced-motion="1"] .card::before {
+  animation: none !important;
+}
+
 

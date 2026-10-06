@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Linux: notification sounds play again (played from memory; WebKitGTK's media player wants byte ranges the asset protocol does not serve)
+- Linux: NERV/Future card orbits fall back to a static border when WebKitGTK runs without its compositor (fixes the 5-7% CPU use)
+- LSP is off by default
+- Fix the console error about inlined fonts (CSP `font-src`)
+
 ## 2026-10-06 – v0.8.3
 
 ### New options & features

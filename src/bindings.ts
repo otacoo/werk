@@ -28,6 +28,11 @@ export const commands = {
 	 *  memory there.
 	 */
 	sessionKind: () => typedError<string, string>(__TAURI_INVOKE("session_kind")),
+	/**
+	 *  True when WebKitGTK runs without its fast compositing path (the NVIDIA
+	 *  workaround is active), where the card orbit animations burn CPU.
+	 */
+	softwareRendering: () => typedError<boolean, string>(__TAURI_INVOKE("software_rendering")),
 	/**  Open or close the main window's webview devtools (Debug page toggle). */
 	setDevtools: (open: boolean) => typedError<null, string>(__TAURI_INVOKE("set_devtools", { open })),
 	/**  Save the overlay's position (physical pixels) for the next start. */

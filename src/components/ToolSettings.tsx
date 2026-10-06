@@ -197,11 +197,11 @@ export function LspCard({ appConfig, setAppConfig, refresh, reloadTools }: {
         <Toggle
           label="Enable LSP"
           hint="Diagnostics after writes and precise go-to-definition/references."
-          checked={appConfig?.lsp_enabled ?? true}
+          checked={appConfig?.lsp_enabled ?? false}
           onChange={setLsp}
         />
       </div>
-      {(appConfig?.lsp_enabled ?? true) && (
+      {(appConfig?.lsp_enabled ?? false) && (
         <div className="space-y-1 mt-3">
           {servers.map((s, i) =>
             editing === i ? null : (

@@ -476,7 +476,7 @@ pub struct AppConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub utility_target: Option<String>,
     /// Language-server diagnostics after edits and the `lsp` query tool.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub lsp_enabled: bool,
     /// Single-model or router server mode (Mode tab).
     #[serde(default)]
@@ -620,7 +620,7 @@ impl Default for AppConfig {
             roleplay: RoleplayConfig::default(),
             assistant: AssistantConfig::default(),
             utility_target: None,
-            lsp_enabled: true,
+            lsp_enabled: false,
             lsp_servers: Some(default_lsp_servers()),
             server_mode: ServerMode::Single,
             agent_tools_disabled: Vec::new(),

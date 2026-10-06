@@ -214,6 +214,21 @@ fn overlay_position(state: tauri::State<'_, AppState>) -> Option<[i32; 2]> {
     state.config.lock().unwrap().assistant.overlay_pos
 }
 
+/// True when WebKitGTK runs without its fast compositing path (the NVIDIA
+/// workaround is active), where the card orbit animations burn CPU.
+#[tauri::command]
+#[specta::specta]
+fn software_rendering() -> Result<bool, String> {
+    #[cfg(target_os = "linux")]
+    {
+        Ok(std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").as_deref() == Ok("1"))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(false)
+    }
+}
+
 /// Session kind for platform quirks: Wayland forbids client-side window
 /// positioning, so the overlay disables bounds enforcement and position
 /// memory there.
@@ -339,6 +354,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         set_overlay_visible,
         overlay_work_area,
         session_kind,
+        software_rendering,
         set_devtools,
         set_overlay_position,
         overlay_position,

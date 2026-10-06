@@ -126,6 +126,16 @@ export default function App() {
     if (getDevtools()) void call(commands.setDevtools(true)).catch(() => {});
   }, []);
 
+  // Software-rendered WebKitGTK (the NVIDIA workaround) cannot afford the
+  // theme card orbits; a flag lets the CSS fall back to a static border.
+  useEffect(() => {
+    call(commands.softwareRendering())
+      .then((v) => {
+        if (v) document.documentElement.dataset.reducedMotion = "1";
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     loadAppearance();
     call(commands.getConfig())
