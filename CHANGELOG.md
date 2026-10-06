@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Pocket TTS:** small per-language voice packs (English, French, German, Italian, Portuguese, Spanish, Welsh) — pick the language, then download; needs a reference voice, and without one it now says so instead of producing near-silence
 - Assistant chat keeps reasoning and tool cards when the transcript reloads (tab switches, restarts, runs started elsewhere)
 - **Delete voice models:** a trash button on the in-use rows in Model downloads clears the files and the setting, freeing the space for other quants
 - The busy overlay pill widens to fit the status text and stop button

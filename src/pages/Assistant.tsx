@@ -1054,6 +1054,19 @@ const ASR_MODEL = "Qwen3-ASR-0.6B-Q8_0.gguf";
 const ASR_MMPROJ = "mmproj-Qwen3-ASR-0.6B-Q8_0.gguf";
 const ASR_SIZE = "805 MB + 214 MB";
 
+/// Pocket TTS (Kyutai) via llama-tts: one pack per language, plus an mmproj
+/// holding the audio codec. A reference voice is required or it stays silent.
+const POCKET_REPO = "EryriLabs/pocket-tts-GGUF";
+const POCKET_LANGS: { id: string; label: string; file: string; mm: string; size: string }[] = [
+  { id: "en", label: "English", file: "pocket-tts-en.gguf", mm: "mmproj-pocket-tts-en.gguf", size: "152 MB + 57 MB" },
+  { id: "fr", label: "French", file: "french/pocket-tts-french.gguf", mm: "french/mmproj-pocket-tts-french.gguf", size: "584 MB + 57 MB" },
+  { id: "de", label: "German", file: "german/pocket-tts-german.gguf", mm: "german/mmproj-pocket-tts-german.gguf", size: "152 MB + 57 MB" },
+  { id: "it", label: "Italian", file: "italian/pocket-tts-italian.gguf", mm: "italian/mmproj-pocket-tts-italian.gguf", size: "152 MB + 57 MB" },
+  { id: "pt", label: "Portuguese", file: "portuguese/pocket-tts-portuguese.gguf", mm: "portuguese/mmproj-pocket-tts-portuguese.gguf", size: "152 MB + 57 MB" },
+  { id: "es", label: "Spanish", file: "spanish/pocket-tts-spanish.gguf", mm: "spanish/mmproj-pocket-tts-spanish.gguf", size: "152 MB + 57 MB" },
+  { id: "cy", label: "Welsh", file: "welsh/pocket-tts-welsh.gguf", mm: "welsh/mmproj-pocket-tts-welsh.gguf", size: "584 MB + 57 MB" },
+];
+
 /// Suggested voice models with live download progress. Installing a quant
 /// also fetches the matching mmproj and points the config at both.
 function VoiceDownloadsCard({
@@ -1077,6 +1090,7 @@ function VoiceDownloadsCard({
   const [installing, setInstalling] = useState<{ model: string; mmproj: string } | null>(null);
   const [phase, setPhase] = useState<"model" | "mmproj">("model");
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [pocketLang, setPocketLang] = useState("en");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1222,6 +1236,28 @@ function VoiceDownloadsCard({
           </p>
         </div>
         {row(ASR_REPO, ASR_MODEL, ASR_MMPROJ, "Q8_0", ASR_SIZE, activeSttModel, onSttInstalled, onDeleteStt)}
+        <div className="border-t border-border pt-2.5">
+          <p className="text-xs font-medium text-ink">Pocket TTS</p>
+          <p className="text-[0.6875rem] text-dim">
+            One small pack per language; needs a reference voice (above) or the speech stays silent.
+          </p>
+        </div>
+        <select
+          className="input w-full text-xs py-0.5"
+          value={pocketLang}
+          onChange={(e) => setPocketLang(e.target.value)}
+          disabled={installing !== null}
+        >
+          {POCKET_LANGS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        {(() => {
+          const p = POCKET_LANGS.find((l) => l.id === pocketLang) ?? POCKET_LANGS[0];
+          return row(POCKET_REPO, p.file, p.mm, p.id.toUpperCase(), p.size, activeModel, onInstalled, onDeleteTts);
+        })()}
       </div>
       {error && <p className="text-xs text-accent-red">{error}</p>}
     </div>
@@ -1659,7 +1695,7 @@ function VoiceCard() {
             </div>
             <div className="space-y-1">
               <span className="text-[0.6875rem] text-dim">
-                Reference voice (uploaded for cloning; optional)
+                Reference voice (required by Pocket TTS, optional for Qwen3-TTS)
               </span>
               <div className="flex items-center gap-2">
                 <button

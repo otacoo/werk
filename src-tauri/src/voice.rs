@@ -57,6 +57,13 @@ pub async fn synthesize(state: &crate::AppState, text: &str) -> Result<TtsResult
             ));
         }
     }
+    if speaker.is_none() && needs_reference(&model) {
+        return Err(
+            "Pocket TTS needs a reference voice: upload or record one on the Voice tab, \
+             otherwise the model stays silent"
+                .to_string(),
+        );
+    }
     let lang = app_config.assistant.tts_lang.trim();
     // Qwen3-TTS runs at 12.5 frames/s and does not always emit EOS, so a flat
     // 2048-frame cap can append over a minute of gibberish; bound it to about
@@ -133,6 +140,12 @@ pub(crate) fn is_cuda_error(stderr: &[u8]) -> bool {
     lower.contains("cuda error") || lower.contains("ggml-cuda")
 }
 
+/// Pocket TTS produces near-silence without a reference voice, unlike
+/// Qwen3-TTS which falls back to a generic one.
+pub(crate) fn needs_reference(model: &str) -> bool {
+    model.to_lowercase().contains("pocket-tts")
+}
+
 /// llama-tts streams a progress meter on stderr; surface real errors first,
 /// otherwise the last few meaningful lines.
 fn tts_error_tail(stderr: &[u8]) -> String {
@@ -179,4 +192,16 @@ pub async fn assistant_tts_speak(
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<TtsResult, String> {
     synthesize(&state, &text).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_pocket_tts_needs_a_reference() {
+        assert!(needs_reference("C:/models/pocket-tts-en.gguf"));
+        assert!(needs_reference("POCKET-TTS-FRENCH-Q8_0.GGUF"));
+        assert!(!needs_reference("C:/models/Qwen3-TTS-12Hz-0.6B-Base.Q4_K_M.gguf"));
+    }
 }
