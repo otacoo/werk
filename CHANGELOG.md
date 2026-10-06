@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **web_fetch tool:** read a page as text after searching (markup and scripts stripped, ~12k chars by default)
+- web_search tries DuckDuckGo Lite first and falls back to the HTML page when it is rate-limited
 - Linux: notification sounds play again (played from memory; WebKitGTK's media player wants byte ranges the asset protocol does not serve)
 - Linux: NERV/Future card orbits fall back to a static border when WebKitGTK runs without its compositor (fixes the 5-7% CPU use)
 - LSP is off by default

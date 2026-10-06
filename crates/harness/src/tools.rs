@@ -394,6 +394,12 @@ const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) werk/0.6";
 
 /// DuckDuckGo HTML search: no API key, cross-platform, snippets only.
+/// A search result row: (title, url, snippet).
+type SearchRow = (String, String, String);
+
+/// One search endpoint and the parser for its result page.
+type SearchEndpoint = (&'static str, fn(&str, usize) -> Vec<SearchRow>);
+
 pub struct WebSearchTool;
 
 impl Tool for WebSearchTool {
@@ -403,7 +409,8 @@ impl Tool for WebSearchTool {
 
     fn description(&self) -> String {
         "Search the web and return the top results (title, URL, snippet). Use it for current \
-         facts, releases, docs, and anything the model may not know."
+         facts, releases, docs, and anything the model may not know; then web_fetch the most \
+         promising URL when the snippet is not enough."
             .to_string()
     }
 
@@ -434,16 +441,27 @@ impl Tool for WebSearchTool {
             .user_agent(USER_AGENT)
             .build()
             .context("Cannot build the search client")?;
-        let body = client
-            .get("https://html.duckduckgo.com/html/")
-            .query(&[("q", query.as_str())])
-            .send()
-            .context("Search request failed")?
-            .error_for_status()
-            .context("Search was rejected")?
-            .text()
-            .context("Cannot read the search response")?;
-        let results = parse_ddg(&body, max);
+        // Lite first (simpler page, less rate-limiting), then the html endpoint.
+        let endpoints: [SearchEndpoint; 2] = [
+            ("https://lite.duckduckgo.com/lite/", parse_ddg_lite),
+            ("https://html.duckduckgo.com/html/", parse_ddg),
+        ];
+        let mut results = Vec::new();
+        for (endpoint, parse) in endpoints {
+            let Ok(resp) = client.get(endpoint).query(&[("q", query.as_str())]).send() else {
+                continue;
+            };
+            let Ok(resp) = resp.error_for_status() else {
+                continue;
+            };
+            let Ok(body) = resp.text() else {
+                continue;
+            };
+            results = parse(&body, max);
+            if !results.is_empty() {
+                break;
+            }
+        }
         if results.is_empty() {
             bail!("No results for '{query}' (the search page may be rate-limiting or changed)");
         }
@@ -458,9 +476,228 @@ impl Tool for WebSearchTool {
     }
 }
 
+/// Fetch a page and return its readable text; the search → fetch pair.
+pub struct WebFetchTool;
+
+impl Tool for WebFetchTool {
+    fn name(&self) -> String {
+        "web_fetch".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Fetch a URL and return its readable text (scripts, styles, and markup stripped). \
+         Use it after web_search to read the actual page instead of guessing from snippets."
+            .to_string()
+    }
+
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "url": { "type": "string", "description": "Absolute http(s) URL." },
+                "max_chars": { "type": "integer", "description": "Text cap, default 12000 (1000-32000)." }
+            },
+            "required": ["url"]
+        })
+    }
+
+    fn approval_key(&self, _args: &Value) -> Option<ApprovalKey> {
+        None
+    }
+
+    fn execute(&self, args: &Value) -> Result<String> {
+        let url = str_arg(args, "url")?;
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            bail!("Only http(s) URLs can be fetched");
+        }
+        let max = args
+            .get("max_chars")
+            .and_then(Value::as_u64)
+            .unwrap_or(12_000)
+            .clamp(1_000, 32_000) as usize;
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .user_agent(USER_AGENT)
+            .build()
+            .context("Cannot build the fetch client")?;
+        let resp = client
+            .get(url.as_str())
+            .send()
+            .with_context(|| format!("Cannot fetch {url}"))?
+            .error_for_status()
+            .with_context(|| format!("Fetch was rejected for {url}"))?;
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_lowercase();
+        let body = resp.text().context("Cannot read the response body")?;
+        let text = if content_type.contains("html") || body.trim_start().starts_with('<') {
+            html_to_text(&body)
+        } else {
+            body
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            bail!("{url} returned no readable text");
+        }
+        let total = text.chars().count();
+        let clipped: String = text.chars().take(max).collect();
+        let mut out = format!("Contents of {url}:\n\n{clipped}");
+        if clipped.chars().count() < total {
+            out.push_str("\n\n[…truncated]");
+        }
+        Ok(out)
+    }
+}
+
+/// ASCII case-insensitive find over bytes; tags are ASCII, so this is safe
+/// on the original string (a lowercased copy could shift non-ASCII bytes).
+fn find_ci(hay: &str, needle: &str, from: usize) -> Option<usize> {
+    let hay = hay.as_bytes();
+    let needle = needle.as_bytes();
+    if needle.is_empty() || hay.len() < needle.len() {
+        return None;
+    }
+    (from..=hay.len() - needle.len()).find(|&i| hay[i..i + needle.len()].eq_ignore_ascii_case(needle))
+}
+
+fn replace_ci(hay: &str, needle: &str, with: &str) -> String {
+    let mut out = String::with_capacity(hay.len());
+    let mut pos = 0;
+    while let Some(i) = find_ci(hay, needle, pos) {
+        out.push_str(&hay[pos..i]);
+        out.push_str(with);
+        pos = i + needle.len();
+    }
+    out.push_str(&hay[pos..]);
+    out
+}
+
+/// Remove an entire element (opening tag through closing tag) by name.
+fn strip_blocks(html: &str, tag: &str) -> String {
+    let open = format!("<{tag}");
+    let close = format!("</{tag}");
+    let mut out = String::with_capacity(html.len());
+    let mut pos = 0;
+    while let Some(start) = find_ci(html, &open, pos) {
+        out.push_str(&html[pos..start]);
+        let after_open = find_ci(html, ">", start).map(|p| p + 1).unwrap_or(html.len());
+        pos = find_ci(html, &close, after_open)
+            .and_then(|p| find_ci(html, ">", p).map(|e| e + 1))
+            .unwrap_or(html.len());
+    }
+    out.push_str(&html[pos..]);
+    out
+}
+
+/// HTML → readable text: drop non-content elements, turn block tags into
+/// line breaks, strip the rest, decode common entities, collapse blanks.
+pub fn html_to_text(html: &str) -> String {
+    let mut text = html.to_string();
+    for tag in ["script", "style", "noscript", "svg", "head"] {
+        text = strip_blocks(&text, tag);
+    }
+    for tag in [
+        "</p", "</div", "</li", "</tr", "</table", "</h1", "</h2", "</h3", "</h4", "</h5", "</h6", "<br",
+    ] {
+        text = replace_ci(&text, tag, "\n");
+    }
+    let mut in_tag = false;
+    let mut plain = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => plain.push(c),
+            _ => {}
+        }
+    }
+    let plain = decode_entities(&plain);
+    let mut lines: Vec<String> = Vec::new();
+    for line in plain.lines() {
+        let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        if line.is_empty() {
+            if lines.last().map(|l: &String| !l.is_empty()).unwrap_or(false) {
+                lines.push(String::new());
+            }
+        } else {
+            lines.push(line);
+        }
+    }
+    while lines.last().map(String::is_empty).unwrap_or(false) {
+        lines.pop();
+    }
+    lines.join("\n")
+}
+
+/// The common named entities pages actually use.
+fn decode_entities(text: &str) -> String {
+    text.replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&#x27;", "'")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&mdash;", "—")
+        .replace("&ndash;", "–")
+        .replace("&hellip;", "…")
+        .replace("&rsquo;", "'")
+        .replace("&lsquo;", "'")
+        .replace("&ldquo;", "\"")
+        .replace("&rdquo;", "\"")
+}
+
+/// Parse the DDG Lite page: `result-link` anchors plus the snippet cell that
+/// follows each one (hrefs are direct, not wrapped).
+fn parse_ddg_lite(html: &str, max: usize) -> Vec<SearchRow> {
+    let mut out = Vec::new();
+    let mut rest = html;
+    while out.len() < max {
+        let Some(pos) = rest
+            .find("class=\"result-link\"")
+            .or_else(|| rest.find("class='result-link'"))
+        else {
+            break;
+        };
+        let tag_start = rest[..pos].rfind('<').unwrap_or(pos);
+        let tag_end = rest[pos..].find('>').map(|e| pos + e).unwrap_or(rest.len());
+        let tag = &rest[tag_start..tag_end];
+        let href = tag
+            .find("href=\"")
+            .and_then(|h| {
+                let after = &tag[h + 6..];
+                after.find('"').map(|end| &after[..end])
+            })
+            .unwrap_or("");
+        let after_tag = &rest[tag_end + 1..];
+        let close = after_tag.find("</a>").unwrap_or(after_tag.len());
+        let title = clean_text(&after_tag[..close]);
+        rest = &after_tag[close..];
+        let window_end = rest.find("result-link").unwrap_or(rest.len());
+        let window = &rest[..window_end];
+        let snippet = window
+            .find("result-snippet")
+            .and_then(|sp| {
+                let s = &window[sp..];
+                s.find('>').map(|e| &s[e + 1..])
+            })
+            .and_then(|s| s.split("</td>").next())
+            .map(clean_text)
+            .unwrap_or_default();
+        if !title.is_empty() && !href.is_empty() {
+            out.push((title, decode_ddg_url(href), snippet));
+        }
+    }
+    out
+}
+
 /// Parse DDG HTML result blocks: `result__a` links plus the snippet inside
 /// the same result block.
-fn parse_ddg(html: &str, max: usize) -> Vec<(String, String, String)> {
+fn parse_ddg(html: &str, max: usize) -> Vec<SearchRow> {
     let mut out = Vec::new();
     let mut rest = html;
     while out.len() < max {
@@ -1235,6 +1472,7 @@ impl ToolRegistry {
                 Arc::new(ExecTool { jail: jail.clone() }),
                 Arc::new(TimeTool),
                 Arc::new(WebSearchTool),
+                Arc::new(WebFetchTool),
                 Arc::new(SpawnSubagentTool),
                 Arc::new(AskUserTool),
             ],
@@ -1382,6 +1620,7 @@ impl ToolRegistry {
             BuiltinToolInfo { name: "exec", summary: "Shell commands; read-only runs free.", approval: "conditional", note: "" },
             BuiltinToolInfo { name: "get_time", summary: "Current UTC date and time.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "web_search", summary: "Search the web using DuckDuckGo.", approval: "auto", note: "" },
+            BuiltinToolInfo { name: "web_fetch", summary: "Read a page as text after searching.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "todo", summary: "Keep a short task list for the run.", approval: "auto", note: "Orchestrator only." },
             BuiltinToolInfo { name: "spawn_subagent", summary: "Delegate to an ephemeral specialist.", approval: "auto", note: "Orchestrator only." },
             BuiltinToolInfo { name: "ask_user", summary: "Ask the user a multiple-choice question.", approval: "auto", note: "Orchestrator only." },
@@ -1463,6 +1702,46 @@ mod tests {
         assert_eq!(results[1].2, "Second snippet.");
         // The limit is honored.
         assert_eq!(parse_ddg(html, 1).len(), 1);
+    }
+
+    #[test]
+    fn parses_ddg_lite_results() {
+        let html = r#"
+          <a rel="nofollow" href="https://example.com/a" class="result-link">Example &amp; Co</a>
+          <td class="result-snippet">A <b>snippet</b> here.</td>
+          <a rel="nofollow" href="https://direct.example/b" class="result-link">Direct</a>
+          <td class="result-snippet">Second snippet.</td>
+        "#;
+        let results = parse_ddg_lite(html, 5);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].0, "Example & Co");
+        assert_eq!(results[0].1, "https://example.com/a");
+        assert!(results[0].2.contains("snippet here"), "{}", results[0].2);
+        assert_eq!(results[1].1, "https://direct.example/b");
+        assert_eq!(parse_ddg_lite(html, 1).len(), 1);
+    }
+
+    #[test]
+    fn html_to_text_strips_and_keeps_paragraphs() {
+        let html = r#"
+          <html><head><title>T</title><style>p { color: red; }</style></head>
+          <body>
+            <script>var x = 1 < 2;</script>
+            <h1>Hello &amp; welcome</h1>
+            <p>First   paragraph with <b>bold</b>.</p>
+            <p>Second&nbsp;paragraph.</p>
+            <noscript>Enable JS</noscript>
+          </body></html>
+        "#;
+        let text = html_to_text(html);
+        assert!(!text.contains("color: red"), "{text}");
+        assert!(!text.contains("var x"), "{text}");
+        assert!(!text.contains("Enable JS"), "{text}");
+        assert!(text.starts_with("Hello & welcome"), "{text}");
+        assert!(text.contains("First paragraph with bold."), "{text}");
+        assert!(text.contains("Second paragraph."), "{text}");
+        // Paragraph breaks survive as a blank line.
+        assert!(text.contains("bold.\n\nSecond"), "{text}");
     }
 
     #[test]
