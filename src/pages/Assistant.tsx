@@ -1230,13 +1230,6 @@ function VoiceDownloadsCard({
           row(TTS_REPO, s.file, TTS_MMPROJ, s.quant, s.size, activeModel, onInstalled, onDeleteTts),
         )}
         <div className="border-t border-border pt-2.5">
-          <p className="text-xs font-medium text-ink">Qwen3-ASR 0.6B</p>
-          <p className="text-[0.6875rem] text-dim">
-            Speech-to-text for the overlay microphone; also fetches the audio projector ({ASR_SIZE}).
-          </p>
-        </div>
-        {row(ASR_REPO, ASR_MODEL, ASR_MMPROJ, "Q8_0", ASR_SIZE, activeSttModel, onSttInstalled, onDeleteStt)}
-        <div className="border-t border-border pt-2.5">
           <p className="text-xs font-medium text-ink">Pocket TTS</p>
           <p className="text-[0.6875rem] text-dim">
             One small pack per language; needs a reference voice (above) or the speech stays silent.
@@ -1258,6 +1251,13 @@ function VoiceDownloadsCard({
           const p = POCKET_LANGS.find((l) => l.id === pocketLang) ?? POCKET_LANGS[0];
           return row(POCKET_REPO, p.file, p.mm, p.id.toUpperCase(), p.size, activeModel, onInstalled, onDeleteTts);
         })()}
+        <div className="border-t border-border pt-2.5">
+          <p className="text-xs font-medium text-ink">Qwen3-ASR 0.6B</p>
+          <p className="text-[0.6875rem] text-dim">
+            Speech-to-text for the overlay microphone; also fetches the audio projector ({ASR_SIZE}).
+          </p>
+        </div>
+        {row(ASR_REPO, ASR_MODEL, ASR_MMPROJ, "Q8_0", ASR_SIZE, activeSttModel, onSttInstalled, onDeleteStt)}
       </div>
       {error && <p className="text-xs text-accent-red">{error}</p>}
     </div>
