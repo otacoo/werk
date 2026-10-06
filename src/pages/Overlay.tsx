@@ -210,13 +210,16 @@ export default function Overlay() {
       const ph = Math.round(h * scale);
       const margin = Math.round(16 * scale);
       const raise = Math.round(16 * scale);
-      // Prefer the work area so the pill never sits over the taskbar.
-      const area = await commands.overlayWorkArea().catch(() => null);
-      // A dragged position is remembered; clamp it into the work area.
+      // A dragged position is remembered; clamp it into the work area of the
+      // monitor it was on (not the one the window happens to start on).
       const saved = localStorage.getItem(POS_KEY);
       if (saved) {
         try {
           const pos = JSON.parse(saved) as { x: number; y: number };
+          const at = await commands
+            .overlayWorkArea(pos.x, pos.y)
+            .catch(() => null);
+          const area = at ?? (await commands.overlayWorkArea(null, null).catch(() => null));
           const x = area
             ? Math.min(Math.max(pos.x, area.left), area.right - pw)
             : pos.x;
@@ -231,6 +234,8 @@ export default function Overlay() {
           // Corrupt entry: fall through to the default corner.
         }
       }
+      // Prefer the work area so the pill never sits over the taskbar.
+      const area = await commands.overlayWorkArea(null, null).catch(() => null);
       if (area) {
         await win.setSize(new PhysicalSize(pw, ph));
         await win.setPosition(
@@ -292,7 +297,7 @@ export default function Overlay() {
     const win = getCurrentWindow();
     const [pos, size] = await Promise.all([win.outerPosition(), win.outerSize()]);
     let bounds: { left: number; top: number; right: number; bottom: number } | null = null;
-    const area = await commands.overlayWorkArea().catch(() => null);
+    const area = await commands.overlayWorkArea(null, null).catch(() => null);
     if (area) {
       bounds = { left: area.left, top: area.top, right: area.right, bottom: area.bottom };
     } else {
@@ -608,6 +613,8 @@ export default function Overlay() {
         }
       } catch (e) {
         setError(String(e));
+        // A failed attach while collapsed would otherwise be invisible.
+        if (!expandedRef.current) await expand();
       }
     }
   };
@@ -699,7 +706,7 @@ export default function Overlay() {
       style={opacity < 100 ? { opacity: opacity / 100 } : undefined}
     >
       <div
-        className={`relative flex items-center gap-2 rounded-full border border-border bg-surface-2/95 shadow-lg transition-all ${
+        className={`relative flex items-center gap-2 rounded-full border border-border bg-surface-2/95 shadow-lg transition-all max-w-full ${
           expanded ? "pl-2 pr-1.5 py-1.5" : "p-1.5"
         }`}
         onPointerDown={onPillDown}
@@ -803,12 +810,12 @@ export default function Overlay() {
             />
             {attachments.length > 0 && (
               <button
-                className="shrink min-w-0 flex items-center gap-1 rounded-full bg-accent/15 text-accent-soft px-2 py-1 text-[0.625rem]"
+                className="shrink min-w-0 max-w-[9rem] flex items-center gap-1 rounded-full bg-accent/15 text-accent-soft px-2 py-1 text-[0.625rem]"
                 title={`${attachments.map((a) => a.name).join("\n")}\n\nClick to clear`}
                 onClick={() => setAttachments([])}
               >
                 <Paperclip size={10} className="shrink-0" />
-                <span className="truncate">
+                <span className="truncate min-w-0">
                   {clipName(attachments[0].name)}
                   {attachments.length > 1 ? ` +${attachments.length - 1}` : ""}
                 </span>

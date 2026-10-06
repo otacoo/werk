@@ -18,6 +18,8 @@
 
 ### Fixed
 
+- Closing the app no longer logs the WebView2 "Failed to unregister class Chrome_WidgetWin_0. Error = 1412" shutdown error (windows are destroyed before exit).
+- The overlay's saved position is restored on the monitor it was on, not the one the window happens to start on, and the pill can no longer overflow its window (the attachment chip shrinks; a failed attach opens the pill so the error is visible).
 - Overlay attachments: the chip shrinks and clips long filenames with the extension visible (no more pill overflow that pushed the avatar off-screen), the paperclip hides once a file is attached, and dropping onto the collapsed circle attaches with a clip badge instead of expanding.
 - A missing reference-voice file reports a clear error instead of failing silently, and narration failures appear as a notice in the chat.
 - TTS synthesis is capped to about twice the text's speaking length, so a model that misses its end token no longer appends a long gibberish tail.

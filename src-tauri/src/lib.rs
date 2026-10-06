@@ -110,11 +110,19 @@ pub struct WorkArea {
 /// Work area (excludes the taskbar) of the monitor nearest `hwnd`.
 #[cfg(target_os = "windows")]
 fn monitor_work_area(hwnd: windows::Win32::Foundation::HWND) -> Option<WorkArea> {
-    use windows::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-    };
+    use windows::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST};
     unsafe {
-        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        monitor_work_area_of(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST))
+    }
+}
+
+/// Work area of a specific monitor handle.
+#[cfg(target_os = "windows")]
+fn monitor_work_area_of(
+    monitor: windows::Win32::Graphics::Gdi::HMONITOR,
+) -> Option<WorkArea> {
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITORINFO};
+    unsafe {
         let mut info = MONITORINFO {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
@@ -132,21 +140,26 @@ fn monitor_work_area(hwnd: windows::Win32::Foundation::HWND) -> Option<WorkArea>
     }
 }
 
-/// The overlay's work area; None outside Windows (the frontend falls back to
-/// the full monitor rect).
+/// The overlay's work area; with a point, the monitor that point lives on
+/// (used to restore a saved position on the right display). None outside
+/// Windows (the frontend falls back to the full monitor rect).
 #[tauri::command]
 #[specta::specta]
-fn overlay_work_area(app: tauri::AppHandle) -> Option<WorkArea> {
+fn overlay_work_area(app: tauri::AppHandle, x: Option<i32>, y: Option<i32>) -> Option<WorkArea> {
     #[cfg(target_os = "windows")]
     {
         use tauri::Manager;
-        use windows::Win32::Foundation::HWND;
+        use windows::Win32::Foundation::{HWND, POINT};
+        use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONEAREST};
+        if let (Some(x), Some(y)) = (x, y) {
+            return unsafe { monitor_work_area_of(MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST)) };
+        }
         let win = app.get_webview_window("overlay")?;
         monitor_work_area(HWND(win.hwnd().ok()?.0 as _))
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = app;
+        let _ = (app, x, y);
         None
     }
 }
@@ -727,7 +740,14 @@ pub fn run() {
                     api.prevent_close();
                     let _ = win.hide();
                 } else {
-                    // The hidden overlay would otherwise keep the app alive.
+                    // Destroy the windows before exiting: WebView2 otherwise
+                    // leaves its window class registered and logs
+                    // "Failed to unregister class Chrome_WidgetWin_0. Error = 1412".
+                    for label in ["overlay", "main"] {
+                        if let Some(w) = win.app_handle().get_webview_window(label) {
+                            let _ = w.destroy();
+                        }
+                    }
                     win.app_handle().exit(0);
                 }
             }

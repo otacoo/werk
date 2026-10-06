@@ -12,15 +12,16 @@ export const commands = {
 	/**  Show or hide the assistant overlay (the frontend owns profile awareness). */
 	setOverlayVisible: (visible: boolean) => typedError<null, string>(__TAURI_INVOKE("set_overlay_visible", { visible })),
 	/**
-	 *  The overlay's work area; None outside Windows (the frontend falls back to
-	 *  the full monitor rect).
+	 *  The overlay's work area; with a point, the monitor that point lives on
+	 *  (used to restore a saved position on the right display). None outside
+	 *  Windows (the frontend falls back to the full monitor rect).
 	 */
-	overlayWorkArea: () => __TAURI_INVOKE<{
+	overlayWorkArea: (x: number | null, y: number | null) => __TAURI_INVOKE<{
 	left: number,
 	top: number,
 	right: number,
 	bottom: number,
-} | null>("overlay_work_area"),
+} | null>("overlay_work_area", { x, y }),
 	/**
 	 *  Session kind for platform quirks: Wayland forbids client-side window
 	 *  positioning, so the overlay disables bounds enforcement and position
