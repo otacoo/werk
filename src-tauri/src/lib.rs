@@ -180,6 +180,40 @@ fn set_devtools(app: tauri::AppHandle, open: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Work area of the monitor containing a physical point (Windows).
+#[cfg(target_os = "windows")]
+fn work_area_at(x: i32, y: i32) -> Option<WorkArea> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONEAREST};
+    unsafe { monitor_work_area_of(MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST)) }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn work_area_at(_x: i32, _y: i32) -> Option<WorkArea> {
+    None
+}
+
+/// Save the overlay's position (physical pixels) for the next start.
+#[tauri::command]
+#[specta::specta]
+fn set_overlay_position(
+    x: i32,
+    y: i32,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut cfg = state.config.lock().unwrap();
+    cfg.assistant.overlay_pos = Some([x, y]);
+    cfg.save().map_err(|e| e.to_string())
+}
+
+/// The saved overlay position, if any (the frontend keeps the Rust-placed
+/// position instead of re-anchoring to the default corner).
+#[tauri::command]
+#[specta::specta]
+fn overlay_position(state: tauri::State<'_, AppState>) -> Option<[i32; 2]> {
+    state.config.lock().unwrap().assistant.overlay_pos
+}
+
 /// Session kind for platform quirks: Wayland forbids client-side window
 /// positioning, so the overlay disables bounds enforcement and position
 /// memory there.
@@ -306,6 +340,8 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         overlay_work_area,
         session_kind,
         set_devtools,
+        set_overlay_position,
+        overlay_position,
         chat::harness_agent_send,
         chat::harness_agent_abort,
         chat::harness_agent_steer,
@@ -593,10 +629,34 @@ pub fn run() {
                     caption_hit_test::install(hwnd.0 as isize);
                 }
             }
+            // Restore the overlay's saved position from Rust: setPosition from
+            // the frontend before the window is shown raced its own layout
+            // work, so the pill kept resetting to the default corner.
+            if let Some(pos) = app
+                .state::<AppState>()
+                .config
+                .lock()
+                .unwrap()
+                .assistant
+                .overlay_pos
+            {
+                if let Some(win) = app.get_webview_window("overlay") {
+                    let size = win
+                        .outer_size()
+                        .unwrap_or(tauri::PhysicalSize::new(84, 84));
+                    let (x, y) = match work_area_at(pos[0], pos[1]) {
+                        Some(a) => (
+                            pos[0].clamp(a.left, (a.right - size.width as i32).max(a.left)),
+                            pos[1].clamp(a.top, (a.bottom - size.height as i32).max(a.top)),
+                        ),
+                        None => (pos[0], pos[1]),
+                    };
+                    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+                }
+            }
             // Paint the window surface with the system theme so the reveal (and
             // any pre-paint frame) never flashes white.
-            if let Some(window) = app.get_webview_window("main") {
-                let theme_color = |theme: &tauri::Theme| match theme {
+            if let Some(window) = app.get_webview_window("main") {                let theme_color = |theme: &tauri::Theme| match theme {
                     tauri::Theme::Light => tauri::window::Color(249, 250, 251, 255),
                     _ => tauri::window::Color(20, 20, 20, 255),
                 };

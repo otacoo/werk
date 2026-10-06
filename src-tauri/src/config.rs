@@ -335,6 +335,9 @@ pub struct AssistantConfig {
     /// Show the always-on-top overlay while the assistant profile is active.
     #[serde(default)]
     pub overlay_enabled: bool,
+    /// Last overlay window position (physical pixels), restored at startup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlay_pos: Option<[i32; 2]>,
     /// Master switch for the system-control tools (opt-in).
     #[serde(default)]
     pub system_control: bool,
@@ -400,6 +403,7 @@ impl Default for AssistantConfig {
             autostart: false,
             hotkey: default_assistant_hotkey(),
             overlay_enabled: false,
+            overlay_pos: None,
             system_control: false,
             workspace: None,
             temp_enabled: true,

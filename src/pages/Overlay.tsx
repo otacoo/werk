@@ -15,7 +15,6 @@ const EXPANDED_W = 404;
 const EXPANDED_H = 84;
 /// Wider pill while a run is starting/working, for the status label.
 const WORKING_W = 176;
-const POS_KEY = "werk.overlay.pos";
 
 /// One file attached to the next overlay message.
 type OverlayAttachment = {
@@ -211,29 +210,13 @@ export default function Overlay() {
       const ph = Math.round(h * scale);
       const margin = Math.round(16 * scale);
       const raise = Math.round(16 * scale);
-      // A dragged position is remembered; clamp it into the work area of the
-      // monitor it was on (not the one the window happens to start on).
-      const saved = localStorage.getItem(POS_KEY);
+      // The backend restores a dragged position at startup (clamped to the
+      // monitor it was on); only the size and topmost flag are left here.
+      const saved = await commands.overlayPosition().catch(() => null);
       if (saved) {
-        try {
-          const pos = JSON.parse(saved) as { x: number; y: number };
-          const at = await commands
-            .overlayWorkArea(pos.x, pos.y)
-            .catch(() => null);
-          const area = at ?? (await commands.overlayWorkArea(null, null).catch(() => null));
-          const x = area
-            ? Math.min(Math.max(pos.x, area.left), area.right - pw)
-            : pos.x;
-          const y = area
-            ? Math.min(Math.max(pos.y, area.top), area.bottom - ph)
-            : pos.y;
-          await win.setSize(new PhysicalSize(pw, ph));
-          await win.setPosition(new PhysicalPosition(x, y));
-          await win.setAlwaysOnTop(true);
-          return;
-        } catch {
-          // Corrupt entry: fall through to the default corner.
-        }
+        await win.setSize(new PhysicalSize(pw, ph));
+        await win.setAlwaysOnTop(true);
+        return;
       }
       // Prefer the work area so the pill never sits over the taskbar.
       const area = await commands.overlayWorkArea(null, null).catch(() => null);
@@ -392,9 +375,10 @@ export default function Overlay() {
       if (timer) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         dragging.current = false;
-        // Wayland ignores setPosition, so a saved spot could never be restored.
+        // Persist through the backend (a config write); Wayland ignores
+        // setPosition, so there is nothing to restore there.
         if (!waylandRef.current) {
-          localStorage.setItem(POS_KEY, JSON.stringify({ x: payload.x, y: payload.y }));
+          void call(commands.setOverlayPosition(payload.x, payload.y)).catch(() => {});
         }
         void enforceBounds();
       }, 250);

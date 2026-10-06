@@ -30,6 +30,13 @@ export const commands = {
 	sessionKind: () => typedError<string, string>(__TAURI_INVOKE("session_kind")),
 	/**  Open or close the main window's webview devtools (Debug page toggle). */
 	setDevtools: (open: boolean) => typedError<null, string>(__TAURI_INVOKE("set_devtools", { open })),
+	/**  Save the overlay's position (physical pixels) for the next start. */
+	setOverlayPosition: (x: number, y: number) => typedError<null, string>(__TAURI_INVOKE("set_overlay_position", { x, y })),
+	/**
+	 *  The saved overlay position, if any (the frontend keeps the Rust-placed
+	 *  position instead of re-anchoring to the default corner).
+	 */
+	overlayPosition: () => __TAURI_INVOKE<[number, number] | null>("overlay_position"),
 	/**  Send a message to the coding agent; streams over `harness_event`. */
 	harnessAgentSend: (message: string, reasoningEffort: string | null, attachments: SendAttachment_Deserialize[] | null) => typedError<RunResult_Serialize, string>(__TAURI_INVOKE("harness_agent_send", { message, reasoningEffort, attachments })),
 	/**  Stop the running agent loop. */
@@ -634,6 +641,8 @@ export type AssistantConfig_Deserialize = {
 	hotkey?: string,
 	/**  Show the always-on-top overlay while the assistant profile is active. */
 	overlay_enabled?: boolean,
+	/**  Last overlay window position (physical pixels), restored at startup. */
+	overlay_pos?: [number, number] | null,
 	/**  Master switch for the system-control tools (opt-in). */
 	system_control?: boolean,
 	/**  The assistant's own folder for persistent files (user-picked). */
@@ -711,6 +720,8 @@ export type AssistantConfig_Serialize = {
 	hotkey: string,
 	/**  Show the always-on-top overlay while the assistant profile is active. */
 	overlay_enabled: boolean,
+	/**  Last overlay window position (physical pixels), restored at startup. */
+	overlay_pos?: [number, number] | null,
 	/**  Master switch for the system-control tools (opt-in). */
 	system_control: boolean,
 	/**  The assistant's own folder for persistent files (user-picked). */

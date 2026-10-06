@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- The overlay's position is persisted in the config and restored by the backend at startup; the frontend's own restore raced its layout work and kept resetting the pill to the default corner.
 - The overlay restores its saved position again on startup: the status-label resize ran concurrently with the restore and could move the window back to its old spot.
 - The overlay no longer dozes off mid-reply and the glow stays on through narration, including the model-load gap before the first audio.
 - Overlay file drops work: the overlay webview handles HTML5 drops directly (its native drop target only showed a forbidden cursor), attaching dropped files as bytes.
