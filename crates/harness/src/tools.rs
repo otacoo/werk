@@ -14,6 +14,8 @@ pub const FIND_CAP: usize = 100;
 pub const SEARCH_CAP: usize = 50;
 pub const EXEC_CAP: usize = 50_000;
 pub const EXEC_TIMEOUT_SECS: u64 = 120;
+/// How long a fetched page stays usable for repeat calls and offset paging.
+pub const FETCH_CACHE_TTL_SECS: u64 = 20 * 60;
 
 pub trait Tool: Send + Sync {
     fn name(&self) -> String;
@@ -496,7 +498,8 @@ impl Tool for WebFetchTool {
 
     fn description(&self) -> String {
         "Fetch a URL and return its readable text (scripts, styles, and markup stripped). \
-         Use it after web_search to read the actual page instead of guessing from snippets."
+         Use it after web_search to read the actual page instead of guessing from snippets. \
+         Long pages come back head+tail; pass the offset from the footer to read on."
             .to_string()
     }
 
@@ -505,7 +508,8 @@ impl Tool for WebFetchTool {
             "type": "object",
             "properties": {
                 "url": { "type": "string", "description": "Absolute http(s) URL." },
-                "max_chars": { "type": "integer", "description": "Text cap, default 12000 (1000-32000)." }
+                "max_chars": { "type": "integer", "description": "Text cap, default 12000 (1000-32000)." },
+                "offset": { "type": "integer", "description": "Skip this many characters; use the offset printed in a truncated result to read on." }
             },
             "required": ["url"]
         })
@@ -525,46 +529,179 @@ impl Tool for WebFetchTool {
             .and_then(Value::as_u64)
             .unwrap_or(12_000)
             .clamp(1_000, 32_000) as usize;
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .user_agent(USER_AGENT)
-            .build()
-            .context("Cannot build the fetch client")?;
-        let resp = client
-            .get(url.as_str())
-            .send()
-            .with_context(|| format!("Cannot fetch {url}"))?
-            .error_for_status()
-            .with_context(|| format!("Fetch was rejected for {url}"))?;
-        let content_type = resp
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_lowercase();
-        let body = resp.text().context("Cannot read the response body")?;
-        let text = if content_type.contains("xml")
-            || content_type.contains("rss")
-            || content_type.contains("atom")
-            || body.trim_start().starts_with("<?xml")
-        {
-            feed_to_text(&body)
-        } else if content_type.contains("html") || body.trim_start().starts_with('<') {
-            html_to_text(&body)
-        } else {
-            body
+        let offset = args
+            .get("offset")
+            .and_then(Value::as_u64)
+            .map(|o| o as usize);
+        let text = match read_fetch_cache(&url) {
+            Some(text) => text,
+            None => {
+                let fetched = fetch_text(&url)?;
+                if !is_local_url(&url) {
+                    write_fetch_cache(&url, &fetched);
+                }
+                fetched
+            }
         };
-        let text = text.trim();
-        if text.is_empty() {
-            bail!("{url} returned no readable text");
+        Ok(clip_page(&url, &text, max, offset))
+    }
+}
+
+/// Fetch a URL and extract its readable text (feeds get item blocks).
+fn fetch_text(url: &str) -> Result<String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent(USER_AGENT)
+        .build()
+        .context("Cannot build the fetch client")?;
+    let resp = client
+        .get(url)
+        .send()
+        .with_context(|| format!("Cannot fetch {url}"))?
+        .error_for_status()
+        .with_context(|| format!("Fetch was rejected for {url}"))?;
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_lowercase();
+    let body = resp.text().context("Cannot read the response body")?;
+    let text = if content_type.contains("xml")
+        || content_type.contains("rss")
+        || content_type.contains("atom")
+        || body.trim_start().starts_with("<?xml")
+    {
+        feed_to_text(&body)
+    } else if content_type.contains("html") || body.trim_start().starts_with('<') {
+        html_to_text(&body)
+    } else {
+        body
+    };
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        bail!("{url} returned no readable text");
+    }
+    Ok(text)
+}
+
+/// Cache of extracted page text keyed by URL, so duplicate fetches (common in
+/// subagent fan-outs) and offset paging don't hit the network again.
+fn fetch_cache_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("werk-web-cache")
+}
+
+fn cache_key(url: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in url.as_bytes() {
+        hash ^= u64::from(*b);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn read_fetch_cache(url: &str) -> Option<String> {
+    let path = fetch_cache_dir().join(format!("{}.txt", cache_key(url)));
+    let age = std::fs::metadata(&path).ok()?.modified().ok()?.elapsed().ok()?;
+    if age.as_secs() > FETCH_CACHE_TTL_SECS {
+        return None;
+    }
+    std::fs::read_to_string(&path).ok()
+}
+
+fn write_fetch_cache(url: &str, text: &str) {
+    let dir = fetch_cache_dir();
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let _ = std::fs::write(dir.join(format!("{}.txt", cache_key(url))), text);
+}
+
+/// Local and dev hosts change on every save, so they are never cached.
+fn is_local_url(url: &str) -> bool {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(is_local_host))
+        .unwrap_or(true)
+}
+
+fn is_local_host(host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']).to_lowercase();
+    let private_172 = host.starts_with("172.")
+        && host
+            .split('.')
+            .nth(1)
+            .and_then(|o| o.parse::<u8>().ok())
+            .is_some_and(|o| (16..=31).contains(&o));
+    host == "localhost"
+        || host == "::1"
+        || host.ends_with(".local")
+        || host.starts_with("127.")
+        || host.starts_with("10.")
+        || host.starts_with("192.168.")
+        || private_172
+        || !host.contains('.')
+}
+
+/// Head+tail view of a long page. The footer names the exact `offset` call
+/// that reads on, so the model can page through the omitted middle.
+fn clip_page(url: &str, text: &str, max: usize, offset: Option<usize>) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let total = chars.len();
+    let assemble = |slice: &str, footer: Option<String>| {
+        let mut out = format!("Contents of {url}:\n\n{slice}");
+        if let Some(footer) = footer {
+            out.push_str("\n\n");
+            out.push_str(&footer);
         }
-        let total = text.chars().count();
-        let clipped: String = text.chars().take(max).collect();
-        let mut out = format!("Contents of {url}:\n\n{clipped}");
-        if clipped.chars().count() < total {
-            out.push_str("\n\n[…truncated]");
+        out
+    };
+    match offset {
+        Some(o) => {
+            if o >= total {
+                return format!(
+                    "Contents of {url}:\n\n(offset {o} is past the end; the page has {total} characters)"
+                );
+            }
+            let end = (o + max).min(total);
+            let slice: String = chars[o..end].iter().collect();
+            let footer = (end < total)
+                .then(|| format!("[…truncated — call web_fetch with offset={end} to read on]"));
+            assemble(&slice, footer)
         }
-        Ok(out)
+        None => {
+            if total <= max {
+                return assemble(&chars.iter().collect::<String>(), None);
+            }
+            let head_len = cut_line(&chars, max * 3 / 4, true);
+            let tail_start = cut_line(&chars, total - max / 4, false);
+            let head: String = chars[..head_len].iter().collect();
+            let tail: String = chars[tail_start..].iter().collect();
+            let omitted = tail_start - head_len;
+            let footer = format!(
+                "[…truncated — {omitted} characters omitted; call web_fetch with offset={head_len} to read on]"
+            );
+            assemble(&format!("{head}\n\n[…]\n\n{tail}"), Some(footer))
+        }
+    }
+}
+
+/// Nudge a cut position to a line boundary (searching up to 200 characters).
+fn cut_line(chars: &[char], pos: usize, head: bool) -> usize {
+    const SLACK: usize = 200;
+    if head {
+        let lo = pos.saturating_sub(SLACK);
+        (lo..pos)
+            .rev()
+            .find(|&i| chars[i] == '\n')
+            .map(|i| i + 1)
+            .unwrap_or(pos)
+    } else {
+        let hi = (pos + SLACK).min(chars.len());
+        (pos..hi)
+            .find(|&i| chars[i] == '\n')
+            .map(|i| i + 1)
+            .unwrap_or(pos)
     }
 }
 
@@ -1919,6 +2056,51 @@ mod tests {
         assert!(text.contains("Summary one."), "{text}");
         assert!(text.contains("Second"), "{text}");
         assert!(!text.contains("Channel"), "{text}");
+    }
+
+    #[test]
+    fn clip_page_keeps_head_and_tail_with_offset_hint() {
+        let text: String = (0..100).map(|i| format!("line {i}\n")).collect();
+        let out = clip_page("http://example.com", &text, 300, None);
+        assert!(out.contains("line 0"), "{out}");
+        assert!(out.contains("line 99"), "{out}");
+        assert!(!out.contains("line 50"), "{out}");
+        assert!(out.contains("call web_fetch with offset="), "{out}");
+    }
+
+    #[test]
+    fn clip_page_pages_by_offset() {
+        let text = "abcdefghij".repeat(10);
+        let out = clip_page("http://example.com", &text, 40, Some(60));
+        assert!(!out.contains("offset="), "{out}");
+        let out = clip_page("http://example.com", &text, 40, Some(0));
+        assert!(out.contains("offset=40"), "{out}");
+        let out = clip_page("http://example.com", &text, 40, Some(100));
+        assert!(out.contains("past the end"), "{out}");
+    }
+
+    #[test]
+    fn short_pages_are_returned_whole() {
+        let out = clip_page("http://example.com", "hello", 1000, None);
+        assert_eq!(out, "Contents of http://example.com:\n\nhello");
+    }
+
+    #[test]
+    fn local_hosts_are_never_cached() {
+        for host in ["localhost", "127.0.0.1", "192.168.1.10", "172.16.0.4", "nas", "printer.local"] {
+            assert!(is_local_host(host), "{host}");
+        }
+        for host in ["example.com", "172.32.0.1", "8.8.8.8"] {
+            assert!(!is_local_host(host), "{host}");
+        }
+        assert!(!is_local_url("https://example.com/a"));
+        assert!(is_local_url("http://127.0.0.1:1420/"));
+    }
+
+    #[test]
+    fn cache_key_is_stable_and_url_specific() {
+        assert_eq!(cache_key("https://example.com"), cache_key("https://example.com"));
+        assert_ne!(cache_key("https://example.com"), cache_key("https://example.com/"));
     }
 
     #[test]

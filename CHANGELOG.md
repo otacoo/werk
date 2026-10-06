@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **web_fetch:** fetched pages are cached briefly (repeat fetches and parallel subagents don't re-download), and long pages return head+tail with an offset in the footer to page through the middle
 - **Qwen3-TTS 1.7B:** the bigger, more expressive voice model joins Model downloads (Q4_K_M, Q6_K, Q8_0)
 - **Speech on CPU:** a Voice option that runs narration and voice input on the CPU, leaving VRAM free for the main model; narration and CPU toggles moved to their own Speech card
 - **Pocket TTS:** small per-language voice packs (English, French, German, Italian, Portuguese, Spanish, Welsh) — pick the language, then download; needs a reference voice, and without one it now says so instead of producing near-silence
