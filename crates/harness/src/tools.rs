@@ -180,6 +180,21 @@ impl Tool for WriteFileTool {
 /// Move a file to the OS trash (recycle bin); never a hard delete.
 pub struct DeleteFileTool {
     jail: Arc<PathJail>,
+    /// Injected so tests never touch the real recycle bin.
+    trash: TrashFn,
+}
+
+type TrashFn = Arc<dyn Fn(&std::path::Path) -> Result<()> + Send + Sync>;
+
+impl DeleteFileTool {
+    pub fn new(jail: Arc<PathJail>) -> Self {
+        Self {
+            jail,
+            trash: Arc::new(|path| {
+                trash::delete(path).map_err(|e| anyhow::anyhow!("Cannot move to the trash: {e}"))
+            }),
+        }
+    }
 }
 
 impl Tool for DeleteFileTool {
@@ -211,7 +226,7 @@ impl Tool for DeleteFileTool {
         if !path.is_file() {
             bail!("Only files can be trashed (not folders): {}", path.display());
         }
-        trash::delete(&path).map_err(|e| anyhow::anyhow!("Cannot move to the trash: {e}"))?;
+        (self.trash)(&path)?;
         Ok(format!("Moved to the trash: {}", path.display()))
     }
 }
@@ -1747,7 +1762,7 @@ impl ToolRegistry {
                 Arc::new(ReadFileTool { jail: jail.clone() }),
                 Arc::new(WriteFileTool { jail: jail.clone(), lsp: None }),
                 Arc::new(EditFileTool { jail: jail.clone(), lsp: None }),
-                Arc::new(DeleteFileTool { jail: jail.clone() }),
+                Arc::new(DeleteFileTool::new(jail.clone())),
                 Arc::new(FindFilesTool { jail: jail.clone() }),
                 Arc::new(SearchContentTool { jail: jail.clone() }),
                 Arc::new(ExecTool { jail: jail.clone() }),
@@ -2141,14 +2156,25 @@ mod tests {
     #[test]
     fn delete_moves_files_to_the_trash() {
         let root = temp_dir("delete");
-        let reg = registry_for(&root);
+        let jail = Arc::new(crate::sandbox::PathJail::new(&root, &[]).unwrap());
+        let bin = root.join(".trash-bin");
+        let sink = bin.clone();
+        // A stub trash: the real one would fill the developer's recycle bin.
+        let tool = DeleteFileTool {
+            jail,
+            trash: Arc::new(move |path| {
+                std::fs::create_dir_all(&sink).unwrap();
+                std::fs::rename(path, sink.join(path.file_name().unwrap())).unwrap();
+                Ok(())
+            }),
+        };
         std::fs::write(root.join("gone.txt"), "x").unwrap();
         std::fs::create_dir_all(root.join("sub")).unwrap();
-        let tool = reg.get("delete_file").unwrap();
         assert!(tool.approval_key(&json!({})).is_some());
         let out = tool.execute(&json!({"path": "gone.txt"})).unwrap();
         assert!(out.contains("trash"), "{out}");
         assert!(!root.join("gone.txt").exists());
+        assert!(bin.join("gone.txt").exists());
         // Folders and missing files are rejected.
         assert!(tool.execute(&json!({"path": "sub"})).is_err());
         assert!(tool.execute(&json!({"path": "nope.txt"})).is_err());
