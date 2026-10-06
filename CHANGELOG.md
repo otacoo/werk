@@ -2,22 +2,24 @@
 
 ## Unreleased
 
-- **web_fetch:** fetched pages are cached briefly (repeat fetches and parallel subagents don't re-download), and long pages return head+tail with an offset in the footer to page through the middle
+## 2026-10-06 – v0.8.4
+
+### New options & features
+
+- **Pocket TTS:** small per-language voice packs (English, French, German, Italian, Portuguese, Spanish, Welsh) — pick the language, then download; needs a reference voice, and without one it now says so instead of producing near-silence
 - **Qwen3-TTS 1.7B:** the bigger, more expressive voice model joins Model downloads (Q4_K_M, Q6_K, Q8_0)
 - **Speech on CPU:** a Voice option that runs narration and voice input on the CPU, leaving VRAM free for the main model; narration and CPU toggles moved to their own Speech card
-- **Pocket TTS:** small per-language voice packs (English, French, German, Italian, Portuguese, Spanish, Welsh) — pick the language, then download; needs a reference voice, and without one it now says so instead of producing near-silence
+- **Delete voice models:** a trash button on the in-use rows in Model downloads clears the files and the setting
+- **Stop a running model:** the overlay (circle and pill) and the assistant chat show a stop button for runs started anywhere, including overlay sends; **Stop speech** adds the same while narration plays
+- **web_fetch:** read a page as text after searching (markup and scripts stripped, ~12k chars by default); RSS/Atom feeds come back as headline lists, fetched pages are cached briefly, and long pages return head+tail with an offset to page through the middle
+- **web_search:** DuckDuckGo Lite first, the HTML page as fallback, then Bing when throttled — and it says when searches are rate-limited instead of a vague "no results"
+
+### Bug fixes & others
+
 - Assistant chat keeps reasoning and tool cards when the transcript reloads (tab switches, restarts, runs started elsewhere)
-- **Delete voice models:** a trash button on the in-use rows in Model downloads clears the files and the setting, freeing the space for other quants
-- The busy overlay pill widens to fit the status text and stop button
 - Voice narration spawns fewer llama-tts processes (each one reloads the model), and long sentences cut at clauses so speech starts sooner
-- **Stop a running model:** the overlay (circle and pill) and the assistant chat now show a stop button for runs started anywhere, including overlay sends
-- **Stop speech:** a stop button on the overlay circle and pill while narration plays
-- Fix the overlay stop button being cut off; the busy pill is wider and the status text truncates
-- web_search falls back to Bing when DuckDuckGo throttles, and says when searches are rate-limited instead of a vague "no results"
-- web_fetch reads RSS/Atom feeds as clean headline lists instead of raw XML
+- The busy overlay pill widens to fit the status text and stop button (the stop button was cut off)
 - Fix the overlay sticking on "Waking up…" after a run it did not start (reminders, chat page)
-- **web_fetch tool:** read a page as text after searching (markup and scripts stripped, ~12k chars by default)
-- web_search tries DuckDuckGo Lite first and falls back to the HTML page when it is rate-limited
 - Linux: notification sounds play again (played from memory; WebKitGTK's media player wants byte ranges the asset protocol does not serve)
 - Linux: NERV/Future card orbits fall back to a static border when WebKitGTK runs without its compositor (fixes the 5-7% CPU use)
 - LSP is off by default
