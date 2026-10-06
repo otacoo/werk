@@ -50,6 +50,13 @@ pub async fn synthesize(state: &crate::AppState, text: &str) -> Result<TtsResult
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
+    if let Some(path) = speaker {
+        if !std::path::Path::new(path).is_file() {
+            return Err(format!(
+                "Reference voice file not found: {path} — re-pick it on the Voice tab"
+            ));
+        }
+    }
     let lang = app_config.assistant.tts_lang.trim();
     // Qwen3-TTS runs at 12.5 frames/s and does not always emit EOS, so a flat
     // 2048-frame cap can append over a minute of gibberish; bound it to about

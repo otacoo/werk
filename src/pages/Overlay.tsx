@@ -61,6 +61,9 @@ export default function Overlay() {
   const [assistantName, setAssistantName] = useState("");
   /// The server is loading the model for this run ("Waking up…").
   const [loadingModel, setLoadingModel] = useState(false);
+  /// Narration audio is still playing; keep the glow going.
+  const [speaking, setSpeaking] = useState(false);
+  const speakingRef = useRef(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [level, setLevel] = useState(0);
@@ -245,6 +248,17 @@ export default function Overlay() {
       })
       .catch(() => {});
     refreshMic();
+    // Narration drives the glow while audio plays, and reports failures.
+    speech.current.onPlayback = (playing) => {
+      speakingRef.current = playing;
+      setSpeaking(playing);
+    };
+    speech.current.onError = (message) => {
+      setError(`Narration failed: ${message}`);
+      setState("error");
+      if (sentTimer.current) window.clearTimeout(sentTimer.current);
+      sentTimer.current = window.setTimeout(() => setState("idle"), 4000);
+    };
   }, []);
 
   /// More than half off-screen: sweat, then bounce fully back in. Wayland
@@ -385,7 +399,10 @@ export default function Overlay() {
     // A recording without a pill has nowhere to land: stop and drop it.
     if (recorder.current.active) void recorder.current.stop();
     setRecording(false);
-    await anchor(stateRef.current === "working" ? WORKING_W : COLLAPSED, COLLAPSED);
+    await anchor(
+      stateRef.current === "working" || speakingRef.current ? WORKING_W : COLLAPSED,
+      COLLAPSED,
+    );
   };
 
   useEffect(() => {
@@ -463,12 +480,12 @@ export default function Overlay() {
     };
   }, []);
 
-  // Grow the pill while working so the status label has room; back when done.
+  // Grow the pill while working or speaking so the status label has room.
   useEffect(() => {
     if (expandedRef.current) return;
-    void anchor(state === "working" ? WORKING_W : COLLAPSED, COLLAPSED);
+    void anchor(state === "working" || speaking ? WORKING_W : COLLAPSED, COLLAPSED);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
+  }, [state, speaking]);
 
   // Dictation hotkey: open the pill and start or stop recording.
   useEffect(() => {
@@ -570,6 +587,15 @@ export default function Overlay() {
           : state === "error"
             ? "bg-accent-red"
             : "bg-accent/80 animate-[pulse_3s_ease-in-out_infinite]";
+  /// Busy covers the whole span: server start, model load, generation, speech.
+  const busy = state === "working" || speaking;
+  const statusLabel = generating
+    ? "Thinking…"
+    : speaking
+      ? "Speaking…"
+      : loadingModel
+        ? "Loading model…"
+        : "Waking up…";
 
   return (
     <div
@@ -586,7 +612,7 @@ export default function Overlay() {
         onPointerCancel={onPressUp}
         onClick={onPillClick}
       >
-        {expanded && generating && (
+        {expanded && busy && (
           <span className="overlay-ring" aria-hidden>
             <span className="overlay-ring-rotor" />
           </span>
@@ -612,15 +638,15 @@ export default function Overlay() {
           ) : (
             <Sparkles size={16} className="relative text-ink" />
           )}
-          {!expanded && generating && (
+          {!expanded && busy && (
             <span className="overlay-ring" aria-hidden>
               <span className="overlay-ring-rotor" />
             </span>
           )}
         </button>
-        {!expanded && state === "working" && (
+        {!expanded && busy && (
           <span className="text-xs text-dim whitespace-nowrap pr-2" aria-live="polite">
-            {generating ? "Thinking…" : loadingModel ? "Loading model…" : "Waking up…"}
+            {statusLabel}
           </span>
         )}
         {sleeping && !expanded && animations && (
@@ -640,7 +666,15 @@ export default function Overlay() {
             <input
               ref={inputRef}
               className="input flex-1 min-w-0 bg-transparent border-0 text-sm focus:outline-none"
-              placeholder={recording ? "Listening…" : assistantName ? `Ask ${assistantName}…` : "Ask the assistant…"}
+              placeholder={
+                recording
+                  ? "Listening…"
+                  : busy
+                    ? statusLabel
+                    : assistantName
+                      ? `Ask ${assistantName}…`
+                      : "Ask the assistant…"
+              }
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {

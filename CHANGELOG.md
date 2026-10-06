@@ -8,6 +8,7 @@
 
 ### Changed
 
+- The overlay's glow and status cover the whole span — server start, model load, generation, and TTS playback — and the expanded input shows the phase ("Waking up…", "Loading model…", "Thinking…", "Speaking…").
 - The overlay pill widens while a run is starting and shows "Waking up…", "Loading model…", or "Thinking…".
 - The lobotomy skull button requires a 3-second hold, and the overlay input suggests the assistant's name ("Ask Ada…").
 - Linux: the DMA-BUF renderer workaround applies only to NVIDIA systems now (Intel/AMD keep the fast GPU compositing path); `WEBKIT_DISABLE_DMABUF_RENDERER=1` still forces it.
@@ -15,6 +16,7 @@
 
 ### Fixed
 
+- A missing reference-voice file reports a clear error instead of failing silently, and narration failures appear as a notice in the chat.
 - TTS synthesis is capped to about twice the text's speaking length, so a model that misses its end token no longer appends a long gibberish tail.
 - The overlay's off-screen sweat drop is back on Wayland (the bounce stays X11/Windows-only, since Wayland ignores client positioning) and the droplet is filled.
 

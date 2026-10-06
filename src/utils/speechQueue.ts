@@ -27,6 +27,7 @@ class Reply {
   aborted = false;
   queued = 0;
   epoch = 0;
+  errorReported = false;
 
   flush(): void {
     const waiters = this.waiters;
@@ -65,10 +66,22 @@ function playAudio(audio: string): Promise<void> {
 export class SpeechQueue {
   private reply = new Reply();
   private chain: Promise<void> = Promise.resolve();
+  private playing = false;
+  /// Playback state for the UI: the glow keeps running while audio plays.
+  onPlayback: ((playing: boolean) => void) | null = null;
+  /// One narration failure report per reply (never spam per chunk).
+  onError: ((message: string) => void) | null = null;
+
+  private setPlaying(playing: boolean): void {
+    if (this.playing === playing) return;
+    this.playing = playing;
+    this.onPlayback?.(playing);
+  }
 
   /// Start a new reply; anything queued or playing is dropped.
   reset(): void {
     stopAudio();
+    this.setPlaying(false);
     this.reply = new Reply();
     this.chain = Promise.resolve();
   }
@@ -87,6 +100,7 @@ export class SpeechQueue {
   /// The turn used tools: drop queued speech and wait for the final text.
   abort(): void {
     stopAudio();
+    this.setPlaying(false);
     this.reply.aborted = true;
     this.reply.epoch += 1;
     this.reply.audio = [];
@@ -104,6 +118,7 @@ export class SpeechQueue {
     if (reply.pending === 0) reply.synthDone = true;
     while (this.reply === reply) {
       if (reply.audio.length > 0) {
+        this.setPlaying(true);
         await playAudio(reply.audio.shift() as string);
       } else if (reply.synthDone) {
         break;
@@ -111,6 +126,7 @@ export class SpeechQueue {
         await reply.wait();
       }
     }
+    this.setPlaying(false);
     if (this.reply === reply) this.reset();
   }
 
@@ -124,7 +140,13 @@ export class SpeechQueue {
           reply.audio.push(r.audio);
         }
       })
-      .catch(() => {})
+      .catch((e) => {
+        // Narration failures used to vanish silently; report once per reply.
+        if (this.reply === reply && !reply.errorReported) {
+          reply.errorReported = true;
+          this.onError?.(String(e));
+        }
+      })
       .then(() => {
         reply.pending -= 1;
         if (reply.pending === 0) reply.synthDone = true;

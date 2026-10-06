@@ -149,6 +149,13 @@ export default function AssistantChat({
     voiceRef.current = voice;
   }, [voice]);
 
+  // Narration failures (bad reference file, model errors) must not vanish.
+  useEffect(() => {
+    speech.current.onError = (message) => {
+      setItems((prev) => [...prev, { kind: "sys", text: `Narration failed: ${message}` }]);
+    };
+  }, []);
+
   const refreshConfig = () => {
     call(commands.getConfig())
       .then(applyConfig)
