@@ -73,6 +73,14 @@ export const commands = {
 	assistantReset: () => typedError<null, string>(__TAURI_INVOKE("assistant_reset")),
 	/**  Wipe the assistant's memory and current conversation — a full lobotomy. */
 	assistantForget: () => typedError<null, string>(__TAURI_INVOKE("assistant_forget")),
+	/**  Continue an interrupted assistant run from the saved transcript. */
+	assistantResume: () => typedError<RunResult_Serialize, string>(__TAURI_INVOKE("assistant_resume")),
+	/**  Drop the interrupted marker; the transcript stays as history. */
+	assistantDismissInterrupted: () => typedError<null, string>(__TAURI_INVOKE("assistant_dismiss_interrupted")),
+	/**  Continue an interrupted agent run from its loaded session. */
+	harnessAgentResume: () => typedError<RunResult_Serialize, string>(__TAURI_INVOKE("harness_agent_resume")),
+	/**  Drop the interrupted marker on the loaded agent session. */
+	harnessAgentDismissInterrupted: () => typedError<null, string>(__TAURI_INVOKE("harness_agent_dismiss_interrupted")),
 	/**  Resolve the assistant's parked approval request. */
 	assistantDecide: (grant: string | null) => typedError<null, string>(__TAURI_INVOKE("assistant_decide", { grant })),
 	/**  Every saved discussion for the active character, newest first. */
@@ -1000,12 +1008,16 @@ export type HistoryView_Deserialize = {
 	messages: HistoryMessage_Deserialize[],
 	meta: MetaEntry_Deserialize[],
 	todos?: TodoDto[],
+	/**  The transcript on disk ends mid-run; the UI offers resume or dismiss. */
+	interrupted?: boolean,
 };
 
 export type HistoryView_Serialize = {
 	messages: HistoryMessage_Serialize[],
 	meta: MetaEntry_Serialize[],
 	todos: TodoDto[],
+	/**  The transcript on disk ends mid-run; the UI offers resume or dismiss. */
+	interrupted: boolean,
 };
 
 /**  Wire-ready launch command for the Run page (same prep as `start_server`). */

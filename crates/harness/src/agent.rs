@@ -522,6 +522,7 @@ fn is_context_overflow(err: &str) -> bool {
 }
 
 impl AgentRun<'_> {
+    #[allow(clippy::too_many_arguments)]
     pub async fn run(
         &self,
         history: &mut Vec<ChatMessage>,
@@ -530,6 +531,9 @@ impl AgentRun<'_> {
         steer: Arc<dyn Fn() -> Vec<String> + Send + Sync>,
         mut on_stream: impl FnMut(StreamEvent) + Send,
         mut on_event: impl FnMut(AgentEvent) + Send,
+        // Called after every completed turn: long runs persist their progress
+        // so a crash costs at most the turn in flight.
+        mut on_checkpoint: impl FnMut(&[ChatMessage]) + Send,
     ) -> Result<AgentOutcome> {
         let mut turns_used = 0usize;
         let mut sub_seq = 0usize;
@@ -879,6 +883,8 @@ impl AgentRun<'_> {
                     });
                 }
             }
+            // The turn is complete and on the record: checkpoint it.
+            on_checkpoint(history);
         }
     }
 
@@ -1235,7 +1241,15 @@ impl AgentRun<'_> {
             on_event(ev);
         };
         let outcome = run
-            .run(&mut history, should_stop, gate, no_steer, &mut noop, &mut nested)
+            .run(
+                &mut history,
+                should_stop,
+                gate,
+                no_steer,
+                &mut noop,
+                &mut nested,
+                |_| {},
+            )
             .await?;
         let report = outcome.text;
         const REPORT_CAP: usize = 16_000;

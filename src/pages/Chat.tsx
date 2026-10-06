@@ -22,6 +22,7 @@ import type {
   ContextStats,
   Provider,
   RunChange,
+  RunResult,
   ServerStatus,
   TodoDto,
 } from "../bindings";
@@ -159,6 +160,8 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
   const [favorites, setFavorites] = useState<string[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [runStatus, setRunStatus] = useState<"thinking" | "loading" | "working" | null>(null);
+  /// The loaded session ends mid-run; offer resume or dismiss.
+  const [interrupted, setInterrupted] = useState(false);
   // Live run stats: deltas ≈ tokens (fallback), server usage when reported.
   const [liveDeltas, setLiveDeltas] = useState(0);
   const [liveUsage, setLiveUsage] = useState<{ prompt: number; gen: number } | null>(null);
@@ -449,6 +452,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
         }
       });
       setItems(restored);
+      setInterrupted(res.interrupted ?? false);
       setError(null);
     } catch {}
   };
@@ -854,6 +858,18 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     ]);
     setInput("");
     setAttachments([]);
+    const payload = attachments.map((a) => ({
+      name: a.name,
+      kind: a.kind,
+      path: a.path,
+      data_base64: a.kind === "image" && a.preview ? a.preview.split(",", 2)[1] ?? null : null,
+      text: a.kind === "text" ? (a.text ?? "") : null,
+    }));
+    await runTurn(() => call(commands.harnessAgentSend(text, reasoningEffort || null, payload)));
+  };
+
+  /// Run one agent turn: lock the composer, stream, finalize, refresh caps.
+  const runTurn = async (invoke: () => Promise<RunResult>) => {
     if (!(await ensureServerReady())) return;
     setStreaming(true);
     setStreamText("");
@@ -873,20 +889,8 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     setError(null);
 
     try {
-      const res = await call(
-        commands.harnessAgentSend(
-          text,
-          reasoningEffort || null,
-          attachments.map((a) => ({
-            name: a.name,
-            kind: a.kind,
-            path: a.path,
-            data_base64:
-              a.kind === "image" && a.preview ? a.preview.split(",", 2)[1] ?? null : null,
-            text: a.kind === "text" ? (a.text ?? "") : null,
-          })),
-        ),
-      );
+      const res = await invoke();
+      setInterrupted(false);
       setContextUsed(res.prompt_tokens ?? null);
       setItems((prev) => [
         ...prev,
@@ -939,6 +943,22 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
       // The active model may have changed (roles, router switches) — keep the
       // context size and capability badges fresh.
       call(commands.harnessAgentCapabilities()).then(setCaps).catch(() => {});
+    }
+  };
+
+  /// Continue an interrupted agent run from its loaded session.
+  const resume = async () => {
+    if (streaming || starting) return;
+    setInterrupted(false);
+    await runTurn(() => call(commands.harnessAgentResume()));
+  };
+
+  const dismissInterrupted = async () => {
+    setInterrupted(false);
+    try {
+      await call(commands.harnessAgentDismissInterrupted());
+    } catch (e) {
+      setError(String(e));
     }
   };
 
@@ -1188,6 +1208,22 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
 
         {/* Messages — select-text re-enables selection (body disables it for the title bar) */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-3 select-text" style={{ zoom: chatZoom }}>
+          {interrupted && !streaming && (
+            <div className="card border-accent/40 bg-accent/5 flex items-center gap-3">
+              <span className="text-xs text-dim flex-1">
+                The previous run was interrupted. Resume where it left off, or dismiss it.
+              </span>
+              <button className="btn-primary text-xs py-1 px-2 shrink-0" onClick={() => void resume()}>
+                Resume
+              </button>
+              <button
+                className="btn-secondary text-xs py-1 px-2 shrink-0"
+                onClick={() => void dismissInterrupted()}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           {items.length === 0 && streamText === null && <EmptyState />}
           {items.map((it, i) => {
             if (it.kind === "msg") {

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Long runs checkpoint the transcript after every completed turn; if the app is killed mid-run, the assistant and agent chats offer Resume (continue from the last turn) or Dismiss.
+
 ### Changed
 
 - Linux: the DMA-BUF renderer workaround applies only to NVIDIA systems now (Intel/AMD keep the fast GPU compositing path); `WEBKIT_DISABLE_DMABUF_RENDERER=1` still forces it.

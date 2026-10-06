@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
+  AlertTriangle,
   ArrowUp,
   Brain,
   Check,
@@ -17,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { commands } from "../bindings";
-import type { AppConfig, ContextStats, ServerStatus } from "../bindings";
+import type { AppConfig, ContextStats, RunResult, ServerStatus } from "../bindings";
 import { call } from "../utils/ipc";
 import { subscribeConfigChanged } from "../utils/appSettings";
 import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
@@ -98,6 +99,8 @@ export default function AssistantChat({
   const [slotCtx, setSlotCtx] = useState<ContextStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<"loading" | "thinking" | null>(null);
+  /// The saved transcript ends mid-run; offer resume or dismiss.
+  const [interrupted, setInterrupted] = useState(false);
   const [assistantName, setAssistantName] = useState("Werk");
   const [voice, setVoice] = useState<{ enabled: boolean; autoplay: boolean }>({
     enabled: false,
@@ -204,6 +207,7 @@ export default function AssistantChat({
         }
       });
       setItems(restored);
+      setInterrupted(res.interrupted ?? false);
     } catch {}
   };
 
@@ -555,6 +559,18 @@ export default function AssistantChat({
     ]);
     setInput("");
     setAttachments([]);
+    const payload = attachments.map((a) => ({
+      name: a.name,
+      kind: a.kind,
+      path: a.path,
+      data_base64: a.kind === "image" && a.preview ? a.preview.split(",", 2)[1] ?? null : null,
+      text: a.kind === "text" ? (a.text ?? "") : null,
+    }));
+    await runTurn(() => call(commands.assistantSend(text, null, payload)));
+  };
+
+  /// Run one turn: lock the composer, stream, finalize, narrate.
+  const runTurn = async (invoke: () => Promise<RunResult>) => {
     if (!(await ensureServerReady())) return;
     streamingRef.current = true;
     setStreaming(true);
@@ -569,20 +585,8 @@ export default function AssistantChat({
     speech.current.reset();
 
     try {
-      const res = await call(
-        commands.assistantSend(
-          text,
-          null,
-          attachments.map((a) => ({
-            name: a.name,
-            kind: a.kind,
-            path: a.path,
-            data_base64:
-              a.kind === "image" && a.preview ? a.preview.split(",", 2)[1] ?? null : null,
-            text: a.kind === "text" ? (a.text ?? "") : null,
-          })),
-        ),
-      );
+      const res = await invoke();
+      setInterrupted(false);
       setContextUsed(res.prompt_tokens ?? null);
       setItems((prev) => [
         ...prev,
@@ -631,6 +635,22 @@ export default function AssistantChat({
       setPendingQuestion(null);
       setQuestionDraft("");
       setRunStatus(null);
+    }
+  };
+
+  /// Continue an interrupted run from its saved transcript.
+  const resume = async () => {
+    if (streaming || starting) return;
+    setInterrupted(false);
+    await runTurn(() => call(commands.assistantResume()));
+  };
+
+  const dismissInterrupted = async () => {
+    setInterrupted(false);
+    try {
+      await call(commands.assistantDismissInterrupted());
+    } catch (e) {
+      setError(String(e));
     }
   };
 
@@ -809,6 +829,26 @@ export default function AssistantChat({
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-3 select-text">
+        {interrupted && !streaming && (
+          <div className="card border-accent/40 bg-accent/5 flex items-center gap-3">
+            <AlertTriangle size={14} className="text-accent shrink-0" />
+            <span className="text-xs text-dim flex-1">
+              The previous run was interrupted. Resume where it left off, or dismiss it.
+            </span>
+            <button
+              className="btn-primary text-xs py-1 px-2 shrink-0"
+              onClick={() => void resume()}
+            >
+              Resume
+            </button>
+            <button
+              className="btn-secondary text-xs py-1 px-2 shrink-0"
+              onClick={() => void dismissInterrupted()}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {items.length === 0 && streamText === null && (
           <div className="h-full flex flex-col items-center justify-center text-center gap-2">
             <Sparkles size={20} className="text-faint" />

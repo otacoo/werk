@@ -48,6 +48,9 @@ pub struct HarnessRuntime {
     /// Stop flag for the in-flight run; per runtime so Chat and Talk are
     /// independent.
     pub abort: Arc<std::sync::atomic::AtomicBool>,
+    /// The loaded session ended mid-run (a crash or kill); the UI offers to
+    /// resume it.
+    pub interrupted: std::sync::atomic::AtomicBool,
 }
 
 impl Default for HarnessRuntime {
@@ -71,6 +74,7 @@ impl HarnessRuntime {
             todos: std::sync::Arc::new(Mutex::new(Vec::new())),
             last_activity: Mutex::new(std::time::Instant::now()),
             abort: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            interrupted: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -852,6 +856,10 @@ struct SessionFile {
     /// Orchestrator task list at last save; prompt state, not transcript.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     todos: Vec<harness::todos::TodoItem>,
+    /// True while a run is in flight: a file left with this set was
+    /// interrupted and can be resumed.
+    #[serde(default)]
+    running: bool,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -963,6 +971,9 @@ pub struct HistoryView {
     pub meta: Vec<MetaEntry>,
     #[serde(default)]
     pub todos: Vec<TodoDto>,
+    /// The transcript on disk ends mid-run; the UI offers resume or dismiss.
+    #[serde(default)]
+    pub interrupted: bool,
 }
 
 /// One checkpoint in the orchestrator's task list.
@@ -1096,6 +1107,7 @@ fn save_transcript(
         messages: messages.to_vec(),
         meta,
         todos,
+        running: runtime.running.load(Ordering::SeqCst),
     };
     std::fs::write(&path, serde_json::to_string_pretty(&file)?)?;
     Ok(())
@@ -1486,7 +1498,7 @@ pub async fn harness_agent_send(
         runtime,
         RunMode::Agent,
         "harness_event",
-        message,
+        Some(message),
         reasoning_effort,
         attachments,
     )
@@ -1510,7 +1522,7 @@ pub async fn talk_send(
         runtime,
         RunMode::Roleplay,
         "talk_event",
-        message,
+        Some(message),
         reasoning_effort,
         attachments,
     )
@@ -1534,7 +1546,7 @@ pub async fn assistant_send(
         runtime,
         RunMode::Assistant,
         "assistant_event",
-        message,
+        Some(message),
         reasoning_effort,
         attachments,
     )
@@ -1558,7 +1570,7 @@ pub async fn assistant_proactive(
         runtime,
         RunMode::Assistant,
         "assistant_event",
-        format!("[Reminder] {text}"),
+        Some(format!("[Reminder] {text}")),
         None,
         None,
     )
@@ -1573,7 +1585,8 @@ async fn agent_send_impl(
     runtime: Arc<HarnessRuntime>,
     run_mode: RunMode,
     event_name: &'static str,
-    message: String,
+    // None = resume an interrupted run without a new user message.
+    message: Option<String>,
     reasoning_effort: Option<String>,
     attachments: Option<Vec<SendAttachment>>,
 ) -> Result<RunResult, String> {
@@ -1763,12 +1776,30 @@ async fn agent_send_impl(
                     if let Ok(saved) = serde_json::from_str::<SessionFile>(&text) {
                         *runtime.history.lock().unwrap() = saved.messages;
                         *runtime.meta.lock().unwrap() = saved.meta;
+                        runtime.interrupted.store(saved.running, Ordering::SeqCst);
                     }
                 }
             }
         }
     }
     let mut history = std::mem::take(&mut *runtime.history.lock().unwrap());
+    // Resume: the killed run may have ended between an assistant tool call
+    // and its result; drop that dangling turn so the loop restarts cleanly.
+    if message.is_none() {
+        trim_dangling_tool_calls(&mut history);
+    }
+    // Memory retrieval and prompt layering key off the current user turn; a
+    // resume uses the last user message already in the transcript.
+    let query = message.clone().unwrap_or_else(|| {
+        history
+            .iter()
+            .rev()
+            .find(|m| m.role == "user")
+            .and_then(|m| m.content.as_ref())
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_string()
+    });
     // Subagent model choices the prompt may advertise.
     let subagent_targets: Vec<String> = match mode {
         crate::config::ServerMode::External => app_config
@@ -1822,7 +1853,7 @@ async fn agent_send_impl(
                     base.push_str(&world);
                 }
             }
-            let memory = crate::roleplay::memory_block_for(&app_config, &message);
+            let memory = crate::roleplay::memory_block_for(&app_config, &query);
             history.insert(0, ChatMessage::system(format!("{base}{memory}")));
         } else if assistant {
             let skills = crate::assistant::skills();
@@ -1831,7 +1862,7 @@ async fn agent_send_impl(
                 ChatMessage::system(crate::assistant::system_prompt_for(
                     &app_config,
                     &skills,
-                    &message,
+                    &query,
                 )),
             );
         } else {
@@ -1850,7 +1881,7 @@ async fn agent_send_impl(
             let memory = harness::memory::load_block_query(
                 global_base.as_deref().map(|b| b.join("MEMORY.md")).as_deref(),
                 &root,
-                &message,
+                &query,
             );
             let run_context = crate::run_context::run_context_block(&root);
             history.insert(
@@ -1862,8 +1893,11 @@ async fn agent_send_impl(
             );
         }
     }
-    let (user_msg, _attached_images) = with_attachments(&message, &attachments.unwrap_or_default());
-    history.push(user_msg);
+    if let Some(message) = &message {
+        let (user_msg, _attached_images) =
+            with_attachments(message, &attachments.unwrap_or_default());
+        history.push(user_msg);
+    }
     if runtime.session_id.lock().unwrap().is_none() {
         let id = if roleplay {
             talk_session_id(&app_config)
@@ -2251,8 +2285,16 @@ async fn agent_send_impl(
             steer,
             &mut sink,
             &mut event_sink,
+            // Every completed turn hits the disk, so a crash costs at most the
+            // turn in flight (the file's `running` flag marks it interrupted).
+            |h| {
+                let _ = save_transcript(state, &runtime, h, None, run_mode);
+            },
         )
         .await;
+    // The run is over; transcripts saved from here on are not in flight.
+    runtime.running.store(false, Ordering::SeqCst);
+    runtime.interrupted.store(false, Ordering::SeqCst);
     *runtime.last_activity.lock().unwrap() = std::time::Instant::now();
 
     *runtime.history.lock().unwrap() = history;
@@ -2749,11 +2791,91 @@ pub async fn assistant_forget(state: State<'_, AppState>) -> Result<(), String> 
     Ok(())
 }
 
+/// Continue an interrupted assistant run from the saved transcript.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_resume(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<RunResult, String> {
+    let runtime = state.assistant.clone();
+    agent_send_impl(
+        &state,
+        app,
+        runtime,
+        RunMode::Assistant,
+        "assistant_event",
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+/// Drop the interrupted marker; the transcript stays as history.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_dismiss_interrupted(state: State<'_, AppState>) -> Result<(), String> {
+    discard_interrupted(&state, &state.assistant, RunMode::Assistant)
+}
+
+/// Continue an interrupted agent run from its loaded session.
+#[tauri::command]
+#[specta::specta]
+pub async fn harness_agent_resume(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<RunResult, String> {
+    let runtime = state.harness.clone();
+    agent_send_impl(
+        &state,
+        app,
+        runtime,
+        RunMode::Agent,
+        "harness_event",
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+/// Drop the interrupted marker on the loaded agent session.
+#[tauri::command]
+#[specta::specta]
+pub async fn harness_agent_dismiss_interrupted(state: State<'_, AppState>) -> Result<(), String> {
+    discard_interrupted(&state, &state.harness, RunMode::Agent)
+}
+
+/// Clear the interrupted marker and rewrite the transcript as not running.
+fn discard_interrupted(
+    state: &AppState,
+    runtime: &HarnessRuntime,
+    mode: RunMode,
+) -> Result<(), String> {
+    runtime.interrupted.store(false, Ordering::SeqCst);
+    runtime.running.store(false, Ordering::SeqCst);
+    save_transcript_current(state, runtime, mode, None).map_err(|e| e.to_string())
+}
+
+/// Resume cleanup: drop a trailing assistant turn whose tool calls never got
+/// results (the run died between the call and its execution).
+fn trim_dangling_tool_calls(history: &mut Vec<ChatMessage>) {
+    while history
+        .last()
+        .map(|m| m.role == "assistant" && m.tool_calls.is_some())
+        .unwrap_or(false)
+    {
+        history.pop();
+    }
+}
+
 fn reset_runtime(runtime: &HarnessRuntime) {
     runtime.history.lock().unwrap().clear();
     runtime.todos.lock().unwrap().clear();
     truncate_meta(runtime, 0);
     *runtime.session_id.lock().unwrap() = None;
+    runtime.interrupted.store(false, Ordering::SeqCst);
     if let Some(tx) = runtime.pending.lock().unwrap().take() {
         let _ = tx.send(Approved::Denied);
     }
@@ -3224,6 +3346,7 @@ fn history_view(runtime: &HarnessRuntime) -> Result<HistoryView, String> {
         messages: messages.iter().map(to_history_message).collect(),
         meta,
         todos: todo_dtos(&runtime.todos.lock().unwrap()),
+        interrupted: runtime.interrupted.load(Ordering::SeqCst),
     })
 }
 
@@ -3620,6 +3743,7 @@ pub async fn harness_session_load(
     *state.harness.meta.lock().unwrap() = file.meta.clone();
     *state.harness.session_id.lock().unwrap() = Some(file.id.clone());
     *state.harness.todos.lock().unwrap() = file.todos.clone();
+    state.harness.interrupted.store(file.running, Ordering::SeqCst);
     Ok(HistoryView {
         messages: file.messages.iter().map(to_history_message).collect(),
         meta: file
@@ -3628,6 +3752,7 @@ pub async fn harness_session_load(
             .map(|(index, meta)| MetaEntry { index: index as u32, meta })
             .collect(),
         todos: todo_dtos(&file.todos),
+        interrupted: file.running,
     })
 }
 
@@ -4661,6 +4786,45 @@ fn windows_build() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resume_trims_only_dangling_tool_turns() {
+        let call = |id: &str| harness::client::ToolCall {
+            id: id.to_string(),
+            call_type: "function".to_string(),
+            function: harness::client::FunctionCall {
+                name: "read_file".to_string(),
+                arguments: "{}".to_string(),
+            },
+        };
+        // A finished turn (assistant call + tool result) is kept.
+        let mut done = vec![
+            ChatMessage::user("hi"),
+            ChatMessage {
+                role: "assistant".into(),
+                content: None,
+                tool_calls: Some(vec![call("a")]),
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: "tool".into(),
+                content: Some(serde_json::json!("ok")),
+                tool_calls: None,
+                tool_call_id: Some("a".into()),
+            },
+        ];
+        trim_dangling_tool_calls(&mut done);
+        assert_eq!(done.len(), 3);
+        // A call with no result is dropped so the loop can restart cleanly.
+        done.push(ChatMessage {
+            role: "assistant".into(),
+            content: None,
+            tool_calls: Some(vec![call("b")]),
+            tool_call_id: None,
+        });
+        trim_dangling_tool_calls(&mut done);
+        assert_eq!(done.len(), 3);
+    }
 
     #[test]
     fn prompt_only_suggests_delegation_in_router_mode() {
