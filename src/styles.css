@@ -1,7 +1,27 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
+/* Tailwind v4 theme (was tailwind.config.js). Opacity modifiers work on
+   these automatically; the runtime theme files override the variables. */
+@theme {
+  --color-accent: rgb(var(--accent));
+  --color-accent-soft: rgb(var(--accent-soft));
+  --color-accent-red: #e5484d;
+  --color-accent-red-dark: #b91c1c;
+  --color-accent-green: #46a758;
+  --color-accent-yellow: #e8a13c;
+  --color-accent-orange: #f97316;
+  --color-accent-blue: #3b82f6;
+  --color-accent-cyan: #06b6d4;
+  --color-border: rgb(var(--border));
+  --color-ink: rgb(var(--ink));
+  --color-dim: rgb(var(--dim));
+  --color-faint: rgb(var(--faint));
+  --color-surface-0: rgb(var(--surface-0));
+  --color-surface-1: rgb(var(--surface-1));
+  --color-surface-2: rgb(var(--surface-2));
+  --color-surface-3: rgb(var(--surface-3));
+  --radius: 0px;
+}
 
 /* Must outrank the theme's :root --radius (themes load after this file). */
 :root[data-corners="round"] {
