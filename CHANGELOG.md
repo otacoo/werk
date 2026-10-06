@@ -8,8 +8,13 @@
 
 ### Changed
 
+- The lobotomy skull button requires a 3-second hold, and the overlay input suggests the assistant's name ("Ask Ada…").
 - Linux: the DMA-BUF renderer workaround applies only to NVIDIA systems now (Intel/AMD keep the fast GPU compositing path); `WEBKIT_DISABLE_DMABUF_RENDERER=1` still forces it.
 - The overlay is off by default for new installs.
+
+### Fixed
+
+- The overlay's off-screen sweat drop is back on Wayland (the bounce stays X11/Windows-only, since Wayland ignores client positioning) and the droplet is filled.
 
 ## [0.8.2] - 2026-10-05
 

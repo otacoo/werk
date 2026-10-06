@@ -101,6 +101,9 @@ export default function AssistantChat({
   const [runStatus, setRunStatus] = useState<"loading" | "thinking" | null>(null);
   /// The saved transcript ends mid-run; offer resume or dismiss.
   const [interrupted, setInterrupted] = useState(false);
+  /// Hold-to-confirm progress on the lobotomy button.
+  const [holdPct, setHoldPct] = useState(0);
+  const holdRaf = useRef(0);
   const [assistantName, setAssistantName] = useState("Werk");
   const [voice, setVoice] = useState<{ enabled: boolean; autoplay: boolean }>({
     enabled: false,
@@ -484,18 +487,10 @@ export default function AssistantChat({
     }
   };
 
-  /// Full reset: conversation and every memory, behind a cheeky warning.
+  /// Full reset: conversation and every memory. The skull button requires a
+  /// 3-second hold; the typed `/forget` is deliberate enough on its own.
   const forget = async () => {
     if (streaming || starting) return;
-    if (
-      !window.confirm(
-        "Lobotomize the assistant?\n\nThis wipes every memory and the current conversation. " +
-          "It will forget you, your projects, and everything it has learned about you.\n\n" +
-          "There is no undo.",
-      )
-    ) {
-      return;
-    }
     setError(null);
     setPendingQuestion(null);
     setQuestionDraft("");
@@ -505,6 +500,29 @@ export default function AssistantChat({
     } catch (e) {
       setError(String(e));
     }
+  };
+
+  /// Hold-to-confirm progress for the skull button (0..1 over 3 seconds).
+  const startForgetHold = () => {
+    if (streaming || starting) return;
+    const started = performance.now();
+    cancelAnimationFrame(holdRaf.current);
+    const tick = (t: number) => {
+      const pct = Math.min(1, (t - started) / 3000);
+      setHoldPct(pct);
+      if (pct >= 1) {
+        setHoldPct(0);
+        void forget();
+        return;
+      }
+      holdRaf.current = requestAnimationFrame(tick);
+    };
+    holdRaf.current = requestAnimationFrame(tick);
+  };
+
+  const cancelForgetHold = () => {
+    cancelAnimationFrame(holdRaf.current);
+    setHoldPct(0);
   };
 
   const send = async () => {
@@ -818,12 +836,19 @@ export default function AssistantChat({
             <RotateCcw size={11} />
           </button>
           <button
-            className="btn-ghost py-1 px-2 text-[0.625rem] hover:!text-accent-red"
-            onClick={forget}
+            className="btn-ghost py-1 px-2 text-[0.625rem] hover:!text-accent-red relative overflow-hidden"
+            onPointerDown={startForgetHold}
+            onPointerUp={cancelForgetHold}
+            onPointerLeave={cancelForgetHold}
+            onPointerCancel={cancelForgetHold}
             disabled={streaming || starting}
-            title="Wipe every memory and start over — a full lobotomy (also /forget)"
+            title="Hold 3 seconds to wipe every memory and start over (also /forget)"
           >
-            <Skull size={11} />
+            <span
+              className="absolute inset-y-0 left-0 bg-accent-red/40"
+              style={{ width: `${holdPct * 100}%` }}
+            />
+            <Skull size={11} className="relative" />
           </button>
         </div>
       </div>

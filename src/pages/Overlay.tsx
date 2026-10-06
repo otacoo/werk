@@ -55,6 +55,8 @@ export default function Overlay() {
   /// Voice input: dictation through the configured Qwen3-ASR model.
   const [sttEnabled, setSttEnabled] = useState(false);
   const [micReady, setMicReady] = useState(false);
+  /// Assistant name for the input suggestion ("Ask Ada…").
+  const [assistantName, setAssistantName] = useState("");
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [level, setLevel] = useState(0);
@@ -273,17 +275,20 @@ export default function Overlay() {
       y: Math.min(Math.max(pos.y, bounds.top + margin), bounds.bottom - size.height - margin),
     };
     setSweat(true);
-    // Ease the window back instead of teleporting it.
-    const steps = 8;
-    for (let i = 1; i <= steps; i++) {
-      const t = 1 - Math.pow(1 - i / steps, 3);
-      await win.setPosition(
-        new PhysicalPosition(
-          Math.round(pos.x + (target.x - pos.x) * t),
-          Math.round(pos.y + (target.y - pos.y) * t),
-        ),
-      );
-      await new Promise((r) => window.setTimeout(r, 16));
+    // Wayland ignores client positioning, so the bounce is X11/Windows-only;
+    // the sweat still flags that the pill is mostly off-screen.
+    if (!waylandRef.current) {
+      const steps = 8;
+      for (let i = 1; i <= steps; i++) {
+        const t = 1 - Math.pow(1 - i / steps, 3);
+        await win.setPosition(
+          new PhysicalPosition(
+            Math.round(pos.x + (target.x - pos.x) * t),
+            Math.round(pos.y + (target.y - pos.y) * t),
+          ),
+        );
+        await new Promise((r) => window.setTimeout(r, 16));
+      }
     }
     if (sweatTimer.current) window.clearTimeout(sweatTimer.current);
     sweatTimer.current = window.setTimeout(() => setSweat(false), 900);
@@ -296,6 +301,7 @@ export default function Overlay() {
         const enabled = !!c.assistant?.stt_enabled;
         setSttEnabled(enabled);
         setMicReady(enabled && !!c.assistant?.stt_model);
+        setAssistantName((c.assistant?.name ?? "").trim());
       })
       .catch(() => {});
   };
@@ -341,8 +347,8 @@ export default function Overlay() {
         // Wayland ignores setPosition, so a saved spot could never be restored.
         if (!waylandRef.current) {
           localStorage.setItem(POS_KEY, JSON.stringify({ x: payload.x, y: payload.y }));
-          void enforceBounds();
         }
+        void enforceBounds();
       }, 250);
     });
     return () => {
@@ -566,7 +572,7 @@ export default function Overlay() {
           onPointerUp={onPressUp}
           onPointerCancel={onPressUp}
           onClick={onPressClick}
-          title={expanded ? "Collapse" : "Ask the assistant (drag to move)"}
+          title={expanded ? "Collapse" : `Ask ${assistantName || "the assistant"} (drag to move)`}
         >
           <span className={`absolute inset-0 rounded-full opacity-30 ${dot}`} />
           {avatar ? (
@@ -595,7 +601,7 @@ export default function Overlay() {
         )}
         {sweat && animations && (
           <span className="overlay-sweat" aria-hidden>
-            <Droplets size={12} />
+            <Droplets size={12} fill="currentColor" />
           </span>
         )}
         {expanded && (
@@ -603,7 +609,7 @@ export default function Overlay() {
             <input
               ref={inputRef}
               className="input flex-1 min-w-0 bg-transparent border-0 text-sm focus:outline-none"
-              placeholder={recording ? "Listening…" : "Ask the assistant…"}
+              placeholder={recording ? "Listening…" : assistantName ? `Ask ${assistantName}…` : "Ask the assistant…"}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
