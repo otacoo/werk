@@ -6711,6 +6711,7 @@ name = "werk"
 version = "0.8.5"
 dependencies = [
  "accessibility",
+ "accessibility-sys",
  "anyhow",
  "arboard",
  "atspi",
@@ -6745,6 +6746,7 @@ dependencies = [
  "tokio-tungstenite",
  "trash",
  "windows 0.61.3",
+ "x11rb",
  "xcap",
  "zip 2.4.2",
 ]

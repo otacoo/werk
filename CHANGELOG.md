@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Window control** works on macOS and Linux (X11) as well as Windows — list, focus, minimize, maximize, restore, close, and move; on Wayland it explains that compositors do not allow it
+
 ## 2026-10-06 – v0.8.5
 
 ### New options & features

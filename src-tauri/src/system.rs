@@ -107,8 +107,7 @@ impl Tool for WindowTool {
 
     fn description(&self) -> String {
         "Manage desktop windows. `list` shows visible windows; `focus`, `minimize`, `maximize`, \
-         `restore`, `close`, and `move` take a `title` substring (first match). Mutating actions \
-         need approval."
+         `restore`, `close`, and `move` take a `title` substring (first match)."
             .to_string()
     }
 
@@ -146,12 +145,26 @@ impl Tool for WindowTool {
         {
             windows_action(action, title, args)
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "macos")]
+        {
+            macos_window_action(action, title, args)
+        }
+        #[cfg(target_os = "linux")]
+        {
+            x11_window_action(action, title, args)
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
         {
             let _ = (action, title, args);
-            bail!("Window control is only available on Windows for now")
+            bail!("Window control is not available on this platform")
         }
     }
+}
+
+/// Index of the first title containing `needle` (case-insensitive).
+fn title_match(titles: &[String], needle: &str) -> Option<usize> {
+    let needle = needle.to_lowercase();
+    titles.iter().position(|t| t.to_lowercase().contains(&needle))
 }
 
 #[cfg(target_os = "windows")]
@@ -186,9 +199,19 @@ fn list_windows() -> Result<String> {
     Ok(text)
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 fn list_windows() -> Result<String> {
-    bail!("Window control is only available on Windows for now")
+    macos_list_windows()
+}
+
+#[cfg(target_os = "linux")]
+fn list_windows() -> Result<String> {
+    x11_list_windows()
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn list_windows() -> Result<String> {
+    bail!("Window control is not available on this platform")
 }
 
 #[cfg(target_os = "windows")]
@@ -213,12 +236,9 @@ fn find_window(title: &str) -> Result<isize> {
     unsafe {
         let _ = EnumWindows(Some(collect), LPARAM(&mut found as *mut _ as isize));
     }
-    let needle = title.to_lowercase();
-    found
-        .into_iter()
-        .find(|(_, t)| t.to_lowercase().contains(&needle))
-        .map(|(h, _)| h)
-        .ok_or_else(|| anyhow!("No visible window matching '{title}'"))
+    let titles: Vec<String> = found.iter().map(|(_, t)| t.clone()).collect();
+    let index = title_match(&titles, title).ok_or_else(|| anyhow!("No visible window matching '{title}'"))?;
+    Ok(found[index].0)
 }
 
 #[cfg(target_os = "windows")]
@@ -267,6 +287,380 @@ fn windows_action(action: &str, title: &str, args: &Value) -> Result<String> {
             }
             _ => bail!("Unknown action '{action}'"),
         }
+    }
+}
+
+// ── macOS windows (Accessibility API) ─────────────────────────────────────
+
+#[cfg(target_os = "macos")]
+struct MacWindow {
+    pid: i32,
+    window: accessibility::AXUIElement,
+    title: String,
+    minimized: bool,
+}
+
+/// Every window of every regular (Dock-visible) app.
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+fn macos_windows() -> Result<Vec<MacWindow>> {
+    use accessibility::{AXUIElement, AXUIElementAttributes};
+    use objc::runtime::Object;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    let workspace: *mut Object = unsafe { msg_send![class!(NSWorkspace), sharedWorkspace] };
+    let apps: *mut Object = unsafe { msg_send![workspace, runningApplications] };
+    if apps.is_null() {
+        bail!("Cannot list running applications");
+    }
+    let count: usize = unsafe { msg_send![apps, count] };
+    let mut out = Vec::new();
+    for i in 0..count {
+        let app: *mut Object = unsafe { msg_send![apps, objectAtIndex: i] };
+        if app.is_null() {
+            continue;
+        }
+        // 0 = regular app; skip background helpers and agents.
+        let policy: i64 = unsafe { msg_send![app, activationPolicy] };
+        if policy != 0 {
+            continue;
+        }
+        let pid: i32 = unsafe { msg_send![app, processIdentifier] };
+        if pid <= 0 {
+            continue;
+        }
+        let element = AXUIElement::application(pid);
+        let Ok(windows) = element.windows() else {
+            continue; // no Accessibility permission for this app
+        };
+        for window in windows.iter() {
+            let window: AXUIElement = (*window).clone();
+            let title = window.title().map(|t| t.to_string()).unwrap_or_default();
+            let minimized = window.minimized().map(bool::from).unwrap_or(false);
+            out.push(MacWindow { pid, window, title, minimized });
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_list_windows() -> Result<String> {
+    let mut titles = Vec::new();
+    for w in macos_windows()? {
+        if w.title.trim().is_empty() {
+            continue;
+        }
+        titles.push(if w.minimized { format!("{} (minimized)", w.title) } else { w.title });
+    }
+    if titles.is_empty() {
+        return Ok("No visible windows (grant Accessibility permission if needed).".to_string());
+    }
+    let mut text = String::new();
+    for (i, title) in titles.iter().take(50).enumerate() {
+        text.push_str(&format!("{}. {title}\n", i + 1));
+    }
+    Ok(text)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_find_window(title: &str) -> Result<MacWindow> {
+    let windows = macos_windows()?;
+    let titles: Vec<String> = windows.iter().map(|w| w.title.clone()).collect();
+    let index = title_match(&titles, title).ok_or_else(|| {
+        anyhow!("No window matching '{title}' (grant Accessibility permission if needed)")
+    })?;
+    Ok(windows.into_iter().nth(index).unwrap())
+}
+
+/// Press one of a window's standard buttons (`AXCloseButton`, `AXZoomButton`).
+#[cfg(target_os = "macos")]
+fn macos_press_button(window: &accessibility::AXUIElement, name: &str) -> Result<()> {
+    use accessibility::{AXAttribute, AXUIElement, AXUIElementActions, AXUIElementAttributes};
+    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::string::CFString;
+
+    let attr: AXAttribute<CFType> = AXAttribute::new(&CFString::new(name));
+    let value = window.attribute(&attr).map_err(|e| anyhow!("No {name}: {e}"))?;
+    let button: AXUIElement = value.downcast().ok_or_else(|| anyhow!("{name} is not an element"))?;
+    button.press().map_err(|e| anyhow!("Press {name} failed: {e}"))
+}
+
+/// Set an Accessibility window's frame from plain integers.
+#[cfg(target_os = "macos")]
+fn macos_move(window: &accessibility::AXUIElement, x: i32, y: i32, w: i32, h: i32) -> Result<()> {
+    use accessibility::{AXAttribute, AXUIElementAttributes};
+    use accessibility_sys::{kAXValueTypeCGPoint, kAXValueTypeCGSize, AXValueCreate};
+    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::string::CFString;
+
+    #[repr(C)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    struct CGSize {
+        width: f64,
+        height: f64,
+    }
+
+    let point = CGPoint { x: x as f64, y: y as f64 };
+    let size = CGSize { width: w as f64, height: h as f64 };
+    let (position, dimensions) = unsafe {
+        (
+            AXValueCreate(kAXValueTypeCGPoint, &point as *const _ as *const std::ffi::c_void),
+            AXValueCreate(kAXValueTypeCGSize, &size as *const _ as *const std::ffi::c_void),
+        )
+    };
+    if position.is_null() || dimensions.is_null() {
+        bail!("Cannot build Accessibility geometry values");
+    }
+    let position = unsafe { CFType::wrap_under_create_rule(position as *const _) };
+    let dimensions = unsafe { CFType::wrap_under_create_rule(dimensions as *const _) };
+    let attr = |name: &str| AXAttribute::<CFType>::new(&CFString::new(name));
+    window
+        .set_attribute(&attr("AXPosition"), position)
+        .map_err(|e| anyhow!("Move failed: {e}"))?;
+    window
+        .set_attribute(&attr("AXSize"), dimensions)
+        .map_err(|e| anyhow!("Resize failed: {e}"))?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_window_action(action: &str, title: &str, args: &Value) -> Result<String> {
+    use accessibility::{AXAttribute, AXUIElement, AXUIElementActions, AXUIElementAttributes};
+    use core_foundation::boolean::CFBoolean;
+
+    let found = macos_find_window(title)?;
+    let window = &found.window;
+    let app = AXUIElement::application(found.pid);
+    match action {
+        "focus" => {
+            let _ = app.set_frontmost(true);
+            let _ = window.set_attribute(&AXAttribute::main(), CFBoolean::from(true));
+            let _ = window.set_attribute(&AXAttribute::focused(), CFBoolean::from(true));
+            let _ = window.raise();
+            Ok(format!("Focused '{}'.", found.title))
+        }
+        "minimize" => {
+            window
+                .set_attribute(&AXAttribute::minimized(), CFBoolean::from(true))
+                .map_err(|e| anyhow!("Minimize failed: {e}"))?;
+            Ok(format!("Minimized '{}'.", found.title))
+        }
+        "maximize" => {
+            macos_press_button(window, "AXZoomButton")?;
+            Ok(format!("Zoomed '{}'.", found.title))
+        }
+        "restore" => {
+            let _ = window.set_attribute(&AXAttribute::minimized(), CFBoolean::from(false));
+            let _ = window.set_attribute(&AXAttribute::main(), CFBoolean::from(true));
+            let _ = window.raise();
+            Ok(format!("Restored '{}'.", found.title))
+        }
+        "close" => {
+            macos_press_button(window, "AXCloseButton")?;
+            Ok(format!("Asked '{}' to close.", found.title))
+        }
+        "move" => {
+            let num = |name: &str| {
+                args.get(name)
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| anyhow!("'{name}' is required for move"))
+            };
+            let (x, y, w, h) =
+                (num("x")? as i32, num("y")? as i32, num("width")? as i32, num("height")? as i32);
+            macos_move(window, x, y, w, h)?;
+            Ok(format!("Moved '{}' to {x},{y} ({w}x{h}).", found.title))
+        }
+        _ => bail!("Unknown action '{action}'"),
+    }
+}
+
+// ── Linux windows (X11 EWMH) ──────────────────────────────────────────────
+
+#[cfg(target_os = "linux")]
+struct X11Window {
+    id: u32,
+    title: String,
+    minimized: bool,
+}
+
+#[cfg(target_os = "linux")]
+fn x11_connect() -> Result<(x11rb::rust_connection::RustConnection, u32)> {
+    use x11rb::connection::Connection;
+
+    if crate::session_kind().map(|k| k == "wayland").unwrap_or(false) {
+        bail!(
+            "Window control is not available on Wayland: compositors do not expose window \
+             management to apps. Use an X11 session."
+        );
+    }
+    let (conn, screen) = x11rb::connect(None).map_err(|e| anyhow!("Cannot connect to X11: {e}"))?;
+    let root = conn.setup().roots[screen].root;
+    Ok((conn, root))
+}
+
+#[cfg(target_os = "linux")]
+fn x11_atom(conn: &x11rb::rust_connection::RustConnection, name: &str) -> Result<u32> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::ConnectionExt;
+
+    conn.intern_atom(false, name.as_bytes())
+        .map_err(|e| anyhow!("{e}"))?
+        .reply()
+        .map_err(|e| anyhow!("{e}"))
+        .map(|r| r.atom)
+}
+
+#[cfg(target_os = "linux")]
+fn x11_windows() -> Result<Vec<X11Window>> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt};
+
+    let (conn, root) = x11_connect()?;
+    let client_list = x11_atom(&conn, "_NET_CLIENT_LIST")?;
+    let net_wm_name = x11_atom(&conn, "_NET_WM_NAME")?;
+    let utf8 = x11_atom(&conn, "UTF8_STRING")?;
+    let wm_state = x11_atom(&conn, "_NET_WM_STATE")?;
+    let hidden = x11_atom(&conn, "_NET_WM_STATE_HIDDEN")?;
+    let reply = conn
+        .get_property(false, root, client_list, AtomEnum::WINDOW, 0, 1024)
+        .map_err(|e| anyhow!("{e}"))?
+        .reply()
+        .map_err(|e| anyhow!("{e}"))?;
+    let ids: Vec<u32> = reply.value32().map(|it| it.collect()).unwrap_or_default();
+    let mut out = Vec::new();
+    for id in ids {
+        let title = x11_title(&conn, id, net_wm_name, utf8)?;
+        if title.trim().is_empty() {
+            continue;
+        }
+        let states = conn
+            .get_property(false, id, wm_state, AtomEnum::ATOM, 0, 64)
+            .map_err(|e| anyhow!("{e}"))?
+            .reply()
+            .map_err(|e| anyhow!("{e}"))?;
+        let minimized = states.value32().map(|mut it| it.any(|a| a == hidden)).unwrap_or(false);
+        out.push(X11Window { id, title, minimized });
+    }
+    Ok(out)
+}
+
+#[cfg(target_os = "linux")]
+fn x11_title(
+    conn: &x11rb::rust_connection::RustConnection,
+    win: u32,
+    net_wm_name: u32,
+    utf8: u32,
+) -> Result<String> {
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt};
+
+    if let Ok(cookie) = conn.get_property(false, win, net_wm_name, utf8, 0, 1024) {
+        if let Ok(reply) = cookie.reply() {
+            if !reply.value.is_empty() {
+                return Ok(String::from_utf8_lossy(&reply.value).to_string());
+            }
+        }
+    }
+    let reply = conn
+        .get_property(false, win, AtomEnum::WM_NAME, AtomEnum::STRING, 0, 1024)
+        .map_err(|e| anyhow!("{e}"))?
+        .reply()
+        .map_err(|e| anyhow!("{e}"))?;
+    Ok(String::from_utf8_lossy(&reply.value).to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn x11_list_windows() -> Result<String> {
+    let mut titles = Vec::new();
+    for w in x11_windows()? {
+        titles.push(if w.minimized { format!("{} (minimized)", w.title) } else { w.title });
+    }
+    if titles.is_empty() {
+        return Ok("No visible windows.".to_string());
+    }
+    let mut text = String::new();
+    for (i, title) in titles.iter().take(50).enumerate() {
+        text.push_str(&format!("{}. {title}\n", i + 1));
+    }
+    Ok(text)
+}
+
+#[cfg(target_os = "linux")]
+fn x11_window_action(action: &str, title: &str, args: &Value) -> Result<String> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{
+        ClientMessageData, ClientMessageEvent, ConfigureWindowAux, ConnectionExt, EventMask,
+    };
+
+    let windows = x11_windows()?;
+    let titles: Vec<String> = windows.iter().map(|w| w.title.clone()).collect();
+    let index =
+        title_match(&titles, title).ok_or_else(|| anyhow!("No visible window matching '{title}'"))?;
+    let found = windows.into_iter().nth(index).unwrap();
+    let (conn, root) = x11_connect()?;
+    // 2 = pager/tool, per the EWMH source indication.
+    let source = 2u32;
+    let send = |name: &str, data: [u32; 5]| -> Result<()> {
+        let type_atom = x11_atom(&conn, name)?;
+        let event = ClientMessageEvent::new(32, found.id, type_atom, ClientMessageData::from(data));
+        conn.send_event(
+            false,
+            root,
+            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+            event,
+        )
+        .map_err(|e| anyhow!("{e}"))?;
+        conn.flush().map_err(|e| anyhow!("{e}"))?;
+        Ok(())
+    };
+    match action {
+        "focus" => {
+            send("_NET_ACTIVE_WINDOW", [source, 0, 0, 0, 0])?;
+            Ok(format!("Focused '{}'.", found.title))
+        }
+        "minimize" => {
+            let hidden = x11_atom(&conn, "_NET_WM_STATE_HIDDEN")?;
+            send("_NET_WM_STATE", [1, hidden, 0, source, 0])?;
+            Ok(format!("Minimized '{}'.", found.title))
+        }
+        "maximize" => {
+            let vert = x11_atom(&conn, "_NET_WM_STATE_MAXIMIZED_VERT")?;
+            let horz = x11_atom(&conn, "_NET_WM_STATE_MAXIMIZED_HORZ")?;
+            send("_NET_WM_STATE", [1, vert, horz, source, 0])?;
+            Ok(format!("Maximized '{}'.", found.title))
+        }
+        "restore" => {
+            let vert = x11_atom(&conn, "_NET_WM_STATE_MAXIMIZED_VERT")?;
+            let horz = x11_atom(&conn, "_NET_WM_STATE_MAXIMIZED_HORZ")?;
+            send("_NET_WM_STATE", [0, vert, horz, source, 0])?;
+            let hidden = x11_atom(&conn, "_NET_WM_STATE_HIDDEN")?;
+            send("_NET_WM_STATE", [0, hidden, 0, source, 0])?;
+            Ok(format!("Restored '{}'.", found.title))
+        }
+        "close" => {
+            send("_NET_CLOSE_WINDOW", [0, source, 0, 0, 0])?;
+            Ok(format!("Asked '{}' to close.", found.title))
+        }
+        "move" => {
+            let num = |name: &str| {
+                args.get(name)
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| anyhow!("'{name}' is required for move"))
+            };
+            let (x, y, w, h) =
+                (num("x")? as i32, num("y")? as i32, num("width")? as i32, num("height")? as i32);
+            conn.configure_window(
+                found.id,
+                &ConfigureWindowAux::new().x(x).y(y).width(w as u32).height(h as u32),
+            )
+            .map_err(|e| anyhow!("{e}"))?;
+            conn.flush().map_err(|e| anyhow!("{e}"))?;
+            Ok(format!("Moved '{}' to {x},{y} ({w}x{h}).", found.title))
+        }
+        _ => bail!("Unknown action '{action}'"),
     }
 }
 
@@ -1352,6 +1746,19 @@ mod tests {
         assert!(matches!(parse_button(Some("right")).unwrap(), enigo::Button::Right));
         assert!(matches!(parse_button(None).unwrap(), enigo::Button::Left));
         assert!(parse_button(Some("weird")).is_err());
+    }
+
+    #[test]
+    fn window_titles_match_case_insensitively() {
+        let titles = vec![
+            "Settings".to_string(),
+            "werk — Chat".to_string(),
+            "Files".to_string(),
+        ];
+        assert_eq!(title_match(&titles, "werk"), Some(1));
+        assert_eq!(title_match(&titles, "CHAT"), Some(1));
+        assert_eq!(title_match(&titles, "file"), Some(2));
+        assert_eq!(title_match(&titles, "missing"), None);
     }
 
     #[test]
