@@ -1479,7 +1479,7 @@ function VoiceCard() {
           speaker: c.assistant?.tts_speaker ?? "",
           lang: c.assistant?.tts_lang ?? "en",
           autoplay: c.assistant?.tts_autoplay ?? false,
-          cpu: c.assistant?.tts_cpu ?? false,
+          cpu: c.assistant?.speech_cpu ?? false,
         });
         setStt({
           enabled: c.assistant?.stt_enabled ?? false,
@@ -1661,6 +1661,26 @@ function VoiceCard() {
       <div className="space-y-4">
       <div className="card space-y-3">
         <div>
+          <h2 className="section-title mb-0">Speech</h2>
+          <p className="section-desc">
+            How replies are spoken and where speech processing runs.
+          </p>
+        </div>
+        <Toggle
+          label="Narrate replies"
+          hint="Speak each assistant reply as soon as it finishes."
+          checked={voice.autoplay}
+          onChange={(v) => apply({ ...voice, autoplay: v })}
+        />
+        <Toggle
+          label="Run speech on the CPU"
+          hint="Synthesize and transcribe without the GPU, leaving VRAM free for the main model."
+          checked={voice.cpu}
+          onChange={(v) => apply({ ...voice, cpu: v })}
+        />
+      </div>
+      <div className="card space-y-3">
+        <div>
           <h2 className="section-title mb-0">Voice</h2>
           <p className="section-desc">
             Speak & hear locally with llama.cpp's llama-tts. Nothing leaves
@@ -1768,18 +1788,6 @@ function VoiceCard() {
                 ))}
               </select>
             </label>
-            <Toggle
-              label="Narrate replies"
-              hint="Speak each assistant reply as soon as it finishes."
-              checked={voice.autoplay}
-              onChange={(v) => apply({ ...voice, autoplay: v })}
-            />
-            <Toggle
-              label="Run speech on the CPU"
-              hint="Synthesize without the GPU, leaving VRAM free for the main model."
-              checked={voice.cpu}
-              onChange={(v) => apply({ ...voice, cpu: v })}
-            />
           </>
         )}
         {error && <p className="text-xs text-accent-red">{error}</p>}

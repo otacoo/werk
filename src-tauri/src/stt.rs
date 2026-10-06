@@ -85,9 +85,11 @@ pub async fn assistant_stt_transcribe(
         format!("language {lang}<asr_text>")
     };
 
-    // GPU first; a CUDA failure retries on the CPU, like llama-tts.
-    let first = run_stt(&exe, &model, &mmproj, &wav, &prompt, 999).await?;
-    let output = if first.status.success() || !crate::voice::is_cuda_error(&first.stderr) {
+    // GPU first; a CUDA failure retries on the CPU, like llama-tts. The Voice
+    // tab can also force the CPU to keep VRAM free for the main model.
+    let cpu = app_config.assistant.speech_cpu;
+    let first = run_stt(&exe, &model, &mmproj, &wav, &prompt, if cpu { 0 } else { 999 }).await?;
+    let output = if cpu || first.status.success() || !crate::voice::is_cuda_error(&first.stderr) {
         first
     } else {
         run_stt(&exe, &model, &mmproj, &wav, &prompt, 0).await?

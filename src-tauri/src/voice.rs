@@ -73,7 +73,7 @@ pub async fn synthesize(state: &crate::AppState, text: &str) -> Result<TtsResult
     // GPU first; a CUDA failure (some TTS graphs hit it) retries on the CPU.
     // The Voice tab can also force the CPU, e.g. to keep VRAM free for the
     // main model while narrating.
-    let cpu = app_config.assistant.tts_cpu;
+    let cpu = app_config.assistant.speech_cpu;
     let first = run_tts(
         &exe,
         &model,
