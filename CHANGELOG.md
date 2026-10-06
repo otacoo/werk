@@ -18,6 +18,7 @@
 
 ### Fixed
 
+- Overlay attachments: the chip shrinks and clips long filenames with the extension visible (no more pill overflow that pushed the avatar off-screen), the paperclip hides once a file is attached, and dropping onto the collapsed circle attaches with a clip badge instead of expanding.
 - A missing reference-voice file reports a clear error instead of failing silently, and narration failures appear as a notice in the chat.
 - TTS synthesis is capped to about twice the text's speaking length, so a model that misses its end token no longer appends a long gibberish tail.
 - The overlay's off-screen sweat drop is back on Wayland (the bounce stays X11/Windows-only, since Wayland ignores client positioning) and the droplet is filled.

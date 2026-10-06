@@ -27,6 +27,16 @@ type OverlayAttachment = {
   text?: string;
 };
 
+/// Clip a long filename from the middle so the extension stays visible.
+function clipName(name: string, max = 18): string {
+  if (name.length <= max) return name;
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot) : "";
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const keep = Math.max(4, max - ext.length - 1);
+  return `${stem.slice(0, keep)}…${ext}`;
+}
+
 /// Always-on-top assistant overlay: a pulsing circle that expands into a
 /// floating input. Enter sends to the assistant; Esc collapses.
 export default function Overlay() {
@@ -504,10 +514,9 @@ export default function Overlay() {
         setDropping(false);
       } else if (p.type === "drop") {
         setDropping(false);
-        void (async () => {
-          if (!expandedRef.current) await expand();
-          await attachPaths(p.paths);
-        })();
+        // Attach in place: no expanding, the avatar gets a clip badge.
+        wake();
+        void attachPaths(p.paths);
       }
     });
     return () => {
@@ -736,6 +745,17 @@ export default function Overlay() {
             {statusLabel}
           </span>
         )}
+        {!expanded && (dropping || attachments.length > 0) && (
+          <span
+            className={`absolute z-10 flex h-5 w-5 items-center justify-center rounded-full text-white ${
+              dropping ? "bg-accent animate-pulse" : "bg-accent"
+            }`}
+            style={{ left: 34, bottom: 3 }}
+            aria-hidden
+          >
+            <Paperclip size={11} />
+          </span>
+        )}
         {sleeping && !expanded && animations && (
           <span className="overlay-zzz" aria-hidden>
             <span>z</span>
@@ -783,36 +803,36 @@ export default function Overlay() {
             />
             {attachments.length > 0 && (
               <button
-                className="shrink-0 flex items-center gap-1 rounded-full bg-accent/15 text-accent-soft px-2 py-1 text-[0.625rem] max-w-[9rem]"
+                className="shrink min-w-0 flex items-center gap-1 rounded-full bg-accent/15 text-accent-soft px-2 py-1 text-[0.625rem]"
                 title={`${attachments.map((a) => a.name).join("\n")}\n\nClick to clear`}
                 onClick={() => setAttachments([])}
               >
                 <Paperclip size={10} className="shrink-0" />
                 <span className="truncate">
-                  {attachments[0].name}
+                  {clipName(attachments[0].name)}
                   {attachments.length > 1 ? ` +${attachments.length - 1}` : ""}
                 </span>
               </button>
             )}
-            <button
-              className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-                dropping
-                  ? "bg-accent text-white"
-                  : attachments.length > 0
-                    ? "bg-accent/20 text-ink"
+            {attachments.length === 0 && (
+              <button
+                className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                  dropping
+                    ? "bg-accent text-white"
                     : "bg-surface-3 text-ink hover:bg-accent/20"
-              }`}
-              onPointerDown={() => {
-                pillPress.current = true;
-              }}
-              onPointerUp={() => {
-                pillPress.current = false;
-              }}
-              onClick={() => void attachFiles()}
-              title={dropping ? "Drop files to attach" : "Attach files (or drop them here)"}
-            >
-              <Paperclip size={13} />
-            </button>
+                }`}
+                onPointerDown={() => {
+                  pillPress.current = true;
+                }}
+                onPointerUp={() => {
+                  pillPress.current = false;
+                }}
+                onClick={() => void attachFiles()}
+                title={dropping ? "Drop files to attach" : "Attach files (or drop them here)"}
+              >
+                <Paperclip size={13} />
+              </button>
+            )}
             {recording && (
               <span className="flex items-end gap-0.5 h-4 shrink-0" aria-hidden>
                 {[0.45, 0.8, 0.6, 1].map((k, i) => (
