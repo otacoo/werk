@@ -445,6 +445,10 @@ export default function Overlay() {
           break;
         case "done":
           setGenerating(false);
+          setLoadingModel(false);
+          // A run we did not start (chat page, reminder) must clear the busy
+          // state here; our own send() resolves and sets "sent" itself.
+          if (!sending.current) setState("idle");
           break;
         case "notice":
           if (typeof ev.text === "string" && /failed/i.test(ev.text)) {
@@ -553,6 +557,9 @@ export default function Overlay() {
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recording]);
+
+  /// Stop narration playback (the stop button on the circle and pill).
+  const stopSpeech = () => speech.current.abort();
 
   /// Read picked paths into attachments (images get previews).
   const attachPaths = async (paths: string[]) => {
@@ -784,6 +791,18 @@ export default function Overlay() {
             {statusLabel}
           </span>
         )}
+        {!expanded && speaking && (
+          <button
+            className="shrink-0 w-6 h-6 mr-1 rounded-full flex items-center justify-center bg-surface-3 text-ink hover:bg-accent/20 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              stopSpeech();
+            }}
+            title="Stop speaking"
+          >
+            <Square size={10} />
+          </button>
+        )}
         {!expanded && (dropping || attachments.length > 0) && (
           <span
             className={`absolute z-10 flex h-5 w-5 items-center justify-center rounded-full text-white ${
@@ -918,6 +937,21 @@ export default function Overlay() {
                 ) : (
                   <Mic size={13} />
                 )}
+              </button>
+            )}
+            {speaking && (
+              <button
+                className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-surface-3 text-ink hover:bg-accent/20 transition-colors"
+                onPointerDown={() => {
+                  pillPress.current = true;
+                }}
+                onPointerUp={() => {
+                  pillPress.current = false;
+                }}
+                onClick={stopSpeech}
+                title="Stop speaking"
+              >
+                <Square size={13} />
               </button>
             )}
             <button

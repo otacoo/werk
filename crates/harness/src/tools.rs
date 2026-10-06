@@ -533,7 +533,13 @@ impl Tool for WebFetchTool {
             .unwrap_or("")
             .to_lowercase();
         let body = resp.text().context("Cannot read the response body")?;
-        let text = if content_type.contains("html") || body.trim_start().starts_with('<') {
+        let text = if content_type.contains("xml")
+            || content_type.contains("rss")
+            || content_type.contains("atom")
+            || body.trim_start().starts_with("<?xml")
+        {
+            feed_to_text(&body)
+        } else if content_type.contains("html") || body.trim_start().starts_with('<') {
             html_to_text(&body)
         } else {
             body
@@ -592,6 +598,95 @@ fn strip_blocks(html: &str, tag: &str) -> String {
     out
 }
 
+/// Strip every tag, leaving text only.
+fn strip_tags(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The text inside `<tag>…</tag>` (first match), CDATA unwrapped.
+fn extract_tag(xml: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}");
+    let start = find_ci(xml, &open, 0)?;
+    let gt = find_ci(xml, ">", start)?;
+    let close = format!("</{tag}>");
+    let end = find_ci(xml, &close, gt)?;
+    Some(strip_cdata(&xml[gt + 1..end]))
+}
+
+/// `<link href="…">` attribute (Atom feeds carry the URL there).
+fn extract_attr(xml: &str, tag: &str, attr: &str) -> Option<String> {
+    let open = format!("<{tag}");
+    let start = find_ci(xml, &open, 0)?;
+    let gt = find_ci(xml, ">", start)?;
+    let tag_text = &xml[start..gt];
+    let needle = format!("{attr}=\"");
+    let a = tag_text.find(&needle)? + needle.len();
+    let rest = &tag_text[a..];
+    rest.find('"').map(|e| rest[..e].to_string())
+}
+
+fn strip_cdata(s: &str) -> String {
+    let s = s.trim();
+    let s = s.strip_prefix("<![CDATA[").unwrap_or(s);
+    let s = s.strip_suffix("]]>").unwrap_or(s);
+    decode_entities(&strip_tags(s)).trim().to_string()
+}
+
+/// RSS/Atom → one block per item: title, URL, summary. Falls back to plain
+/// tag stripping when the document is not a feed.
+fn feed_to_text(xml: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for block in ["item", "entry"] {
+        let open = format!("<{block}");
+        let close = format!("</{block}>");
+        let mut pos = 0;
+        while out.len() < 30 {
+            let Some(start) = find_ci(xml, &open, pos) else {
+                break;
+            };
+            let Some(end) = find_ci(xml, &close, start) else {
+                break;
+            };
+            let item = &xml[start..end];
+            let title = extract_tag(item, "title").unwrap_or_default();
+            let link = extract_tag(item, "link")
+                .filter(|l| l.starts_with("http"))
+                .or_else(|| extract_attr(item, "link", "href"))
+                .unwrap_or_default();
+            let summary = extract_tag(item, "description")
+                .or_else(|| extract_tag(item, "summary"))
+                .or_else(|| extract_tag(item, "content"))
+                .unwrap_or_default();
+            let parts: Vec<&str> = [title.as_str(), link.as_str(), summary.as_str()]
+                .into_iter()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !parts.is_empty() {
+                out.push(parts.join("\n"));
+            }
+            pos = end + close.len();
+        }
+        if !out.is_empty() {
+            break;
+        }
+    }
+    if out.is_empty() {
+        return html_to_text(xml);
+    }
+    out.join("\n\n")
+}
+
 /// HTML → readable text: drop non-content elements, turn block tags into
 /// line breaks, strip the rest, decode common entities, collapse blanks.
 pub fn html_to_text(html: &str) -> String {
@@ -604,17 +699,7 @@ pub fn html_to_text(html: &str) -> String {
     ] {
         text = replace_ci(&text, tag, "\n");
     }
-    let mut in_tag = false;
-    let mut plain = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => plain.push(c),
-            _ => {}
-        }
-    }
-    let plain = decode_entities(&plain);
+    let plain = decode_entities(&strip_tags(&text));
     let mut lines: Vec<String> = Vec::new();
     for line in plain.lines() {
         let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -1742,6 +1827,23 @@ mod tests {
         assert!(text.contains("Second paragraph."), "{text}");
         // Paragraph breaks survive as a blank line.
         assert!(text.contains("bold.\n\nSecond"), "{text}");
+    }
+
+    #[test]
+    fn feed_to_text_extracts_items() {
+        let xml = r#"<?xml version="1.0"?><rss><channel>
+          <title>Channel</title>
+          <item><title>First &amp; story</title><link>https://example.com/1</link>
+            <description><![CDATA[<p>Summary <b>one</b>.</p>]]></description></item>
+          <item><title>Second</title><link>https://example.com/2</link>
+            <description>Plain summary.</description></item>
+        </channel></rss>"#;
+        let text = feed_to_text(xml);
+        assert!(text.contains("First & story"), "{text}");
+        assert!(text.contains("https://example.com/1"), "{text}");
+        assert!(text.contains("Summary one."), "{text}");
+        assert!(text.contains("Second"), "{text}");
+        assert!(!text.contains("Channel"), "{text}");
     }
 
     #[test]

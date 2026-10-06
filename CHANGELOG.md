@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Stop speech:** a stop button on the overlay circle and pill while narration plays
+- web_fetch reads RSS/Atom feeds as clean headline lists instead of raw XML
+- Fix the overlay sticking on "Waking up…" after a run it did not start (reminders, chat page)
 - **web_fetch tool:** read a page as text after searching (markup and scripts stripped, ~12k chars by default)
 - web_search tries DuckDuckGo Lite first and falls back to the HTML page when it is rate-limited
 - Linux: notification sounds play again (played from memory; WebKitGTK's media player wants byte ranges the asset protocol does not serve)
