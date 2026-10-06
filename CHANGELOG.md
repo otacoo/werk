@@ -5,6 +5,8 @@
 ### Added
 
 - Long runs checkpoint the transcript after every completed turn; if the app is killed mid-run, the assistant and agent chats offer Resume (continue from the last turn) or Dismiss.
+- Overlay attachments: a paperclip button or dropping files on the pill attaches them (chip feedback, drop highlight) and sends them with the message.
+- The reference voice is uploaded into app storage instead of linked, so moving the original can never break narration; Remove clears it.
 
 ### Changed
 

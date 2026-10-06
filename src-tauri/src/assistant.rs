@@ -396,6 +396,85 @@ pub async fn set_assistant_voice(
     cfg.save().map_err(|e| e.to_string())
 }
 
+/// Copy a picked reference voice into app storage and point the config at it,
+/// so the original file moving can never break narration.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_import_voice_reference(
+    path: String,
+    state: State<'_, crate::AppState>,
+) -> Result<String, String> {
+    let src = std::path::PathBuf::from(path.trim());
+    if !src.is_file() {
+        return Err("File not found".to_string());
+    }
+    let dir = voice_dir()?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let name = sanitize_ref_name(
+        src.file_name().and_then(|n| n.to_str()).unwrap_or("reference"),
+    );
+    let dest = dir.join(name);
+    if src != dest {
+        std::fs::copy(&src, &dest).map_err(|e| format!("Cannot store the reference: {e}"))?;
+    }
+    let stored = dest.to_string_lossy().to_string();
+    let mut cfg = state.config.lock().unwrap();
+    // Drop the previous stored copy so uploads do not accumulate.
+    if let Some(prev) = cfg.assistant.tts_speaker.clone() {
+        let prev_path = std::path::PathBuf::from(&prev);
+        if prev_path.parent() == Some(dir.as_path()) && prev != stored {
+            let _ = std::fs::remove_file(&prev_path);
+        }
+    }
+    cfg.assistant.tts_speaker = Some(stored.clone());
+    cfg.save().map_err(|e| e.to_string())?;
+    Ok(stored)
+}
+
+/// Remove the stored reference voice and clear the config entry.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_remove_voice_reference(
+    state: State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let dir = voice_dir()?;
+    let mut cfg = state.config.lock().unwrap();
+    if let Some(prev) = cfg.assistant.tts_speaker.take() {
+        let prev_path = std::path::PathBuf::from(&prev);
+        if prev_path.parent() == Some(dir.as_path()) {
+            let _ = std::fs::remove_file(&prev_path);
+        }
+    }
+    cfg.save().map_err(|e| e.to_string())
+}
+
+/// Uploaded reference voices live here.
+fn voice_dir() -> Result<std::path::PathBuf, String> {
+    dir()
+        .map(|d| d.join("voice"))
+        .ok_or_else(|| "Cannot find data directory".to_string())
+}
+
+/// Keep the stored name filesystem-safe and bounded.
+fn sanitize_ref_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_matches('.').to_string();
+    if trimmed.is_empty() {
+        "reference".to_string()
+    } else {
+        trimmed.chars().take(64).collect()
+    }
+}
+
 /// Voice input: the overlay microphone, its Qwen3-ASR model files, and the
 /// dictation hotkey.
 #[tauri::command]

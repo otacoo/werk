@@ -165,6 +165,13 @@ export const commands = {
 	/**  Save the assistant's voice settings (TTS via llama-tts). */
 	setAssistantVoice: (ttsEnabled: boolean, ttsModel: string | null, ttsMmproj: string | null, ttsSpeaker: string | null, ttsLang: string, ttsAutoplay: boolean) => typedError<null, string>(__TAURI_INVOKE("set_assistant_voice", { ttsEnabled, ttsModel, ttsMmproj, ttsSpeaker, ttsLang, ttsAutoplay })),
 	/**
+	 *  Copy a picked reference voice into app storage and point the config at it,
+	 *  so the original file moving can never break narration.
+	 */
+	assistantImportVoiceReference: (path: string) => typedError<string, string>(__TAURI_INVOKE("assistant_import_voice_reference", { path })),
+	/**  Remove the stored reference voice and clear the config entry. */
+	assistantRemoveVoiceReference: () => typedError<null, string>(__TAURI_INVOKE("assistant_remove_voice_reference")),
+	/**
 	 *  Voice input: the overlay microphone, its Qwen3-ASR model files, and the
 	 *  dictation hotkey.
 	 */

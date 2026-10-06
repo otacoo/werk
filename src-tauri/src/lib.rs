@@ -345,6 +345,8 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         assistant::set_assistant_fs,
         assistant::assistant_temp_dir,
         assistant::set_assistant_voice,
+        assistant::assistant_import_voice_reference,
+        assistant::assistant_remove_voice_reference,
         assistant::set_assistant_stt,
         voice::assistant_tts_speak,
         stt::assistant_stt_transcribe,

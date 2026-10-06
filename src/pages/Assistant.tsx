@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
-import { AlertTriangle, Download, FolderOpen, ImagePlus, Mic, Play, RefreshCw, Square, X } from "lucide-react";
+import { AlertTriangle, Download, FolderOpen, ImagePlus, Mic, Play, RefreshCw, Square, Upload, X } from "lucide-react";
 import { commands } from "../bindings";
 import type { AssistantConfig, MemoryFileDto, Reminder } from "../bindings";
 import { call } from "../utils/ipc";
@@ -1347,6 +1347,11 @@ const STT_LANGS = [
   "Romanian",
 ];
 
+/// Last path segment for display.
+function basename(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
+}
+
 function VoiceCard() {
   const [voice, setVoice] = useState<{
     enabled: boolean;
@@ -1370,6 +1375,7 @@ function VoiceCard() {
   const [recording, setRecording] = useState(false);
   const [transcript, setTranscript] = useState<string | null>(null);
   const [sttError, setSttError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const recorder = useRef(new VoiceRecorder());
 
   const load = () => {
@@ -1473,20 +1479,50 @@ function VoiceCard() {
     }
   };
 
-  const browse = async (kind: "model" | "mmproj" | "speaker") => {
+  const browse = async (kind: "model" | "mmproj") => {
     if (!voice) return;
     const picked = await openDialog({
       multiple: false,
       directory: false,
-      title:
-        kind === "speaker" ? "Pick a reference voice" : "Pick a GGUF file",
-      filters:
-        kind === "speaker"
-          ? [{ name: "Audio", extensions: ["wav", "mp3", "flac", "ogg", "m4a"] }]
-          : [{ name: "GGUF", extensions: ["gguf"] }],
+      title: "Pick a GGUF file",
+      filters: [{ name: "GGUF", extensions: ["gguf"] }],
     }).catch(() => null);
     if (typeof picked === "string" && picked) {
       await apply({ ...voice, [kind]: picked });
+    }
+  };
+
+  /// Upload a reference voice: it is copied into app storage and used from
+  /// there, so moving the original can never break narration.
+  const uploadReference = async () => {
+    if (!voice) return;
+    const picked = await openDialog({
+      multiple: false,
+      directory: false,
+      title: "Pick a reference voice",
+      filters: [{ name: "Audio", extensions: ["wav", "mp3", "flac", "ogg", "m4a"] }],
+    }).catch(() => null);
+    if (typeof picked !== "string" || !picked) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const stored = await call(commands.assistantImportVoiceReference(picked));
+      await apply({ ...voice, speaker: stored });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeReference = async () => {
+    if (!voice) return;
+    setError(null);
+    try {
+      await call(commands.assistantRemoveVoiceReference());
+      await apply({ ...voice, speaker: "" });
+    } catch (e) {
+      setError(String(e));
     }
   };
 
@@ -1566,23 +1602,41 @@ function VoiceCard() {
             </div>
             <div className="space-y-1">
               <span className="text-[0.6875rem] text-dim">
-                Reference voice (optional, for cloning)
+                Reference voice (uploaded for cloning; optional)
               </span>
               <div className="flex items-center gap-2">
-                <input
-                  className="input flex-1 min-w-0 font-mono text-xs"
-                  placeholder="speaker.wav"
-                  value={voice.speaker}
-                  onChange={(e) => setVoice({ ...voice, speaker: e.target.value })}
-                  onBlur={() => apply(voice)}
-                />
                 <button
-                  className="btn-secondary text-xs py-1 px-2"
-                  onClick={() => void browse("speaker")}
-                  title="Browse"
+                  className="btn-secondary text-xs py-1 px-2 shrink-0"
+                  disabled={uploading}
+                  onClick={() => void uploadReference()}
+                  title="Copy an audio file into the app's storage and use it as the voice"
                 >
-                  <FolderOpen size={12} />
+                  {uploading ? (
+                    <RefreshCw size={12} className="animate-spin" />
+                  ) : (
+                    <Upload size={12} />
+                  )}
+                  {uploading ? "Uploading…" : "Upload…"}
                 </button>
+                {voice.speaker ? (
+                  <>
+                    <span
+                      className="text-xs text-dim flex-1 min-w-0 truncate"
+                      title={voice.speaker}
+                    >
+                      {basename(voice.speaker)}
+                    </span>
+                    <button
+                      className="btn-ghost py-1 px-2 text-xs shrink-0"
+                      onClick={() => void removeReference()}
+                      title="Remove the stored reference (back to a generic voice)"
+                    >
+                      <X size={12} /> Remove
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs text-faint flex-1">None — generic voice</span>
+                )}
               </div>
             </div>
             <label className="block">

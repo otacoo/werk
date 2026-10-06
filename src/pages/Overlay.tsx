@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
-import { ArrowUp, Droplets, Mic, RefreshCw, Sparkles, Square } from "lucide-react";
+import { ArrowUp, Droplets, Mic, Paperclip, RefreshCw, Sparkles, Square } from "lucide-react";
 import { commands } from "../bindings";
 import { call } from "../utils/ipc";
 import { loadAppearance } from "../utils/appearance";
@@ -15,6 +17,15 @@ const EXPANDED_H = 84;
 /// Wider pill while a run is starting/working, for the status label.
 const WORKING_W = 176;
 const POS_KEY = "werk.overlay.pos";
+
+/// One file attached to the next overlay message.
+type OverlayAttachment = {
+  name: string;
+  kind: "image" | "text";
+  path: string;
+  preview?: string;
+  text?: string;
+};
 
 /// Always-on-top assistant overlay: a pulsing circle that expands into a
 /// floating input. Enter sends to the assistant; Esc collapses.
@@ -64,6 +75,9 @@ export default function Overlay() {
   /// Narration audio is still playing; keep the glow going.
   const [speaking, setSpeaking] = useState(false);
   const speakingRef = useRef(false);
+  /// Files attached to the next message (button or OS drag & drop).
+  const [attachments, setAttachments] = useState<OverlayAttachment[]>([]);
+  const [dropping, setDropping] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [level, setLevel] = useState(0);
@@ -480,6 +494,28 @@ export default function Overlay() {
     };
   }, []);
 
+  // OS file drops land on the webview; attach them and open the pill.
+  useEffect(() => {
+    const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+      const p = event.payload;
+      if (p.type === "enter" || p.type === "over") {
+        setDropping(true);
+      } else if (p.type === "leave") {
+        setDropping(false);
+      } else if (p.type === "drop") {
+        setDropping(false);
+        void (async () => {
+          if (!expandedRef.current) await expand();
+          await attachPaths(p.paths);
+        })();
+      }
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Grow the pill while working or speaking so the status label has room.
   useEffect(() => {
     if (expandedRef.current) return;
@@ -533,9 +569,49 @@ export default function Overlay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recording]);
 
+  /// Read picked/dropped paths into attachments (images get previews).
+  const attachPaths = async (paths: string[]) => {
+    for (const path of paths) {
+      try {
+        const read = await call(commands.harnessReadAttachment(path));
+        if (read.kind === "image" && read.data_base64) {
+          const ext = (read.name.split(".").pop() ?? "png").toLowerCase();
+          const mime =
+            ext === "jpg" || ext === "jpeg"
+              ? "image/jpeg"
+              : ext === "webp"
+                ? "image/webp"
+                : "image/png";
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: read.name,
+              kind: "image",
+              path,
+              preview: `data:${mime};base64,${read.data_base64}`,
+            },
+          ]);
+        } else if (read.text != null) {
+          setAttachments((prev) => [
+            ...prev,
+            { name: read.name, kind: "text", path, text: read.text ?? undefined },
+          ]);
+        }
+      } catch (e) {
+        setError(String(e));
+      }
+    }
+  };
+
+  const attachFiles = async () => {
+    const picked = await openDialog({ multiple: true, directory: false }).catch(() => null);
+    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    if (paths.length > 0) await attachPaths(paths);
+  };
+
   const send = async () => {
     const text = input.trim();
-    if (!text || sending.current) return;
+    if ((!text && attachments.length === 0) || sending.current) return;
     if (recording) {
       void recorder.current.stop();
       setRecording(false);
@@ -554,7 +630,18 @@ export default function Overlay() {
       await call(commands.ensureServer());
       const config = await cfg;
       narrate.current = !!(config?.assistant?.tts_enabled && config?.assistant?.tts_autoplay);
-      const res = await call(commands.assistantSend(text, null, null));
+      const payload = attachments.map((a) => ({
+        name: a.name,
+        kind: a.kind,
+        path: a.path,
+        data_base64:
+          a.kind === "image" && a.preview ? a.preview.split(",", 2)[1] ?? null : null,
+        text: a.kind === "text" ? (a.text ?? "") : null,
+      }));
+      setAttachments([]);
+      const res = await call(
+        commands.assistantSend(text || "(attachments only)", null, payload.length ? payload : null),
+      );
       setState("sent");
       if (sentTimer.current) window.clearTimeout(sentTimer.current);
       sentTimer.current = window.setTimeout(() => setState("idle"), 2500);
@@ -667,13 +754,15 @@ export default function Overlay() {
               ref={inputRef}
               className="input flex-1 min-w-0 bg-transparent border-0 text-sm focus:outline-none"
               placeholder={
-                recording
-                  ? "Listening…"
-                  : busy
-                    ? statusLabel
-                    : assistantName
-                      ? `Ask ${assistantName}…`
-                      : "Ask the assistant…"
+                dropping
+                  ? "Drop files to attach…"
+                  : recording
+                    ? "Listening…"
+                    : busy
+                      ? statusLabel
+                      : assistantName
+                        ? `Ask ${assistantName}…`
+                        : "Ask the assistant…"
               }
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -687,9 +776,43 @@ export default function Overlay() {
                 }
               }}
               onBlur={() => {
-                if (!pillPress.current && !input.trim()) void collapse();
+                if (!pillPress.current && !input.trim() && attachments.length === 0) {
+                  void collapse();
+                }
               }}
             />
+            {attachments.length > 0 && (
+              <button
+                className="shrink-0 flex items-center gap-1 rounded-full bg-accent/15 text-accent-soft px-2 py-1 text-[0.625rem] max-w-[9rem]"
+                title={`${attachments.map((a) => a.name).join("\n")}\n\nClick to clear`}
+                onClick={() => setAttachments([])}
+              >
+                <Paperclip size={10} className="shrink-0" />
+                <span className="truncate">
+                  {attachments[0].name}
+                  {attachments.length > 1 ? ` +${attachments.length - 1}` : ""}
+                </span>
+              </button>
+            )}
+            <button
+              className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                dropping
+                  ? "bg-accent text-white"
+                  : attachments.length > 0
+                    ? "bg-accent/20 text-ink"
+                    : "bg-surface-3 text-ink hover:bg-accent/20"
+              }`}
+              onPointerDown={() => {
+                pillPress.current = true;
+              }}
+              onPointerUp={() => {
+                pillPress.current = false;
+              }}
+              onClick={() => void attachFiles()}
+              title={dropping ? "Drop files to attach" : "Attach files (or drop them here)"}
+            >
+              <Paperclip size={13} />
+            </button>
             {recording && (
               <span className="flex items-end gap-0.5 h-4 shrink-0" aria-hidden>
                 {[0.45, 0.8, 0.6, 1].map((k, i) => (
