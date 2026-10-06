@@ -19,6 +19,8 @@
 
 ### Fixed
 
+- The overlay restores its saved position again on startup: the status-label resize ran concurrently with the restore and could move the window back to its old spot.
+- The overlay no longer dozes off mid-reply and the glow stays on through narration, including the model-load gap before the first audio.
 - Overlay file drops work: the overlay webview handles HTML5 drops directly (its native drop target only showed a forbidden cursor), attaching dropped files as bytes.
 - Closing the app no longer logs the WebView2 "Failed to unregister class Chrome_WidgetWin_0. Error = 1412" shutdown error (windows are destroyed before exit).
 - The overlay's saved position is restored on the monitor it was on, not the one the window happens to start on, and the pill can no longer overflow its window (the attachment chip shrinks; a failed attach opens the pill so the error is visible).

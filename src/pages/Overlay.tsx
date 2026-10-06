@@ -165,12 +165,13 @@ export default function Overlay() {
     sleepTimer.current = null;
     setSleeping(false);
     // Re-arm: a drag or nudge restarts the countdown instead of ending it.
-    if (stateRef.current === "idle" && !expandedRef.current) {
+    if (stateRef.current === "idle" && !expandedRef.current && !speakingRef.current) {
       sleepTimer.current = window.setTimeout(() => setSleeping(true), 30000);
     }
   };
 
   // Doze off after a quiet spell; any activity restarts the countdown.
+  // Never while narration is playing (it would doze mid-sentence).
   useEffect(() => {
     wake();
     return () => {
@@ -178,7 +179,7 @@ export default function Overlay() {
       sleepTimer.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, expanded, input]);
+  }, [state, expanded, input, speaking]);
 
   // Transparent page: the pill owns all visible pixels. The theme is applied
   // here too: the overlay renders outside App, which normally loads it.
@@ -510,7 +511,14 @@ export default function Overlay() {
   }, []);
 
   // Grow the pill while working or speaking so the status label has room.
+  // Skipped on the first run: a concurrent anchor here raced the startup
+  // restore and could move the window back to its old spot.
+  const widthReady = useRef(false);
   useEffect(() => {
+    if (!widthReady.current) {
+      widthReady.current = true;
+      return;
+    }
     if (expandedRef.current) return;
     void anchor(state === "working" || speaking ? WORKING_W : COLLAPSED, COLLAPSED);
     // eslint-disable-next-line react-hooks/exhaustive-deps

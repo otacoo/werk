@@ -115,6 +115,9 @@ export class SpeechQueue {
       reply.queued = finalText.length;
       this.enqueue(reply, tail);
     }
+    // Narration counts as active from the first synthesis: the model load
+    // happens before any audio, and the UI glow must not blink off in the gap.
+    this.setPlaying(true);
     if (reply.pending === 0) reply.synthDone = true;
     while (this.reply === reply) {
       if (reply.audio.length > 0) {
