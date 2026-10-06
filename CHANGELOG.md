@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Faster, safer session saves:** transcripts now append to a JSONL file next to a small JSON meta file, so per-turn saves only write the new messages and a crash mid-save can no longer take the whole conversation (old sessions migrate on the next save)
+
 ## 2026-10-06 – v0.8.4
 
 ### New options & features

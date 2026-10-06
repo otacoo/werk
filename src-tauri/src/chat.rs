@@ -51,6 +51,15 @@ pub struct HarnessRuntime {
     /// The loaded session ended mid-run (a crash or kill); the UI offers to
     /// resume it.
     pub interrupted: std::sync::atomic::AtomicBool,
+    /// Messages already on disk for the open session, so saves can append the
+    /// delta instead of rewriting the JSONL transcript.
+    pub saved: Mutex<Option<SavedSession>>,
+}
+
+/// What the transcript file already holds for the open session.
+pub struct SavedSession {
+    pub path: PathBuf,
+    pub messages: Vec<ChatMessage>,
 }
 
 impl Default for HarnessRuntime {
@@ -75,6 +84,7 @@ impl HarnessRuntime {
             last_activity: Mutex::new(std::time::Instant::now()),
             abort: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             interrupted: std::sync::atomic::AtomicBool::new(false),
+            saved: Mutex::new(None),
         }
     }
 }
@@ -850,7 +860,13 @@ struct SessionFile {
     project: Option<String>,
     created: u32,
     updated: u32,
+    /// Inline only in legacy single-file sessions; new sessions keep the
+    /// messages in the JSONL sibling and omit them here.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     messages: Vec<ChatMessage>,
+    /// Kept in the meta JSON so session lists never read the message file.
+    #[serde(default)]
+    message_count: u32,
     #[serde(default)]
     meta: HashMap<usize, MessageMeta>,
     /// Orchestrator task list at last save; prompt state, not transcript.
@@ -1039,6 +1055,131 @@ fn talk_session_id(app_config: &crate::config::AppConfig) -> String {
         .unwrap_or_else(|| "general".to_string())
 }
 
+/// Transcript messages live in a JSONL sibling of the session meta JSON:
+/// appended one message per line, rewritten only when history changes shape.
+fn messages_path(meta: &Path) -> PathBuf {
+    meta.with_extension("jsonl")
+}
+
+/// Small atomic write: temp file then rename, like the config.
+fn write_atomic(path: &Path, content: &str) -> Result<()> {
+    let mut raw = path.as_os_str().to_owned();
+    raw.push(".tmp");
+    let tmp = PathBuf::from(raw);
+    std::fs::write(&tmp, content)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// One `ChatMessage` per line; unparsable lines (a crash mid-append) are
+/// skipped so a torn tail never costs the whole transcript.
+fn read_messages(path: &Path) -> Vec<ChatMessage> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
+}
+
+/// Full session: meta JSON plus the JSONL transcript. Legacy single-file
+/// sessions (messages inline) still load; the JSONL sibling wins once it exists.
+fn read_session_file(path: &Path) -> Option<SessionFile> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut file: SessionFile = serde_json::from_str(&text).ok()?;
+    if messages_path(path).is_file() {
+        file.messages = read_messages(&messages_path(path));
+    }
+    file.message_count = file.messages.len() as u32;
+    Some(file)
+}
+
+/// Meta only: session lists never read the message file.
+fn read_session_meta(path: &Path) -> Option<SessionFile> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut file: SessionFile = serde_json::from_str(&text).ok()?;
+    if !messages_path(path).is_file() {
+        // Legacy inline messages; count them, then drop them.
+        file.message_count = file.messages.len() as u32;
+    }
+    file.messages.clear();
+    Some(file)
+}
+
+/// Whether a transcript file ends on a line boundary. A crash mid-append can
+/// leave a torn last line, and the next append must not merge into it.
+fn ends_with_newline(path: &Path) -> bool {
+    use std::io::{Read as _, Seek as _};
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return true;
+    };
+    if f.metadata().map(|m| m.len()).unwrap_or(0) == 0 {
+        return true;
+    }
+    if f.seek(std::io::SeekFrom::End(-1)).is_err() {
+        return true;
+    }
+    let mut byte = [0u8; 1];
+    f.read_exact(&mut byte).map(|_| byte[0] == b'\n').unwrap_or(true)
+}
+
+/// Save a session: small meta JSON (atomic) plus an append-only transcript.
+/// `prev` is the message list already on disk for this path; a pure extension
+/// appends the delta, anything else (compaction, edits, rewind, migration)
+/// rewrites the JSONL.
+fn write_session_file(path: &Path, file: &SessionFile, prev: Option<&[ChatMessage]>) -> Result<()> {
+    use std::io::Write as _;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let lines = messages_path(path);
+    let appended = prev
+        .filter(|p| file.messages.len() >= p.len() && &file.messages[..p.len()] == *p)
+        .map(|p| p.len());
+    match appended {
+        Some(from) if lines.is_file() => {
+            let mut out = std::fs::OpenOptions::new().append(true).open(&lines)?;
+            if !ends_with_newline(&lines) {
+                writeln!(out)?;
+            }
+            for message in &file.messages[from..] {
+                writeln!(out, "{}", serde_json::to_string(message)?)?;
+            }
+        }
+        _ => {
+            let mut buf = String::new();
+            for message in &file.messages {
+                buf.push_str(&serde_json::to_string(message)?);
+                buf.push('\n');
+            }
+            write_atomic(&lines, &buf)?;
+        }
+    }
+    let mut meta = file.clone();
+    meta.messages.clear();
+    meta.message_count = file.messages.len() as u32;
+    write_atomic(path, &serde_json::to_string_pretty(&meta)?)?;
+    Ok(())
+}
+
+/// Move a session's meta and transcript together (archives, swaps).
+fn move_session_files(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::rename(from, to)?;
+    let lines = messages_path(from);
+    if lines.is_file() {
+        std::fs::rename(&lines, messages_path(to))?;
+    }
+    Ok(())
+}
+
+/// Trash a session's meta and transcript together.
+fn trash_session_files(path: &Path) -> Result<(), String> {
+    trash::delete(path).map_err(|e| format!("Cannot move the session to the trash: {e}"))?;
+    let lines = messages_path(path);
+    if lines.is_file() {
+        let _ = trash::delete(&lines);
+    }
+    Ok(())
+}
+
 fn save_transcript_current(
     state: &AppState,
     runtime: &HarnessRuntime,
@@ -1083,11 +1224,7 @@ fn save_transcript(
             .unwrap_or_else(|| "Untitled".to_string())
     });
     let now = now_secs();
-    let created = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|t| serde_json::from_str::<SessionFile>(&t).ok())
-        .map(|s| s.created)
-        .unwrap_or(now);
+    let created = read_session_meta(&path).map(|s| s.created).unwrap_or(now);
     let project = if mode == RunMode::Agent {
         state.config.lock().unwrap().harness_active_project.clone()
     } else {
@@ -1105,11 +1242,18 @@ fn save_transcript(
         created,
         updated: now,
         messages: messages.to_vec(),
+        message_count: messages.len() as u32,
         meta,
         todos,
         running: runtime.running.load(Ordering::SeqCst),
     };
-    std::fs::write(&path, serde_json::to_string_pretty(&file)?)?;
+    let mut saved = runtime.saved.lock().unwrap();
+    let prev = saved
+        .as_ref()
+        .filter(|s| s.path == path)
+        .map(|s| s.messages.as_slice());
+    write_session_file(&path, &file, prev)?;
+    *saved = Some(SavedSession { path, messages: file.messages });
     Ok(())
 }
 
@@ -1773,12 +1917,14 @@ async fn agent_send_impl(
     if runtime.history.lock().unwrap().is_empty() {
         if let Some(id) = runtime.session_id.lock().unwrap().clone() {
             if let Some(path) = transcript_path(&id, run_mode) {
-                if let Ok(text) = std::fs::read_to_string(&path) {
-                    if let Ok(saved) = serde_json::from_str::<SessionFile>(&text) {
-                        *runtime.history.lock().unwrap() = saved.messages;
-                        *runtime.meta.lock().unwrap() = saved.meta;
-                        runtime.interrupted.store(saved.running, Ordering::SeqCst);
-                    }
+                if let Some(saved) = read_session_file(&path) {
+                    *runtime.history.lock().unwrap() = saved.messages.clone();
+                    *runtime.meta.lock().unwrap() = saved.meta;
+                    runtime.interrupted.store(saved.running, Ordering::SeqCst);
+                    *runtime.saved.lock().unwrap() = Some(SavedSession {
+                        path,
+                        messages: saved.messages,
+                    });
                 }
             }
         }
@@ -2767,7 +2913,7 @@ fn archive_assistant_transcript() {
                 target = dir.join(format!("{base}-{n}.json"));
                 n += 1;
             }
-            if std::fs::rename(&path, &target).is_ok() {
+            if move_session_files(&path, &target).is_ok() {
                 return;
             }
         }
@@ -2876,6 +3022,7 @@ fn reset_runtime(runtime: &HarnessRuntime) {
     runtime.todos.lock().unwrap().clear();
     truncate_meta(runtime, 0);
     *runtime.session_id.lock().unwrap() = None;
+    *runtime.saved.lock().unwrap() = None;
     runtime.interrupted.store(false, Ordering::SeqCst);
     if let Some(tx) = runtime.pending.lock().unwrap().take() {
         let _ = tx.send(Approved::Denied);
@@ -2902,7 +3049,7 @@ pub async fn roleplay_start_chat(
         if active_path.is_file() {
             std::fs::create_dir_all(&archive).map_err(|e| e.to_string())?;
             let stamp = fresh_discussion_id(&archive);
-            std::fs::rename(&active_path, archive.join(format!("{stamp}.json")))
+            move_session_files(&active_path, &archive.join(format!("{stamp}.json")))
                 .map_err(|e| e.to_string())?;
         }
     }
@@ -3302,12 +3449,14 @@ pub async fn talk_history(state: State<'_, AppState>) -> Result<HistoryView, Str
     if empty {
         let id = talk_session_id(&app_config);
         if let Some(path) = transcript_path(&id, RunMode::Roleplay) {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                if let Ok(saved) = serde_json::from_str::<SessionFile>(&text) {
-                    *state.talk.history.lock().unwrap() = saved.messages;
-                    *state.talk.meta.lock().unwrap() = saved.meta;
-                    *state.talk.session_id.lock().unwrap() = Some(saved.id);
-                }
+            if let Some(saved) = read_session_file(&path) {
+                *state.talk.history.lock().unwrap() = saved.messages.clone();
+                *state.talk.meta.lock().unwrap() = saved.meta;
+                *state.talk.session_id.lock().unwrap() = Some(saved.id);
+                *state.talk.saved.lock().unwrap() = Some(SavedSession {
+                    path,
+                    messages: saved.messages,
+                });
             }
         }
     }
@@ -3322,12 +3471,14 @@ pub async fn assistant_history(state: State<'_, AppState>) -> Result<HistoryView
         && state.assistant.session_id.lock().unwrap().is_none();
     if empty {
         if let Some(path) = transcript_path("current", RunMode::Assistant) {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                if let Ok(saved) = serde_json::from_str::<SessionFile>(&text) {
-                    *state.assistant.history.lock().unwrap() = saved.messages;
-                    *state.assistant.meta.lock().unwrap() = saved.meta;
-                    *state.assistant.session_id.lock().unwrap() = Some(saved.id);
-                }
+            if let Some(saved) = read_session_file(&path) {
+                *state.assistant.history.lock().unwrap() = saved.messages.clone();
+                *state.assistant.meta.lock().unwrap() = saved.meta;
+                *state.assistant.session_id.lock().unwrap() = Some(saved.id);
+                *state.assistant.saved.lock().unwrap() = Some(SavedSession {
+                    path,
+                    messages: saved.messages,
+                });
             }
         }
     }
@@ -3386,17 +3537,12 @@ fn discussion_paths(card_id: &str) -> Result<(PathBuf, PathBuf), String> {
     Ok((dir.join(format!("{card_id}.json")), dir.join(card_id)))
 }
 
-fn read_session_file(path: &Path) -> Option<SessionFile> {
-    let text = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
-}
-
 /// Archive id that does not collide with an existing file.
 fn fresh_discussion_id(archive: &Path) -> String {
     let base = format!("d{}", now_secs());
     let mut id = base.clone();
     let mut n = 2;
-    while archive.join(format!("{id}.json")).exists() {
+    while archive.join(format!("{id}.json")).exists() || archive.join(format!("{id}.jsonl")).exists() {
         id = format!("{base}-{n}");
         n += 1;
     }
@@ -3434,12 +3580,12 @@ pub async fn roleplay_list_discussions(
     };
     let (active_path, archive) = discussion_paths(&card_id)?;
     let mut out = Vec::new();
-    if let Some(file) = read_session_file(&active_path) {
+    if let Some(file) = read_session_meta(&active_path) {
         out.push(DiscussionSummary {
             id: card_id.clone(),
             title: file.title.clone(),
             updated: file.updated,
-            messages: file.messages.len() as u32,
+            messages: file.message_count,
             active: true,
         });
     }
@@ -3452,12 +3598,12 @@ pub async fn roleplay_list_discussions(
             let Some(id) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
                 continue;
             };
-            if let Some(file) = read_session_file(&path) {
+            if let Some(file) = read_session_meta(&path) {
                 out.push(DiscussionSummary {
                     id,
                     title: file.title.clone(),
                     updated: file.updated,
-                    messages: file.messages.len() as u32,
+                    messages: file.message_count,
                     active: false,
                 });
             }
@@ -3491,10 +3637,10 @@ pub async fn roleplay_load_discussion(
     std::fs::create_dir_all(&archive).map_err(|e| e.to_string())?;
     if active_path.is_file() {
         let stamp = fresh_discussion_id(&archive);
-        std::fs::rename(&active_path, archive.join(format!("{stamp}.json")))
+        move_session_files(&active_path, &archive.join(format!("{stamp}.json")))
             .map_err(|e| e.to_string())?;
     }
-    std::fs::rename(&source, &active_path).map_err(|e| e.to_string())
+    move_session_files(&source, &active_path).map_err(|e| e.to_string())
 }
 
 /// Delete a saved discussion (the active one included).
@@ -3520,7 +3666,7 @@ pub async fn roleplay_delete_discussion(
     if id == card_id {
         reset_runtime(&state.talk);
     }
-    trash::delete(&path).map_err(|e| format!("Cannot move the discussion to the trash: {e}"))
+    trash_session_files(&path)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3598,11 +3744,7 @@ pub async fn roleplay_import_discussion(
     let mut discussion = bundle.discussion;
     discussion.id = card.id.clone();
     discussion.project = None;
-    std::fs::write(
-        &active_path,
-        serde_json::to_string_pretty(&discussion).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    write_session_file(&active_path, &discussion, None).map_err(|e| e.to_string())?;
     reset_runtime(&state.talk);
     let mut config = state.config.lock().unwrap();
     config.roleplay.card_id = Some(card.id.clone());
@@ -3711,16 +3853,14 @@ pub async fn harness_sessions_list() -> Result<Vec<SessionSummary>, String> {
             if path.extension().and_then(|e| e.to_str()) != Some("json") {
                 continue;
             }
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                if let Ok(file) = serde_json::from_str::<SessionFile>(&text) {
-                    out.push(SessionSummary {
-                        id: file.id,
-                        title: file.title,
-                        project: file.project,
-                        updated: file.updated,
-                        message_count: file.messages.len() as u32,
-                    });
-                }
+            if let Some(file) = read_session_meta(&path) {
+                out.push(SessionSummary {
+                    id: file.id,
+                    title: file.title,
+                    project: file.project,
+                    updated: file.updated,
+                    message_count: file.message_count,
+                });
             }
         }
     }
@@ -3737,14 +3877,16 @@ pub async fn harness_session_load(
     let Some(path) = session_path(&id) else {
         return Err("Unknown session".to_string());
     };
-    let text = std::fs::read_to_string(&path).map_err(|_| "Session file is corrupt".to_string())?;
-    let file: SessionFile =
-        serde_json::from_str(&text).map_err(|_| "Session file is corrupt".to_string())?;
+    let file = read_session_file(&path).ok_or_else(|| "Session file is corrupt".to_string())?;
     *state.harness.history.lock().unwrap() = file.messages.clone();
     *state.harness.meta.lock().unwrap() = file.meta.clone();
     *state.harness.session_id.lock().unwrap() = Some(file.id.clone());
     *state.harness.todos.lock().unwrap() = file.todos.clone();
     state.harness.interrupted.store(file.running, Ordering::SeqCst);
+    *state.harness.saved.lock().unwrap() = Some(SavedSession {
+        path,
+        messages: file.messages.clone(),
+    });
     Ok(HistoryView {
         messages: file.messages.iter().map(to_history_message).collect(),
         meta: file
@@ -3768,16 +3910,14 @@ pub async fn harness_session_delete(
         state.harness.todos.lock().unwrap().clear();
         truncate_meta(&state.harness, 0);
         *state.harness.session_id.lock().unwrap() = None;
+        *state.harness.saved.lock().unwrap() = None;
     }
     if let Some(path) = session_path(&id) {
         if path.exists() {
-            // Parse before trashing: the in-memory copy powers Undo, the file
-            // itself goes to the OS recycle bin instead of being erased.
-            let stash = std::fs::read_to_string(&path)
-                .ok()
-                .and_then(|text| serde_json::from_str::<SessionFile>(&text).ok());
-            trash::delete(&path)
-                .map_err(|e| format!("Cannot move the session to the trash: {e}"))?;
+            // Parse before trashing: the in-memory copy powers Undo, the files
+            // themselves go to the OS recycle bin instead of being erased.
+            let stash = read_session_file(&path);
+            trash_session_files(&path)?;
             if let Some(file) = stash {
                 *state.harness.deleted_session.lock().unwrap() = Some(DeletedSession {
                     file,
@@ -3806,14 +3946,12 @@ pub async fn harness_session_undo(state: State<'_, AppState>) -> Result<Option<S
 
 fn read_session(id: &str) -> Result<SessionFile, String> {
     let path = session_path(id).ok_or_else(|| "Unknown session".to_string())?;
-    let text = std::fs::read_to_string(&path).map_err(|_| "Session file is corrupt".to_string())?;
-    serde_json::from_str(&text).map_err(|_| "Session file is corrupt".to_string())
+    read_session_file(&path).ok_or_else(|| "Session file is corrupt".to_string())
 }
 
 fn write_session(file: &SessionFile) -> Result<(), String> {
     let path = session_path(&file.id).ok_or_else(|| "Unknown session".to_string())?;
-    let content = serde_json::to_string_pretty(file).map_err(|e| e.to_string())?;
-    std::fs::write(&path, content).map_err(|e| e.to_string())
+    write_session_file(&path, file, None).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -5100,6 +5238,108 @@ mod tests {
         assert_eq!(names.get("c.txt").map(String::as_str), Some("D"));
         let numstat = git_numstat_map(&dir, Some(&base));
         assert_eq!(numstat.get("a.txt"), Some(&(1, 0)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn session_temp_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("werk-session-{label}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn session_with(id: &str, messages: Vec<ChatMessage>) -> SessionFile {
+        SessionFile {
+            id: id.to_string(),
+            title: "T".to_string(),
+            project: None,
+            created: 1,
+            updated: 2,
+            message_count: messages.len() as u32,
+            messages,
+            meta: HashMap::new(),
+            todos: Vec::new(),
+            running: false,
+        }
+    }
+
+    #[test]
+    fn session_appends_only_new_messages() {
+        let dir = session_temp_dir("append");
+        let path = dir.join("s1.json");
+        let v1 = session_with("s1", vec![ChatMessage::user("one")]);
+        write_session_file(&path, &v1, None).unwrap();
+        let mut v2 = v1.clone();
+        v2.messages.push(ChatMessage::assistant("two"));
+        v2.updated = 3;
+        write_session_file(&path, &v2, Some(&v1.messages)).unwrap();
+        let lines = std::fs::read_to_string(messages_path(&path)).unwrap();
+        assert_eq!(lines.lines().count(), 2, "{lines}");
+        let loaded = read_session_file(&path).unwrap();
+        assert_eq!(loaded.messages, v2.messages);
+        assert_eq!(loaded.message_count, 2);
+        // The meta JSON omits the messages entirely.
+        let meta = std::fs::read_to_string(&path).unwrap();
+        assert!(!meta.contains("\"messages\""), "{meta}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn session_rewrites_when_history_changes() {
+        let dir = session_temp_dir("rewrite");
+        let path = dir.join("s2.json");
+        let v1 = session_with(
+            "s2",
+            vec![ChatMessage::user("one"), ChatMessage::assistant("two")],
+        );
+        write_session_file(&path, &v1, None).unwrap();
+        // Compaction or a rewind: the new list is not an extension.
+        let v2 = session_with("s2", vec![ChatMessage::user("summary")]);
+        write_session_file(&path, &v2, Some(&v1.messages)).unwrap();
+        let lines = std::fs::read_to_string(messages_path(&path)).unwrap();
+        assert_eq!(lines.lines().count(), 1, "{lines}");
+        assert_eq!(read_session_file(&path).unwrap().messages, v2.messages);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn session_tolerates_a_partial_trailing_line() {
+        use std::io::Write as _;
+        let dir = session_temp_dir("torn");
+        let path = dir.join("s3.json");
+        let v1 = session_with("s3", vec![ChatMessage::user("one")]);
+        write_session_file(&path, &v1, None).unwrap();
+        // Simulate a crash mid-append: a torn last line.
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(messages_path(&path))
+            .unwrap();
+        write!(f, "{{\"role\":\"assistant\",\"content\":\"tr").unwrap();
+        drop(f);
+        assert_eq!(read_session_file(&path).unwrap().messages.len(), 1);
+        // The next save appends after the torn line; the torn line stays
+        // ignored on load.
+        let mut v2 = v1.clone();
+        v2.messages.push(ChatMessage::assistant("two"));
+        write_session_file(&path, &v2, Some(&v1.messages)).unwrap();
+        assert_eq!(read_session_file(&path).unwrap().messages.len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_single_json_sessions_still_load() {
+        let dir = session_temp_dir("legacy");
+        let path = dir.join("s4.json");
+        let legacy = session_with("s4", vec![ChatMessage::user("old")]);
+        std::fs::write(&path, serde_json::to_string_pretty(&legacy).unwrap()).unwrap();
+        let loaded = read_session_file(&path).unwrap();
+        assert_eq!(loaded.messages.len(), 1);
+        assert_eq!(read_session_meta(&path).unwrap().message_count, 1);
+        // The next save migrates to the JSONL layout.
+        write_session_file(&path, &loaded, None).unwrap();
+        assert!(messages_path(&path).is_file());
+        let meta = std::fs::read_to_string(&path).unwrap();
+        assert!(!meta.contains("\"messages\""), "{meta}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
