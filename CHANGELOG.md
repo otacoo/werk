@@ -2,17 +2,25 @@
 
 ## Unreleased
 
-- The embedded llama-server web UI only runs while its tab is open and the server is running (it kept polling in the background once loaded)
-- The overlay pauses its animations while hidden, so a disabled overlay costs no CPU
-- Idle CPU: the server-status poll only notifies pages when the status actually changed, and it pauses while the window is hidden (every mounted page used to re-render every 2 seconds)
-- **Debug:** a *Force theme animations* toggle keeps the theme orbits running on software-rendered Linux, where they are off by default
+## 2026-10-07 – v0.8.6
+
+### New options & features
+
 - **Bundles:** export your assistant — persona, prompt, memory, skills, plugins, and optionally the transcript — as one `.werk` file, and import setups others share
   - The import shows the contents first; existing skills/plugins are never overwritten (imports get a suffix), imported plugins always ask for approval, and requested system-control tools stay off until enabled in Access
-- **Scrolling while streaming:** the transcript (and the reasoning box) no longer yank the view to the bottom when you scroll up to read; they re-attach when you return to the bottom or send
-- The Settings gear shows a dot when an update is available (shared with the App Updates card)
-- **Verified downloads:** every suggested voice model is checked against a pinned SHA-256 while it downloads — a file that was replaced or tampered with is rejected instead of installed (no extra pass over the file)
-- The 1.7B Qwen3-TTS downloads now come from the official llama.cpp org (Q8_0, Q4_K_M)
 - **Window control** works on macOS and Linux (X11) as well as Windows — list, focus, minimize, maximize, restore, close, and move; on Wayland it explains that compositors do not allow it
+- **Verified downloads:** every suggested voice model is checked against a pinned SHA-256 while it downloads — a file that was replaced or tampered with is rejected instead of installed
+- **Debug:** a *Force theme animations* toggle keeps the theme orbits running on software-rendered Linux, where they are off by default
+- The Settings gear shows a dot when an update is available
+- The 1.7B Qwen3-TTS downloads now come from the official llama.cpp org (Q8_0, Q4_K_M)
+
+### Bug fixes & others
+
+- Idle CPU: the server-status poll only notifies pages when the status actually changed, and it pauses while the window is hidden
+- A hidden overlay pauses its animations, so a disabled overlay costs no CPU
+- The embedded llama-server web UI only runs while its tab is open and the server is running
+- The window no longer shows a blank page while the app loads — it appears when the first screen is ready, and each window loads only what it needs
+- **Scrolling while streaming:** the transcript (and the reasoning box) no longer yank the view to the bottom when you scroll up to read; they re-attach when you return to the bottom or send
 
 ## 2026-10-06 – v0.8.5
 
