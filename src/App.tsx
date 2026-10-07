@@ -35,7 +35,7 @@ import SettingsPanel, { type SettingsSection } from "./components/SettingsPanel"
 import { commands } from "./bindings";
 import { call } from "./utils/ipc";
 import { loadAppearance, setAutoCorners } from "./utils/appearance";
-import { getDevtools } from "./utils/debugPrefs";
+import { getDevtools, getThemeAnimations, subscribeThemeAnimations } from "./utils/debugPrefs";
 import { getQuickBench, setQuickBench, subscribeQuickBench, subscribeConfigChanged, setProfileMirror, subscribeProfile } from "./utils/appSettings";
 import { startServerStatusPolling, subscribeServerStatus } from "./utils/serverStatus";
 import { checkForUpdate, subscribeUpdate } from "./utils/updates";
@@ -121,16 +121,21 @@ export default function App() {
     );
   }, []);
 
-  // Auto-check once at startup (the Settings card shares this state); the
-  // gear keeps a dot while an update is available.
+  // Auto-check for updates a moment after the first screen is up; the check
+  // must never compete with startup (the gear shows a dot while one is found).
   useEffect(() => {
     const unsubscribe = subscribeUpdate((update) => setUpdateReady(update != null));
-    call(commands.getConfig())
-      .then((c) => {
-        if (c.auto_check_updates) void checkForUpdate().catch(() => {});
-      })
-      .catch(() => {});
-    return unsubscribe;
+    const timer = window.setTimeout(() => {
+      call(commands.getConfig())
+        .then((c) => {
+          if (c.auto_check_updates) void checkForUpdate().catch(() => {});
+        })
+        .catch(() => {});
+    }, 4000);
+    return () => {
+      window.clearTimeout(timer);
+      unsubscribe();
+    };
   }, []);
 
   // The Mode page flips the profile through the in-memory mirror.
@@ -142,13 +147,25 @@ export default function App() {
   }, []);
 
   // Software-rendered WebKitGTK (the NVIDIA workaround) cannot afford the
-  // theme card orbits; a flag lets the CSS fall back to a static border.
+  // theme card orbits; a flag lets the CSS fall back to a static border. The
+  // Debug toggle overrides that.
   useEffect(() => {
+    let software = false;
+    const apply = () => {
+      const root = document.documentElement;
+      if (software && !getThemeAnimations()) {
+        root.dataset.reducedMotion = "1";
+      } else {
+        delete root.dataset.reducedMotion;
+      }
+    };
     call(commands.softwareRendering())
       .then((v) => {
-        if (v) document.documentElement.dataset.reducedMotion = "1";
+        software = v;
+        apply();
       })
       .catch(() => {});
+    return subscribeThemeAnimations(apply);
   }, []);
 
   useEffect(() => {
@@ -250,7 +267,8 @@ export default function App() {
       getCurrentWindow().show().catch(() => {});
     };
     if (wizard !== null) reveal();
-    const fallback = setTimeout(reveal, 2000);
+    // Safety net only: a slow dev bundle must not leave the window hidden.
+    const fallback = setTimeout(reveal, 10000);
     return () => clearTimeout(fallback);
   }, [wizard]);
 

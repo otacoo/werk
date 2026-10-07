@@ -44,6 +44,14 @@
   }
 }
 
+/* A hidden overlay must cost nothing. Chromium normally throttles occluded
+   windows, but this makes the rotor, pulse, and zzz provably stop. */
+html[data-hidden="1"] *,
+html[data-hidden="1"] *::before,
+html[data-hidden="1"] *::after {
+  animation-play-state: paused !important;
+}
+
 /* Dozing off: little z's drift up from the avatar after a quiet spell. */
 .overlay-zzz {
   position: absolute;

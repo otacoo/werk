@@ -189,6 +189,32 @@ export default function Overlay() {
     document.body.style.overflow = "hidden";
   }, []);
 
+  // A hidden overlay must cost nothing: pause the rotor, pulse, and zzz.
+  // document.visibilityState does not always flip for a never-shown Tauri
+  // window, so the window's own visibility is polled as well.
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const apply = () => {
+      const docHidden = document.visibilityState === "hidden";
+      if (docHidden) document.documentElement.dataset.hidden = "1";
+      win
+        .isVisible()
+        .then((visible) => {
+          document.documentElement.dataset.hidden = visible && !docHidden ? "0" : "1";
+        })
+        .catch(() => {
+          document.documentElement.dataset.hidden = docHidden ? "1" : "0";
+        });
+    };
+    apply();
+    document.addEventListener("visibilitychange", apply);
+    const id = window.setInterval(apply, 2000);
+    return () => {
+      document.removeEventListener("visibilitychange", apply);
+      window.clearInterval(id);
+    };
+  }, []);
+
   // Theme/accent/font changes in the main window re-apply here live; the
   // overlay opacity is an appearance preference too.
   useEffect(() => {

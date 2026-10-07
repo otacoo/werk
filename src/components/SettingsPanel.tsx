@@ -19,12 +19,13 @@ import { commands } from "../bindings";
 import type { AppConfig } from "../bindings";
 import { call } from "../utils/ipc";
 import { checkForUpdate, subscribeUpdate } from "../utils/updates";
+import { t } from "../utils/i18n";
 import { useAppConfig } from "../utils/useAppConfig";
 import Toggle from "./Toggle";
 import { THEME_OPTIONS, ThemeIcon } from "./ThemeIcon";
 import { notifyConfigChanged } from "../utils/appSettings";
 import { playNotificationSound, testNotificationSound } from "../utils/sounds";
-import { getDevtools, setDevtools } from "../utils/debugPrefs";
+import { getDevtools, getThemeAnimations, setDevtools, setThemeAnimations } from "../utils/debugPrefs";
 import {
   FONT_SIZES,
   accentPalette,
@@ -358,6 +359,30 @@ function DevtoolsCard() {
   );
 }
 
+/// Theme animations are disabled automatically when the webview falls back to
+/// software rendering; this forces them on anyway.
+function ThemeAnimationsCard() {
+  const [on, setOn] = useState(getThemeAnimations);
+  return (
+    <div className="card">
+      <h2 className="section-title mb-1">{t("Theme animations")}</h2>
+      <p className="section-desc">
+        {t("Software rendering turns the theme orbits off; enable this to keep them running anyway.")}
+      </p>
+      <div className="mt-3">
+        <Toggle
+          label={t("Force theme animations")}
+          checked={on}
+          onChange={(v) => {
+            setOn(v);
+            setThemeAnimations(v);
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 /// Play each notification sound and surface playback errors; some platform
 /// audio stacks fail silently otherwise.
 function SoundTestCard() {
@@ -634,6 +659,7 @@ export default function SettingsPanel({ open, onClose, section, onSectionChange,
               </div>
               <ProfilesCard appConfig={appConfig} setAppConfig={setAppConfig} refresh={refreshConfig} />
               <DevtoolsCard />
+              <ThemeAnimationsCard />
               <SoundTestCard />
             </>
           )}

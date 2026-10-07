@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp, Download, ExternalLink, Search } from "lucide-react";
 import type { HfFileDto, HfModel } from "../../bindings";
 import { fmtMB } from "../../utils/ipc";
+import { t } from "../../utils/i18n";
 import {
   formatSize,
   isDsparkFile,
@@ -65,7 +66,7 @@ export function BrowseTab(props: BrowseTabProps) {
                 />
                 <input
                   className="input pl-9 w-full text-xs"
-                  placeholder="Search models (e.g. llama, mistral, qwen)"
+                  placeholder={t("Search models (e.g. llama, mistral, qwen)")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -78,12 +79,12 @@ export function BrowseTab(props: BrowseTabProps) {
                 value={sortBy}
                 onChange={(e) => changeSortBy(e.target.value as HfSort)}
               >
-                <option value="downloads">By downloads</option>
-                <option value="likes">By stars</option>
-                <option value="lastModified">Newest</option>
+                <option value="downloads">{t("By downloads")}</option>
+                <option value="likes">{t("By stars")}</option>
+                <option value="lastModified">{t("Newest")}</option>
               </select>
               <button className="btn-primary text-xs shrink-0" onClick={() => doSearch()} disabled={searching}>
-                {searching ? "…" : "Search"}
+                {searching ? "…" : t("Search")}
               </button>
             </div>
 
@@ -123,11 +124,13 @@ export function BrowseTab(props: BrowseTabProps) {
                                 e.stopPropagation();
                                 openInBrowser(`https://huggingface.co/${model.repo_id}`);
                               }}
-                              title="Open on HuggingFace"
+                              title={t("Open on HuggingFace")}
                             >
                               <ExternalLink size={12} />
                             </button>
-                            <span className="text-xs text-dim shrink-0">by {model.author}</span>
+                            <span className="text-xs text-dim shrink-0">
+                              {t("by {author}", { author: model.author })}
+                            </span>
                           </div>
                           <div className="flex gap-3 mt-1 text-xs text-dim">
                             <span>↓ {(model.downloads / 1000).toFixed(0)}K</span>
@@ -169,7 +172,7 @@ export function BrowseTab(props: BrowseTabProps) {
                                             )}
                                             {split && (
                                               <span className="badge-gray text-[0.625rem]">
-                                                {split.total} parts
+                                                {t("{n} parts", { n: split.total })}
                                               </span>
                                             )}
                                           </div>
@@ -179,7 +182,7 @@ export function BrowseTab(props: BrowseTabProps) {
                                         </span>
                                         {done ? (
                                           <span className="badge-green text-[0.625rem] shrink-0">
-                                            Installed
+                                            {t("Installed")}
                                           </span>
                                         ) : dl ? (
                                           <span className="text-[0.625rem] text-dim shrink-0">
@@ -209,10 +212,10 @@ export function BrowseTab(props: BrowseTabProps) {
                                   );
                                 })
                             ) : (
-                              <p className="text-xs text-dim px-2">No GGUF files in this repo.</p>
+                              <p className="text-xs text-dim px-2">{t("No GGUF files in this repo.")}</p>
                             )
                           ) : (
-                            <p className="text-xs text-dim px-2">Loading files…</p>
+                            <p className="text-xs text-dim px-2">{t("Loading files…")}</p>
                           )}
                         </div>
                       )}
@@ -224,9 +227,9 @@ export function BrowseTab(props: BrowseTabProps) {
               !searching && (
                 <div className="text-center py-10 text-dim">
                   <Search size={26} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Search for GGUF models on HuggingFace.</p>
+                  <p className="text-sm">{t("Search for GGUF models on HuggingFace.")}</p>
                   <p className="text-xs mt-1 text-faint">
-                    Try "llama 3", "mistral", or a quant like "Q4_K_M".
+                    {t('Try "llama 3", "mistral", or a quant like "Q4_K_M".')}
                   </p>
                 </div>
               )

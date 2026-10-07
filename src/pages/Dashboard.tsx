@@ -24,6 +24,7 @@ import type {
   SystemInfoDto,
 } from "../bindings";
 import { call } from "../utils/ipc";
+import { t } from "../utils/i18n";
 import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
 import { RuntimeTab } from "./dashboard/runtime-tab";
 import { ModelsTab } from "./dashboard/models-tab";
@@ -98,7 +99,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
   const withTimeout = <T,>(p: Promise<T>, what: string): Promise<T> =>
     new Promise<T>((resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error(`${what} timed out — the backend may be busy`)),
+        () => reject(new Error(t("{what} timed out — the backend may be busy", { what }))),
         15000,
       );
       p.then(
@@ -134,11 +135,11 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
       Promise<Bounded<ServerStatus>>,
       Promise<Bounded<AppConfig>>,
     ] => [
-      bounded(call(commands.getSystemInfo()), "System info"),
-      bounded(call(commands.getRuntimeInfo()), "Runtime info"),
-      bounded(call(commands.listInstalledModels()), "Model scan"),
-      bounded(call(commands.getServerStatus()), "Server status"),
-      bounded(call(commands.getConfig()), "Config"),
+      bounded(call(commands.getSystemInfo()), t("System info")),
+      bounded(call(commands.getRuntimeInfo()), t("Runtime info")),
+      bounded(call(commands.listInstalledModels()), t("Model scan")),
+      bounded(call(commands.getServerStatus()), t("Server status")),
+      bounded(call(commands.getConfig()), t("Config")),
     ];
     try {
       const run = async () => {
@@ -160,15 +161,15 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
       const failed = [sys, rt, mdls, srv, cfg].filter((x) => x.error);
       if (failed.length > 0) {
         setError(
-          `Could not load the dashboard: ${failed
-            .map((f) => `${f.what}: ${f.error}`)
-            .join(" · ")}`,
+          t("Could not load the dashboard: {list}", {
+            list: failed.map((f) => `${f.what}: ${f.error}`).join(" · "),
+          }),
         );
       } else {
         setError(null);
       }
     } catch (e) {
-      setError(`Could not load the dashboard: ${e}`);
+      setError(t("Could not load the dashboard: {error}", { error: String(e) }));
     } finally {
       setLoading(false);
     }
@@ -304,7 +305,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
     });
 
   const browseCustom = async () => {
-    const picked = await pickFolder("Select llama.cpp directory");
+    const picked = await pickFolder(t("Select llama.cpp directory"));
     if (!picked) return;
     setScanning(true);
     setError(null);
@@ -312,7 +313,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
       const builds = await call(commands.scanCustomBinaries(picked));
       if (builds.length === 0) {
         setCustomBuilds(null);
-        setError("No llama-server binary found in the selected directory.");
+        setError(t("No llama-server binary found in the selected directory."));
       } else if (builds.length === 1) {
         await registerBuild(builds[0].binary_path);
       } else {
@@ -347,8 +348,11 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
         ),
     );
     if (stale.length === 0) return;
-    const plural = stale.length === 1 ? "" : "s";
-    if (!window.confirm(`Delete ${stale.length} older build${plural}?`)) return;
+    const confirmText =
+      stale.length === 1
+        ? t("Delete 1 older build?")
+        : t("Delete {n} older builds?", { n: stale.length });
+    if (!window.confirm(confirmText)) return;
     await run(async () => {
       for (const r of stale) await call(commands.deleteManagedRuntime(r.build, r.backend_id));
     });
@@ -384,7 +388,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
   };
 
   const addModelDir = async () => {
-    const picked = await pickFolder("Add GGUF storage directory");
+    const picked = await pickFolder(t("Add GGUF storage directory"));
     if (!picked) return;
     await run(async () => {
       await call(commands.addModelDir(picked));
@@ -399,7 +403,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
     });
 
   const changeDownloadDir = async () => {
-    const picked = await pickFolder("Select default download directory");
+    const picked = await pickFolder(t("Select default download directory"));
     if (!picked) return;
     await run(async () => {
       await call(commands.setDownloadDir(picked));
@@ -576,7 +580,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
   if (loading) {
     return (
       <div className="h-full overflow-y-auto flex items-center justify-center text-dim text-sm">
-        Loading system info…
+        {t("Loading system info…")}
       </div>
     );
   }
@@ -587,7 +591,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
   const usedRam = Math.max(0, totalRam - freeRam);
   const gpus = system?.gpus ?? [];
   const selectedModelName =
-    (appConfig?.selected_model ?? "").split(/[\\/]/).pop() || "None selected";
+    (appConfig?.selected_model ?? "").split(/[\\/]/).pop() || t("None selected");
   const recommendedBackend = system?.backends.find(
     (b) => b.id === system.recommended_backend,
   );
@@ -599,32 +603,32 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
       return `b${activeRt.build}${hit ? ` · ${hit.backend_label}` : ""}`;
     }
     if (activeRt?.type === "custom") {
-      return custom[activeRt.index]?.label ?? "Custom build";
+      return custom[activeRt.index]?.label ?? t("Custom build");
     }
-    return "None";
+    return t("None");
   })();
   const installedNames = new Set(models.map((m) => m.filename));
   const dashTabs: { id: DashTab; label: string; desc: string; icon: typeof Cpu }[] = [
     {
       id: "runtime",
-      label: `Runtime (${managed.length + custom.length})`,
-      desc: "llama.cpp builds used to serve models.",
+      label: t("Runtime ({n})", { n: managed.length + custom.length }),
+      desc: t("llama.cpp builds used to serve models."),
       icon: Cpu,
     },
     {
       id: "models",
-      label: `Models (${models.length})`,
-      desc: "GGUF files found across your model folders.",
+      label: t("Models ({n})", { n: models.length }),
+      desc: t("GGUF files found across your model folders."),
       icon: Database,
     },
     {
       id: "browse",
-      label: "Browse HuggingFace",
-      desc: "Search and download GGUF models from HuggingFace.",
+      label: t("Browse HuggingFace"),
+      desc: t("Search and download GGUF models from HuggingFace."),
       icon: Search,
     },
   ];
-  const currentTab = dashTabs.find((t) => t.id === dashTab) ?? dashTabs[0];
+  const currentTab = dashTabs.find((tab) => tab.id === dashTab) ?? dashTabs[0];
 
   const comp = companion
     ? (() => {
@@ -637,7 +641,9 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
           split,
           index: info?.index ?? 1,
           modelSize,
-          label: split ? `All ${companion.parts.length} parts` : "Model",
+          label: split
+            ? t("All {n} parts", { n: companion.parts.length })
+            : t("Model"),
         };
       })()
     : null;
@@ -646,9 +652,9 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
     <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-4 max-w-6xl mx-auto">
         <div>
-          <h1 className="section-title">Dashboard</h1>
+          <h1 className="section-title">{t("Dashboard")}</h1>
           <p className="section-desc">
-            Your machine, the local server, llama.cpp builds, and models.
+            {t("Your machine, the local server, llama.cpp builds, and models.")}
           </p>
         </div>
 
@@ -663,13 +669,13 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
                   loadData();
                 }}
               >
-                Retry
+                {t("Retry")}
               </button>
               <button
                 className="text-xs text-accent-red/70 hover:text-accent-red"
                 onClick={() => setError(null)}
               >
-                Dismiss
+                {t("Dismiss")}
               </button>
             </div>
           </div>
@@ -692,12 +698,12 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
                         : "bg-surface-3"
                 }`}
               />
-              <h2 className="section-title mb-0">Server</h2>
+              <h2 className="section-title mb-0">{t("Server")}</h2>
               {status.type === "running" && status.ready && (
-                <span className="badge-green text-[0.625rem] ml-auto">ready</span>
+                <span className="badge-green text-[0.625rem] ml-auto">{t("ready")}</span>
               )}
               {running && !(status.type === "running" && status.ready) && (
-                <span className="badge-yellow text-[0.625rem] ml-auto">loading</span>
+                <span className="badge-yellow text-[0.625rem] ml-auto">{t("loading")}</span>
               )}
             </div>
             <p
@@ -713,28 +719,28 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
             >
               {status.type === "running" && status.ready ? (
                 <>
-                  Running <span className="font-mono text-base">:{status.port}</span>
+                  {t("Running")} <span className="font-mono text-base">:{status.port}</span>
                 </>
               ) : running ? (
-                "Loading the model…"
+                t("Loading the model…")
               ) : status.type === "error" ? (
-                "Server error"
+                t("Server error")
               ) : (
-                "Stopped"
+                t("Stopped")
               )}
             </p>
             <p className="section-desc mt-0.5">
               {status.type === "error"
                 ? status.message
                 : status.type === "running" && status.ready
-                  ? "Ready for chat."
-                  : "Server starts on demand when you send a message."}
+                  ? t("Ready for chat.")
+                  : t("Server starts on demand when you send a message.")}
             </p>
             <div className="mt-4 space-y-1.5">
-              <DetailRow label="Model" value={selectedModelName} mono />
-              <DetailRow label="Runtime" value={runtimeLabel} />
+              <DetailRow label={t("Model")} value={selectedModelName} mono />
+              <DetailRow label={t("Runtime")} value={runtimeLabel} />
               <DetailRow
-                label="Backend"
+                label={t("Backend")}
                 value={recommendedBackend?.label ?? "—"}
               />
             </div>
@@ -743,20 +749,20 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
                 <>
                   {status.type === "running" && (
                     <button className="btn-secondary text-xs" onClick={() => go("chat")}>
-                      Chat
+                      {t("Chat")}
                     </button>
                   )}
                   <button className="btn-danger text-xs" onClick={stop} disabled={stopping}>
-                    Stop
+                    {t("Stop")}
                   </button>
                 </>
               ) : (
                 <>
                   <button className="btn-primary text-xs" onClick={() => go("chat")}>
-                    Chat
+                    {t("Chat")}
                   </button>
                   <button className="btn-ghost text-xs" onClick={() => go("run")}>
-                    Configure launch
+                    {t("Configure launch")}
                   </button>
                 </>
               )}
@@ -765,7 +771,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
 
           <div className="card lg:col-span-3">
             <div className="flex items-baseline justify-between gap-3 mb-3">
-              <h2 className="section-title mb-0">This machine</h2>
+              <h2 className="section-title mb-0">{t("This machine")}</h2>
               <span className="text-[0.625rem] font-mono text-faint truncate">
                 {system ? `${system.os} · ${system.arch}` : ""}
               </span>
@@ -773,43 +779,46 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
             <div className="grid grid-cols-2 gap-2.5">
               <MachineStat
                 icon={Cpu}
-                label="CPU"
-                value={shortCpuName(system?.cpu_name ?? "Unknown")}
-                detail={`${system?.cpu_cores ?? 0} cores · ${system?.cpu_threads ?? 0} threads`}
+                label={t("CPU")}
+                value={shortCpuName(system?.cpu_name ?? t("Unknown"))}
+                detail={t("{cores} cores · {threads} threads", {
+                  cores: system?.cpu_cores ?? 0,
+                  threads: system?.cpu_threads ?? 0,
+                })}
               />
               <MachineStat
                 icon={MemoryStick}
-                label="Memory"
+                label={t("Memory")}
                 value={
-                  totalRam > 0 ? `${mbToGb(usedRam)} / ${mbToGb(totalRam)}` : "Unknown"
+                  totalRam > 0 ? `${mbToGb(usedRam)} / ${mbToGb(totalRam)}` : t("Unknown")
                 }
-                detail={`${mbToGb(freeRam)} free`}
+                detail={t("{gb} free", { gb: mbToGb(freeRam) })}
                 fraction={totalRam > 0 ? usedRam / totalRam : undefined}
               />
               <MachineStat
                 icon={Monitor}
-                label="GPU"
+                label={t("GPU")}
                 value={
                   gpus.length > 0
                     ? `${shortGpuName(gpus[0].name)}${gpus.length > 1 ? ` +${gpus.length - 1}` : ""}`
-                    : "None"
+                    : t("None")
                 }
                 detail={
                   gpus.length === 0
-                    ? "No GPU detected"
+                    ? t("No GPU detected")
                     : totalVram > 0
-                      ? `${mbToGb(totalVram)} VRAM`
-                      : "shared memory"
+                      ? t("{gb} VRAM", { gb: mbToGb(totalVram) })
+                      : t("shared memory")
                 }
               />
               <MachineStat
                 icon={Zap}
-                label="Backend"
+                label={t("Backend")}
                 value={recommendedBackend?.label ?? "CPU"}
                 detail={
                   recommendedBackend?.version
                     ? `v${recommendedBackend.version}`
-                    : "Recommended for this machine"
+                    : t("Recommended for this machine")
                 }
               />
             </div>
@@ -919,7 +928,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="card flex items-center gap-3 px-6 py-4">
             <RefreshCw size={16} className="text-accent animate-spin" />
-            <span className="text-sm text-ink">Searching for server runtimes…</span>
+            <span className="text-sm text-ink">{t("Searching for server runtimes…")}</span>
           </div>
         </div>
       )}
@@ -933,7 +942,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
             className="card max-w-lg w-full mx-4 space-y-3"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-sm font-semibold text-ink">Model config</h3>
+            <h3 className="text-sm font-semibold text-ink">{t("Model config")}</h3>
             <pre className="text-[0.6875rem] font-mono text-dim bg-surface-0 border border-border rounded p-3 overflow-auto max-h-96">
               {JSON.stringify(
                 {
@@ -956,7 +965,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
               )}
             </pre>
             <button className="btn-ghost text-xs w-full" onClick={() => setConfigModel(null)}>
-              Close
+              {t("Close")}
             </button>
           </div>
         </div>
@@ -968,27 +977,31 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
           onClick={() => setCompanion(null)}
         >
           <div className="card max-w-md w-full mx-4 space-y-3" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-semibold text-ink">Download options</h3>
+            <h3 className="text-sm font-semibold text-ink">{t("Download options")}</h3>
             <p className="text-xs text-dim">
               {comp.split
-                ? `This model ships in ${companion.parts.length} parts${
-                    companion.mmproj.length + companion.dspark.length > 0
-                      ? ", along with companion files."
-                      : " that are all needed to load it."
-                  } Pick what to download.`
-                : "This repo ships auxiliary files alongside the model. Pick what to download."}
+                ? t("This model ships in {n} parts{companions}. Pick what to download.", {
+                    n: companion.parts.length,
+                    companions:
+                      companion.mmproj.length + companion.dspark.length > 0
+                        ? t(", along with companion files")
+                        : t(" that are all needed to load it"),
+                  })
+                : t("This repo ships auxiliary files alongside the model. Pick what to download.")}
             </p>
             <div className="space-y-2">
               <div className="space-y-1.5">
                 {comp.split && (
-                  <p className="text-[0.625rem] uppercase tracking-wider text-dim">Model parts</p>
+                  <p className="text-[0.625rem] uppercase tracking-wider text-dim">
+                    {t("Model parts")}
+                  </p>
                 )}
                 {comp.split && (
                   <button
                     className="w-full text-left px-3 py-2 rounded border border-accent/50 hover:bg-surface-2 text-sm text-ink"
                     onClick={() => companionChoice(true, null, null)}
                   >
-                    All {companion.parts.length} parts
+                    {t("All {n} parts", { n: companion.parts.length })}
                     <span className="text-xs text-dim ml-2">{formatSize(comp.modelSize)}</span>
                   </button>
                 )}
@@ -997,8 +1010,11 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
                   onClick={() => companionChoice(false, null, null)}
                 >
                   {comp.split
-                    ? `Just part ${comp.index} of ${companion.parts.length}`
-                    : "Just the model"}
+                    ? t("Just part {index} of {n}", {
+                        index: comp.index,
+                        n: companion.parts.length,
+                      })
+                    : t("Just the model")}
                   <span className="text-xs text-dim ml-2">
                     {formatSize(comp.split ? (companion.file.size_bytes ?? 0) : comp.modelSize)}
                   </span>
@@ -1007,7 +1023,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
               {companion.mmproj.length > 0 && (
                 <div className="space-y-1.5">
                   <p className="text-[0.625rem] uppercase tracking-wider text-dim">
-                    Vision projection (mmproj)
+                    {t("Vision projection (mmproj)")}
                   </p>
                   {companion.mmproj.map((mp) => (
                     <button
@@ -1026,7 +1042,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
               {companion.dspark.length > 0 && (
                 <div className="space-y-1.5">
                   <p className="text-[0.625rem] uppercase tracking-wider text-dim">
-                    Speculative draft (DSpark)
+                    {t("Speculative draft (DSpark)")}
                   </p>
                   {companion.dspark.map((dp) => (
                     <button
@@ -1044,7 +1060,7 @@ export default function Dashboard({ go }: { go: (t: Tab) => void }) {
               )}
             </div>
             <button className="btn-ghost text-xs w-full" onClick={() => setCompanion(null)}>
-              Cancel
+              {t("Cancel")}
             </button>
           </div>
         </div>

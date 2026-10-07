@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { ModelDto } from "../../bindings";
 import { formatSize, quantColor } from "../../utils/format";
+import { t } from "../../utils/i18n";
 import type { ModelSortCol } from "./shared";
 
 /// Repo owner for a scanned model: the folder above the quant folder when the
@@ -75,17 +76,17 @@ export function ModelsTab(props: ModelsTabProps) {
             <div className="flex items-center justify-end gap-3 mb-2">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-[0.6875rem] font-mono text-dim truncate max-w-72" title={downloadDir}>
-                  {downloadDir || "Not set"}
+                  {downloadDir || t("Not set")}
                 </span>
                 <button className="btn-ghost text-[0.6875rem] py-1 shrink-0" onClick={changeDownloadDir}>
-                  <FolderOpen size={11} /> Change…
+                  <FolderOpen size={11} /> {t("Change…")}
                 </button>
                 <button
                   className="btn-ghost text-[0.6875rem] py-1 shrink-0"
                   onClick={addModelDir}
-                  title="Scan another folder too"
+                  title={t("Scan another folder too")}
                 >
-                  <FolderPlus size={11} /> Add
+                  <FolderPlus size={11} /> {t("Add")}
                 </button>
               </div>
             </div>
@@ -99,7 +100,7 @@ export function ModelsTab(props: ModelsTabProps) {
                       {modelDirs.length > 1 && (
                         <button
                           className="text-faint hover:text-accent-red shrink-0"
-                          title="Stop scanning this folder"
+                          title={t("Stop scanning this folder")}
                           onClick={() => removeModelDir(d)}
                         >
                           <X size={10} />
@@ -114,18 +115,20 @@ export function ModelsTab(props: ModelsTabProps) {
                 <Filter size={12} className="text-faint shrink-0" />
                 <input
                   className="input flex-1 py-1 px-2 text-xs min-w-0"
-                  placeholder="Filter by name…"
+                  placeholder={t("Filter by name…")}
                   value={nameFilter}
                   onChange={(e) => setNameFilter(e.target.value)}
                 />
               </div>
               <span className="text-[0.6875rem] text-faint shrink-0">
-                {filteredModels.length} model{filteredModels.length === 1 ? "" : "s"}
+                {filteredModels.length === 1
+                  ? t("1 model")
+                  : t("{n} models", { n: filteredModels.length })}
               </span>
             </div>
             {models.length === 0 ? (
               <div className="text-center py-6">
-                <p className="text-xs text-dim">Nothing downloaded yet.</p>
+                <p className="text-xs text-dim">{t("Nothing downloaded yet.")}</p>
               </div>
             ) : (
               <div>
@@ -134,33 +137,33 @@ export function ModelsTab(props: ModelsTabProps) {
                     className="flex-1 flex items-center gap-1 group text-left"
                     onClick={() => toggleModelSort("name")}
                   >
-                    Model {modelSortIcon("name")}
+                    {t("Model")} {modelSortIcon("name")}
                   </button>
                   <button
                     className="w-16 flex items-center gap-1 group justify-end"
                     onClick={() => toggleModelSort("params")}
                   >
-                    Params {modelSortIcon("params")}
+                    {t("Params")} {modelSortIcon("params")}
                   </button>
                   <button
                     className="w-20 flex items-center gap-1 group justify-end"
                     onClick={() => toggleModelSort("quant")}
                   >
-                    Quant {modelSortIcon("quant")}
+                    {t("Quant")} {modelSortIcon("quant")}
                   </button>
                   <button
                     className="w-16 flex items-center gap-1 group justify-end"
                     onClick={() => toggleModelSort("ctx")}
                   >
-                    Ctx {modelSortIcon("ctx")}
+                    {t("Ctx")} {modelSortIcon("ctx")}
                   </button>
                   <button
                     className="w-20 flex items-center gap-1 group justify-end"
                     onClick={() => toggleModelSort("size")}
                   >
-                    Size {modelSortIcon("size")}
+                    {t("Size")} {modelSortIcon("size")}
                   </button>
-                  <span className="w-14 text-center normal-case">Config</span>
+                  <span className="w-14 text-center normal-case">{t("Config")}</span>
                   <span className="w-8" />
                   <span className="w-8" />
                 </div>
@@ -175,12 +178,12 @@ export function ModelsTab(props: ModelsTabProps) {
                         <div className="flex items-center gap-1.5 min-w-0">
                           <p className="text-sm text-ink truncate">{m.name}</p>
                           {m.is_vision && (
-                            <span title="Vision model">
+                            <span title={t("Vision model")}>
                               <Eye size={12} className="text-[#3B82F6] shrink-0" />
                             </span>
                           )}
                           {m.is_reasoning && (
-                            <span title="Reasoning model">
+                            <span title={t("Reasoning model")}>
                               <Brain size={12} className="text-[#E5484D] shrink-0" />
                             </span>
                           )}
@@ -206,7 +209,7 @@ export function ModelsTab(props: ModelsTabProps) {
                       <span className="w-14 flex justify-center items-center">
                         <button
                           className="text-faint hover:text-ink"
-                          title="Model config (JSON)"
+                          title={t("Model config (JSON)")}
                           onClick={() => setConfigModel(m)}
                         >
                           <FileJson size={12} />
@@ -216,7 +219,7 @@ export function ModelsTab(props: ModelsTabProps) {
                         {m.hf_repo && (
                           <button
                             className="text-faint hover:text-ink"
-                            title="Open on HuggingFace"
+                            title={t("Open on HuggingFace")}
                             onClick={() => openInBrowser(`https://huggingface.co/${m.hf_repo}`)}
                           >
                             <ExternalLink size={11} />
@@ -225,7 +228,7 @@ export function ModelsTab(props: ModelsTabProps) {
                       </span>
                       <button
                         className="w-8 flex justify-center text-faint hover:text-accent-red"
-                        title="Delete model"
+                        title={t("Delete model")}
                         onClick={() => deleteModel(m.path)}
                       >
                         <Trash2 size={13} />
@@ -234,7 +237,9 @@ export function ModelsTab(props: ModelsTabProps) {
                   );
                 })}
                 {filteredModels.length === 0 && (
-                  <p className="text-sm text-dim py-6 text-center">No models match the filter.</p>
+                  <p className="text-sm text-dim py-6 text-center">
+                    {t("No models match the filter.")}
+                  </p>
                 )}
               </div>
             )}

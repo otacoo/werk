@@ -340,9 +340,18 @@ fn export_bindings<R: tauri::Runtime>(builder: &Builder<R>) {
     // Absolute: relative paths resolve against the process CWD, which
     // differs between `cargo run`, the dev server, and the built app.
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/bindings.ts");
+    // Export to a temp file first: an unchanged export must not rewrite the
+    // file (a new timestamp makes git report it modified after every launch).
+    let tmp = std::env::temp_dir().join("werk-bindings-dev.ts");
     builder
-        .export(Typescript::default(), path)
+        .export(Typescript::default(), &tmp)
         .expect("export typescript bindings");
+    let generated = std::fs::read(&tmp).expect("read generated bindings");
+    let _ = std::fs::remove_file(&tmp);
+    if std::fs::read(path).map(|old| old == generated).unwrap_or(false) {
+        return;
+    }
+    std::fs::write(path, generated).expect("write src/bindings.ts");
 }
 
 /// Canonical command list, shared by the app and the export bin so the
@@ -624,6 +633,13 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_denylist(&["overlay"])
+                // Never restore visibility: the frontend reveals the window
+                // once the first screen is ready, so a slow start shows no
+                // blank frame.
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().build())

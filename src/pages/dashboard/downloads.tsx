@@ -1,4 +1,5 @@
 import { fmtMB } from "../../utils/ipc";
+import { t } from "../../utils/i18n";
 import { baseOf, type ActiveDl } from "./shared";
 
 export function DownloadRow({ prog, paused, onPause, onResume, onCancel }: {
@@ -11,7 +12,7 @@ export function DownloadRow({ prog, paused, onPause, onResume, onCancel }: {
   return (
     <div className="mt-2">
       <div className="flex justify-between items-center text-xs text-dim mb-1">
-        <span>{paused ? "Paused" : "Downloading…"}</span>
+        <span>{paused ? t("Paused") : t("Downloading…")}</span>
         <span>
           {prog?.total ? `${((prog.downloaded / prog.total) * 100).toFixed(1)}%` : fmtMB((prog?.downloaded ?? 0) / 1024 / 1024)}
         </span>
@@ -26,19 +27,19 @@ export function DownloadRow({ prog, paused, onPause, onResume, onCancel }: {
         {paused ? (
           <>
             <button className="btn-primary text-xs" onClick={onResume}>
-              Resume
+              {t("Resume")}
             </button>
             <button className="btn-danger text-xs" onClick={onCancel}>
-              Cancel
+              {t("Cancel")}
             </button>
           </>
         ) : (
           <>
             <button className="btn-ghost text-xs" onClick={onPause}>
-              Pause
+              {t("Pause")}
             </button>
             <button className="btn-danger text-xs" onClick={onCancel}>
-              Cancel
+              {t("Cancel")}
             </button>
           </>
         )}
@@ -59,7 +60,7 @@ export function ActiveDownloads({ active, progress, paused, onPause, onResume, o
   if (ids.length === 0) return null;
   return (
     <div className="mb-2 rounded border border-border bg-surface-2 p-4">
-      <h3 className="text-xs font-medium text-dim mb-2">Downloading</h3>
+      <h3 className="text-xs font-medium text-dim mb-2">{t("Downloading")}</h3>
       <div className="space-y-3">
         {ids.map((id) => {
           const dl = progress[id];
@@ -71,16 +72,16 @@ export function ActiveDownloads({ active, progress, paused, onPause, onResume, o
                 <div className="flex items-center gap-2 shrink-0">
                   {isPaused ? (
                     <>
-                      <span className="text-[0.625rem] text-accent-yellow">Paused</span>
+                      <span className="text-[0.625rem] text-accent-yellow">{t("Paused")}</span>
                       <button className="btn-primary text-[0.625rem] py-0.5 px-1.5" onClick={() => onResume(id)}>
-                        Resume
+                        {t("Resume")}
                       </button>
                       <button
                         className="btn-danger text-[0.625rem] py-0.5 px-1.5"
                         onClick={() => onCancel(id)}
-                        title="Discard the partial download"
+                        title={t("Discard the partial download")}
                       >
-                        Cancel
+                        {t("Cancel")}
                       </button>
                     </>
                   ) : (
@@ -89,14 +90,14 @@ export function ActiveDownloads({ active, progress, paused, onPause, onResume, o
                         {dl?.total ? `${((dl.downloaded / dl.total) * 100).toFixed(1)}%` : fmtMB((dl?.downloaded ?? 0) / 1024 / 1024)}
                       </span>
                       <button className="btn-ghost text-[0.625rem] py-0.5 px-1.5" onClick={() => onPause(id)}>
-                        Pause
+                        {t("Pause")}
                       </button>
                       <button
                         className="btn-danger text-[0.625rem] py-0.5 px-1.5"
                         onClick={() => onCancel(id)}
-                        title="Discard the partial download"
+                        title={t("Discard the partial download")}
                       >
-                        Cancel
+                        {t("Cancel")}
                       </button>
                     </>
                   )}

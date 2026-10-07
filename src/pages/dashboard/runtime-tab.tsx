@@ -10,6 +10,7 @@ import type {
   RuntimeInfo,
 } from "../../bindings";
 import { fmtMB } from "../../utils/ipc";
+import { t } from "../../utils/i18n";
 
 const pathJoin = (base: string, name: string) =>
   `${base}${base.includes("\\") ? "\\" : "/"}${name}`;
@@ -77,7 +78,7 @@ export function RuntimeTab(props: RuntimeTabProps) {
               {(managed.length > 0 || custom.length > 0) && (
                   <label
                     className="flex items-center gap-1.5 text-[0.6875rem] text-dim cursor-pointer"
-                    title="Delete older builds of the same backend after installing a new one"
+                    title={t("Delete older builds of the same backend after installing a new one")}
                   >
                     <input
                       type="checkbox"
@@ -85,24 +86,24 @@ export function RuntimeTab(props: RuntimeTabProps) {
                       checked={appConfig?.auto_delete_old_runtimes ?? false}
                       onChange={(e) => setAutoDeleteOld(e.target.checked)}
                     />
-                    Auto-delete old
+                    {t("Auto-delete old")}
                   </label>
                 )}
                 {managed.length > 1 && (
                   <button
                     className="btn-ghost text-[0.6875rem]"
-                    title="Delete every managed build except the active one"
+                    title={t("Delete every managed build except the active one")}
                     onClick={deleteOldVersions}
                   >
-                    <Trash2 size={11} /> Old versions
+                    <Trash2 size={11} /> {t("Old versions")}
                   </button>
                 )}
                 <button
                   className="btn-ghost text-[0.6875rem]"
                   onClick={browseCustom}
-                  title="Register a local llama.cpp build"
+                  title={t("Register a local llama.cpp build")}
                 >
-                  <FolderOpen size={11} /> Browse…
+                  <FolderOpen size={11} /> {t("Browse…")}
                 </button>
             </div>
             <div className="mt-2 flex items-center gap-2">
@@ -112,14 +113,14 @@ export function RuntimeTab(props: RuntimeTabProps) {
                 disabled={checking}
               >
                 {checking ? (
-                  <><RefreshCw size={12} className="animate-spin" /> Checking…</>
+                  <><RefreshCw size={12} className="animate-spin" /> {t("Checking…")}</>
                 ) : (
-                  <><RefreshCw size={12} /> Check for builds</>
+                  <><RefreshCw size={12} /> {t("Check for builds")}</>
                 )}
               </button>
               {newBuildAvailable && (
                 <span className="inline-flex items-center rounded px-1.5 py-px text-[0.625rem] font-medium bg-accent/20 text-accent">
-                  New version
+                  {t("New version")}
                 </span>
               )}
             </div>
@@ -145,15 +146,15 @@ export function RuntimeTab(props: RuntimeTabProps) {
                           {dirPath}
                         </p>
                       </div>
-                      {isActive && <span className="badge-green text-[0.625rem] shrink-0">active</span>}
+                      {isActive && <span className="badge-green text-[0.625rem] shrink-0">{t("active")}</span>}
                       {!isActive && (
                         <>
                           <button className="btn-ghost text-[0.6875rem]" onClick={() => activateManaged(r.build, r.backend_id)}>
-                            Use
+                            {t("Use")}
                           </button>
                           <button
                             className="text-faint hover:text-accent-red"
-                            title="Delete build"
+                            title={t("Delete build")}
                             onClick={() => deleteManaged(r.build, r.backend_id)}
                           >
                             <Trash2 size={11} />
@@ -176,15 +177,15 @@ export function RuntimeTab(props: RuntimeTabProps) {
                           {c.binary_path}
                         </p>
                       </div>
-                      {isActive && <span className="badge-green text-[0.625rem] shrink-0">active</span>}
+                      {isActive && <span className="badge-green text-[0.625rem] shrink-0">{t("active")}</span>}
                       {!isActive && (
                         <>
                           <button className="btn-ghost text-[0.6875rem]" onClick={() => activateCustom(i)}>
-                            Use
+                            {t("Use")}
                           </button>
                           <button
                             className="text-faint hover:text-accent-red"
-                            title="Remove runtime"
+                            title={t("Remove runtime")}
                             onClick={() => removeCustom(i)}
                           >
                             <Trash2 size={11} />
@@ -200,7 +201,7 @@ export function RuntimeTab(props: RuntimeTabProps) {
             {release && (
               <div className="mt-3 pt-3 border-t border-border">
                 <p className="text-[0.6875rem] text-dim mb-1.5">
-                  Checked {release.tag_name} — pick a build to download.
+                  {t("Checked {tag} — pick a build to download.", { tag: release.tag_name })}
                 </p>
                 <div className="space-y-1">
                   {assets.map((asset) => (
@@ -218,18 +219,18 @@ export function RuntimeTab(props: RuntimeTabProps) {
                     disabled={!selectedAsset || rtBusy}
                     onClick={() => selectedAsset && installAsset(selectedAsset)}
                   >
-                    <Download size={12} /> {rtBusy ? "Downloading…" : "Download"}
+                    <Download size={12} /> {rtBusy ? t("Downloading…") : t("Download")}
                   </button>
                   {rtProgress && (
                     <button className="btn-ghost text-xs" onClick={cancelInstall}>
-                      Cancel
+                      {t("Cancel")}
                     </button>
                   )}
                 </div>
                 {rtProgress && (
                   <div className="mt-2">
                     <div className="flex items-center justify-between text-[0.6875rem] text-dim mb-1">
-                      <span>Downloading…</span>
+                      <span>{t("Downloading…")}</span>
                       <span className="font-mono">
                         {rtProgress.total
                           ? `${((rtProgress.downloaded / rtProgress.total) * 100).toFixed(1)}% — ${fmtMB(rtProgress.downloaded / 1024 / 1024)} / ${fmtMB(rtProgress.total / 1024 / 1024)}`
@@ -253,7 +254,7 @@ export function RuntimeTab(props: RuntimeTabProps) {
 
             {customBuilds && customBuilds.length > 1 && (
               <div className="mt-3 pt-3 border-t border-border">
-                <p className="label mb-1.5">Multiple builds found — pick one to register</p>
+                <p className="label mb-1.5">{t("Multiple builds found — pick one to register")}</p>
                 <div className="space-y-1">
                   {customBuilds.map((b) => (
                     <button
@@ -270,7 +271,7 @@ export function RuntimeTab(props: RuntimeTabProps) {
             )}
             {scanning && (
               <p className="text-xs text-dim mt-2 flex items-center gap-2">
-                <RefreshCw size={12} className="animate-spin" /> Searching for server runtimes…
+                <RefreshCw size={12} className="animate-spin" /> {t("Searching for server runtimes…")}
               </p>
             )}
           </div>
@@ -303,7 +304,7 @@ function AssetRow({
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-ink truncate">{asset.name}</span>
           {asset.score >= 90 && (
-            <span className="badge-green text-[0.625rem] shrink-0">Recommended</span>
+            <span className="badge-green text-[0.625rem] shrink-0">{t("Recommended")}</span>
           )}
         </div>
         <div className="flex gap-3 mt-0.5">

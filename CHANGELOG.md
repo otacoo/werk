@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The embedded llama-server web UI only runs while its tab is open and the server is running (it kept polling in the background once loaded)
+- The overlay pauses its animations while hidden, so a disabled overlay costs no CPU
+- Idle CPU: the server-status poll only notifies pages when the status actually changed, and it pauses while the window is hidden (every mounted page used to re-render every 2 seconds)
+- **Debug:** a *Force theme animations* toggle keeps the theme orbits running on software-rendered Linux, where they are off by default
 - **Bundles:** export your assistant — persona, prompt, memory, skills, plugins, and optionally the transcript — as one `.werk` file, and import setups others share
   - The import shows the contents first; existing skills/plugins are never overwritten (imports get a suffix), imported plugins always ask for approval, and requested system-control tools stay off until enabled in Access
 - **Scrolling while streaming:** the transcript (and the reasoning box) no longer yank the view to the bottom when you scroll up to read; they re-attach when you return to the bottom or send

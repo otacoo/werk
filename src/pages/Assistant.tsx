@@ -6,6 +6,7 @@ import { AlertTriangle, Download, FolderOpen, ImagePlus, Mic, Play, RefreshCw, S
 import { commands } from "../bindings";
 import type { AssistantConfig, BundleInfo, MemoryFileDto, Reminder } from "../bindings";
 import { call } from "../utils/ipc";
+import { t } from "../utils/i18n";
 import { subscribeConfigChanged } from "../utils/appSettings";
 import {
   getOverlayAnimations,
@@ -2068,6 +2069,16 @@ function OverlayCard() {
 }
 
 
+/// English source labels for the bundle include/apply chips; `t()` translates
+/// them later.
+const PART_SOURCE: Record<string, string> = {
+  identity: "Identity",
+  memory: "Memory",
+  skills: "Skills",
+  plugins: "Plugins",
+  transcript: "Transcript",
+};
+
 /// Portable bundles: export the assistant setup as one `.werk` file, or
 /// import a shared one with a contents preview. Imports never overwrite
 /// existing skills or plugins and never enable system-control tools.
@@ -2097,9 +2108,9 @@ function BundleCard({ onImported }: { onImported: () => void }) {
 
   const exportBundle = async () => {
     let picked = await saveDialog({
-      title: "Export assistant bundle",
+      title: t("Export assistant bundle"),
       defaultPath: "assistant.werk",
-      filters: [{ name: "Werk bundle", extensions: ["werk"] }],
+      filters: [{ name: t("Werk bundle"), extensions: ["werk"] }],
     }).catch(() => null);
     if (typeof picked !== "string" || !picked) return;
     if (!picked.toLowerCase().endsWith(".werk")) picked = `${picked}.werk`;
@@ -2111,12 +2122,14 @@ function BundleCard({ onImported }: { onImported: () => void }) {
         commands.assistantBundleExport(picked, { identity: true, ...exportParts }),
       );
       const bits = [
-        `${info.skills.length} skills`,
-        `${info.plugins.length} plugins`,
-        `${info.memory} memory entries`,
+        t("{n} skills", { n: info.skills.length }),
+        t("{n} plugins", { n: info.plugins.length }),
+        t("{n} memory entries", { n: info.memory }),
       ];
-      if (info.transcript > 0) bits.push(`${info.transcript} transcript messages`);
-      setNote(`Exported "${info.name}" — ${bits.join(", ")}.`);
+      if (info.transcript > 0) {
+        bits.push(t("{n} transcript messages", { n: info.transcript }));
+      }
+      setNote(t('Exported "{name}" — {bits}.', { name: info.name, bits: bits.join(", ") }));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -2127,8 +2140,8 @@ function BundleCard({ onImported }: { onImported: () => void }) {
   const pickImport = async () => {
     const picked = await openDialog({
       multiple: false,
-      title: "Pick a werk bundle",
-      filters: [{ name: "Werk bundle", extensions: ["werk"] }],
+      title: t("Pick a werk bundle"),
+      filters: [{ name: t("Werk bundle"), extensions: ["werk"] }],
     }).catch(() => null);
     if (typeof picked !== "string" || !picked) return;
     setBusy(true);
@@ -2152,14 +2165,20 @@ function BundleCard({ onImported }: { onImported: () => void }) {
     try {
       const report = await call(commands.assistantBundleImport(preview.path, applyParts));
       const bits: string[] = [];
-      if (report.identity) bits.push("identity");
-      if (report.skills.length) bits.push(`${report.skills.length} skills`);
-      if (report.plugins.length) bits.push(`${report.plugins.length} plugins`);
-      if (report.memory_added) bits.push(`${report.memory_added} memory entries`);
-      if (report.transcript) bits.push("a transcript");
-      let text = bits.length ? `Imported ${bits.join(", ")}.` : "Nothing to import.";
+      if (report.identity) bits.push(t("identity"));
+      if (report.skills.length) bits.push(t("{n} skills", { n: report.skills.length }));
+      if (report.plugins.length) bits.push(t("{n} plugins", { n: report.plugins.length }));
+      if (report.memory_added) {
+        bits.push(t("{n} memory entries", { n: report.memory_added }));
+      }
+      if (report.transcript) bits.push(t("a transcript"));
+      let text = bits.length
+        ? t("Imported {bits}.", { bits: bits.join(", ") })
+        : t("Nothing to import.");
       if (report.tools_off.length) {
-        text += ` Left off until enabled in Access: ${report.tools_off.join(", ")}.`;
+        text += t(" Left off until enabled in Access: {tools}.", {
+          tools: report.tools_off.join(", "),
+        });
       }
       setNote(text);
       setPreview(null);
@@ -2174,10 +2193,11 @@ function BundleCard({ onImported }: { onImported: () => void }) {
   return (
     <div className="card space-y-3">
       <div>
-        <h2 className="section-title mb-0">Bundle</h2>
+        <h2 className="section-title mb-0">{t("Bundle")}</h2>
         <p className="section-desc">
-          Export this assistant as one file, or import a shared one. Imports never overwrite
-          existing skills or plugins.
+          {t(
+            "Export this assistant as one file, or import a shared one. Imports never overwrite existing skills or plugins.",
+          )}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -2186,26 +2206,26 @@ function BundleCard({ onImported }: { onImported: () => void }) {
           disabled={busy}
           onClick={() => void exportBundle()}
         >
-          <Download size={12} /> Export…
+          <Download size={12} /> {t("Export…")}
         </button>
         <button
           className="btn-secondary text-xs py-1 px-2"
           disabled={busy}
           onClick={() => void pickImport()}
         >
-          <Upload size={12} /> Import…
+          <Upload size={12} /> {t("Import…")}
         </button>
         {busy && <RefreshCw size={12} className="animate-spin text-dim" />}
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[0.6875rem] text-faint">Include:</span>
+        <span className="text-[0.6875rem] text-faint">{t("Include:")}</span>
         {(["memory", "skills", "plugins", "transcript"] as const).map((part) => (
           <button
             key={part}
             className={chip(exportParts[part])}
             onClick={() => setExportParts({ ...exportParts, [part]: !exportParts[part] })}
           >
-            {part}
+            {t(PART_SOURCE[part])}
           </button>
         ))}
       </div>
@@ -2217,14 +2237,20 @@ function BundleCard({ onImported }: { onImported: () => void }) {
           <div className="card w-full max-w-lg space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="section-title mb-0">Import "{preview.info.name}"</h2>
+                <h2 className="section-title mb-0">
+                  {t('Import "{name}"', { name: preview.info.name })}
+                </h2>
                 <p className="section-desc">
-                  Bundle from werk {preview.info.app || "?"}
+                  {t("Bundle from werk {app}", { app: preview.info.app || "?" })}
                   {preview.info.created > 0 &&
                     ` · ${new Date(preview.info.created * 1000).toLocaleDateString()}`}
                 </p>
               </div>
-              <button className="btn-ghost p-1" onClick={() => setPreview(null)} title="Close">
+              <button
+                className="btn-ghost p-1"
+                onClick={() => setPreview(null)}
+                title={t("Close")}
+              >
                 <X size={14} />
               </button>
             </div>
@@ -2234,42 +2260,55 @@ function BundleCard({ onImported }: { onImported: () => void }) {
               </p>
             )}
             <ul className="text-xs text-dim space-y-1">
-              <li>Memory: {preview.info.memory} entries</li>
-              <li>Skills: {preview.info.skills.length ? preview.info.skills.join(", ") : "none"}</li>
-              <li>Plugins: {preview.info.plugins.length ? preview.info.plugins.join(", ") : "none"}</li>
+              <li>{t("Memory: {n} entries", { n: preview.info.memory })}</li>
               <li>
-                Transcript:{" "}
-                {preview.info.transcript ? `${preview.info.transcript} messages` : "none"}
+                {t("Skills: {list}", {
+                  list: preview.info.skills.length ? preview.info.skills.join(", ") : t("none"),
+                })}
+              </li>
+              <li>
+                {t("Plugins: {list}", {
+                  list: preview.info.plugins.length ? preview.info.plugins.join(", ") : t("none"),
+                })}
+              </li>
+              <li>
+                {t("Transcript: {list}", {
+                  list: preview.info.transcript
+                    ? t("{n} messages", { n: preview.info.transcript })
+                    : t("none"),
+                })}
               </li>
             </ul>
             {preview.info.tools.length > 0 && (
               <p className="text-[0.6875rem] text-accent-yellow">
-                Asks for {preview.info.tools.join(", ")} — stays off; enable it in Access after
-                importing.
+                {t(
+                  "Asks for {tools} — stays off; enable it in Access after importing.",
+                  { tools: preview.info.tools.join(", ") },
+                )}
               </p>
             )}
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[0.6875rem] text-faint">Apply:</span>
+              <span className="text-[0.6875rem] text-faint">{t("Apply:")}</span>
               {(["identity", "memory", "skills", "plugins", "transcript"] as const).map((part) => (
                 <button
                   key={part}
                   className={chip(applyParts[part])}
                   onClick={() => setApplyParts({ ...applyParts, [part]: !applyParts[part] })}
                 >
-                  {part}
+                  {t(PART_SOURCE[part])}
                 </button>
               ))}
             </div>
             <div className="flex justify-end gap-2">
               <button className="btn-secondary text-xs py-1 px-2" onClick={() => setPreview(null)}>
-                Cancel
+                {t("Cancel")}
               </button>
               <button
                 className="btn-primary text-xs py-1 px-2"
                 disabled={busy}
                 onClick={() => void runImport()}
               >
-                Import
+                {t("Import")}
               </button>
             </div>
           </div>

@@ -101,8 +101,7 @@ export function ServerLifecycleCard({ appConfig, refresh }: {
     <div className="card">
       <h2 className="section-title mb-1">Local server</h2>
       <p className="section-desc">
-        Lifecycle for the local llama.cpp server; the idle unload is
-        skipped while the Web UI is enabled.
+        Stop the server after this many minutes without chat activity; 0 disables.
       </p>
       <div className="mt-3 space-y-3">
         <label className="label flex items-center gap-2">
