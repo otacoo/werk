@@ -39,6 +39,7 @@ glob = "0.3"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 # Pinned exact: specta v2 is pre-release and the trio must match.
 specta = "=2.0.0-rc.25"
 specta-typescript = "=0.0.12"

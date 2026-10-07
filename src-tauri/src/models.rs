@@ -609,6 +609,47 @@ fn encode_path(path: &str) -> String {
     path.replace(' ', "%20")
 }
 
+/// Pinned SHA-256 for every file werk suggests downloading (repo, filename,
+/// hash). The bytes are hashed while they stream; a mismatch aborts the
+/// download, so a replaced or tampered file can never land as a model.
+/// Files without a pin are not verified (runtime archives, user models).
+const PINNED_SHA256: &[(&str, &str, &str)] = &[
+    // Qwen3-TTS 0.6B (mradermacher)
+    ("mradermacher/Qwen3-TTS-12Hz-0.6B-Base-GGUF", "Qwen3-TTS-12Hz-0.6B-Base.Q8_0.gguf", "59b28b4ab6a1c4e24e6701fc871a427c1fb3e8333f0ed5cebec3bb67a699ae8e"),
+    ("mradermacher/Qwen3-TTS-12Hz-0.6B-Base-GGUF", "Qwen3-TTS-12Hz-0.6B-Base.Q6_K.gguf", "c5d59ce9f838b59c1742fb2979d0df5a012ca22dd5a243e7a7dde657501d4ab2"),
+    ("mradermacher/Qwen3-TTS-12Hz-0.6B-Base-GGUF", "Qwen3-TTS-12Hz-0.6B-Base.Q4_K_M.gguf", "2dec66bcf1595f48a6dfb64c14e7e8437315e1606eba03094ed7372e60a4b9af"),
+    ("mradermacher/Qwen3-TTS-12Hz-0.6B-Base-GGUF", "Qwen3-TTS-12Hz-0.6B-Base.mmproj-Q8_0.gguf", "202c1fbf3a0f00b7586ca45b8328d696cc6cd980c3798979eaa4fefe8efd8320"),
+    // Qwen3-TTS 1.7B (official llama.cpp org)
+    ("ggml-org/Qwen3-TTS-12Hz-1.7B-Base-GGUF", "Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf", "ac7931aeb2e7aad1a6ed6602d353a5679c9d096b18ce8204ac730a8408d572e1"),
+    ("ggml-org/Qwen3-TTS-12Hz-1.7B-Base-GGUF", "Qwen3-TTS-12Hz-1.7B-Base-Q4_K_M.gguf", "8d18c94acb2addd042f97da63c98be144eafa76d0d9495177eab65130cf85129"),
+    ("ggml-org/Qwen3-TTS-12Hz-1.7B-Base-GGUF", "mmproj-Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf", "6fd65188839bcd6ecc91b277ad471e22a0edfada4699a0fe82f1165c18cfcce2"),
+    // Qwen3-ASR 0.6B (official llama.cpp org)
+    ("ggml-org/Qwen3-ASR-0.6B-GGUF", "Qwen3-ASR-0.6B-Q8_0.gguf", "bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971"),
+    ("ggml-org/Qwen3-ASR-0.6B-GGUF", "mmproj-Qwen3-ASR-0.6B-Q8_0.gguf", "41a342b5e4c514e968cb756de6cd1b7be39eff43c44c57a2ef5fc6522e36603d"),
+    // Pocket TTS (EryriLabs)
+    ("EryriLabs/pocket-tts-GGUF", "pocket-tts-en.gguf", "9cca37ab8f3da366a1864919214fbd545f45609d8f1167d1fb302cebea515d63"),
+    ("EryriLabs/pocket-tts-GGUF", "mmproj-pocket-tts-en.gguf", "ccb1b6a55a7df0d4f96adff04ae3b9cd99c070edc98f6c84af5adb6d46a64cfc"),
+    ("EryriLabs/pocket-tts-GGUF", "french/pocket-tts-french.gguf", "73db75f9ead052c3b488ff1e3aea4a1558ce9d22ebcb7bd6489687fb89c62a1c"),
+    ("EryriLabs/pocket-tts-GGUF", "french/mmproj-pocket-tts-french.gguf", "ef157baf2b7c422caa2f66bee1f0b14829348ede347e1c756cb306925c23b8b7"),
+    ("EryriLabs/pocket-tts-GGUF", "german/pocket-tts-german.gguf", "7b797a22f993183fc5f496d4bf8207c03c6e527e8909b998fb35580ee49458fe"),
+    ("EryriLabs/pocket-tts-GGUF", "german/mmproj-pocket-tts-german.gguf", "6ef66b0cf7a68f5973a2a4a8ded1a9c2532ecddd8b445a00e5fe3469cca11ca3"),
+    ("EryriLabs/pocket-tts-GGUF", "italian/pocket-tts-italian.gguf", "3e1b54accfefc85952c782aa3aedd5396cf5fcfb979ac1ab3f66e6c39e11b722"),
+    ("EryriLabs/pocket-tts-GGUF", "italian/mmproj-pocket-tts-italian.gguf", "46f0a614c23c2fac6bd3dcf93202b227333b2fd67096abbfb4fb3d4ec78f4434"),
+    ("EryriLabs/pocket-tts-GGUF", "portuguese/pocket-tts-portuguese.gguf", "9095778496f6fc09b1c9b537b20b3ecbd7ec2820db658410e5a7901170131207"),
+    ("EryriLabs/pocket-tts-GGUF", "portuguese/mmproj-pocket-tts-portuguese.gguf", "0f17b5c44e5800e5c61bf6188eed66d1f668c913fb6ff58a160d7e4fc57e0db2"),
+    ("EryriLabs/pocket-tts-GGUF", "spanish/pocket-tts-spanish.gguf", "aa823005551f4600e3ab7a871aa023cfbb268aaef2bfb812654ad349da351d51"),
+    ("EryriLabs/pocket-tts-GGUF", "spanish/mmproj-pocket-tts-spanish.gguf", "3fe3df5e6a569eb0a85cb6adaf6526652f8308ad9c011044777f547891ddb8c5"),
+    ("EryriLabs/pocket-tts-GGUF", "welsh/pocket-tts-welsh.gguf", "1ef5d0d3f3caf51c0d701c9b41bd639fb4b97da6de75c7df3d4c11cf7eb644b6"),
+    ("EryriLabs/pocket-tts-GGUF", "welsh/mmproj-pocket-tts-welsh.gguf", "4fe649906191b861ba3ade4da3e25f6561a4b15d22311fd76cada7e5a4792a3c"),
+];
+
+fn pinned_sha256(repo_id: &str, filename: &str) -> Option<&'static str> {
+    PINNED_SHA256
+        .iter()
+        .find(|(repo, file, _)| *repo == repo_id && *file == filename)
+        .map(|(_, _, hash)| *hash)
+}
+
 /// Download one repo file into `dest_dir`, resuming partials.
 pub async fn download_hf_file(
     client: &reqwest::Client,
@@ -648,7 +689,7 @@ pub async fn download_hf_file_as(
     let part = part_path(dest);
     crate::download::download_to(client, &url, &part, cancel, |p| {
         on_progress(p.downloaded, p.total)
-    })
+    }, pinned_sha256(repo_id, filename))
     .await?;
     if dest.exists() {
         let _ = std::fs::remove_file(dest);
@@ -1026,6 +1067,25 @@ mod tests {
         assert_eq!(extract_quant("plain-model"), None);
         assert_eq!(format_params(7_200_000_000), "7.2B");
         assert_eq!(format_params(800_000_000), "800M");
+    }
+
+    #[test]
+    fn pins_are_well_formed_and_match_by_repo_and_file() {
+        assert!(PINNED_SHA256.len() >= 20, "voice files should be pinned");
+        assert!(
+            PINNED_SHA256
+                .iter()
+                .all(|(_, _, hash)| hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit())),
+            "pins must be 64-char lowercase hex"
+        );
+        assert_eq!(
+            pinned_sha256("ggml-org/Qwen3-ASR-0.6B-GGUF", "Qwen3-ASR-0.6B-Q8_0.gguf")
+                .map(str::len),
+            Some(64)
+        );
+        // A filename from the right repo but not pinned stays unverified.
+        assert!(pinned_sha256("ggml-org/Qwen3-ASR-0.6B-GGUF", "other.gguf").is_none());
+        assert!(pinned_sha256("unknown/repo", "Qwen3-ASR-0.6B-Q8_0.gguf").is_none());
     }
 
     #[test]

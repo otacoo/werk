@@ -1048,14 +1048,14 @@ const TTS_SUGGESTED: { file: string; quant: string; size: string }[] = [
   { file: "Qwen3-TTS-12Hz-0.6B-Base.Q4_K_M.gguf", quant: "Q4_K_M", size: "361 MB" },
 ];
 
-/// The 1.7B Qwen3-TTS: bigger and more expressive than 0.6B.
-const TTS17_REPO = "mradermacher/Qwen3-TTS-12Hz-1.7B-Base-GGUF";
-const TTS17_MMPROJ = "Qwen3-TTS-12Hz-1.7B-Base.mmproj-Q8_0.gguf";
+/// The 1.7B Qwen3-TTS from the official llama.cpp org: bigger and more
+/// expressive than 0.6B.
+const TTS17_REPO = "ggml-org/Qwen3-TTS-12Hz-1.7B-Base-GGUF";
+const TTS17_MMPROJ = "mmproj-Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf";
 const TTS17_MMPROJ_SIZE = "426 MB";
 const TTS17_SUGGESTED: { file: string; quant: string; size: string }[] = [
-  { file: "Qwen3-TTS-12Hz-1.7B-Base.Q8_0.gguf", quant: "Q8_0", size: "1762 MB" },
-  { file: "Qwen3-TTS-12Hz-1.7B-Base.Q6_K.gguf", quant: "Q6_K", size: "1362 MB" },
-  { file: "Qwen3-TTS-12Hz-1.7B-Base.Q4_K_M.gguf", quant: "Q4_K_M", size: "988 MB" },
+  { file: "Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf", quant: "Q8_0", size: "1762 MB" },
+  { file: "Qwen3-TTS-12Hz-1.7B-Base-Q4_K_M.gguf", quant: "Q4_K_M", size: "988 MB" },
 ];
 
 /// Speech-to-text via llama.cpp's llama-mtmd-cli (Qwen3-ASR).

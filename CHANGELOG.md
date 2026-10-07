@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Verified downloads:** every suggested voice model is checked against a pinned SHA-256 while it downloads — a file that was replaced or tampered with is rejected instead of installed (no extra pass over the file)
+- The 1.7B Qwen3-TTS downloads now come from the official llama.cpp org (Q8_0, Q4_K_M)
 - **Window control** works on macOS and Linux (X11) as well as Windows — list, focus, minimize, maximize, restore, close, and move; on Wayland it explains that compositors do not allow it
 
 ## 2026-10-06 – v0.8.5

@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use sha2::Digest;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 pub struct DownloadProgress {
@@ -17,22 +18,25 @@ fn content_range_total(header: &str) -> Option<u64> {
 }
 
 /// GET `url` into `dest`, resuming a partial file. `cancel` is polled
-/// between chunks; progress reports cumulative bytes.
+/// between chunks; progress reports cumulative bytes. With `expected_sha256`
+/// the bytes are hashed as they stream (no second pass over the file) and a
+/// mismatch removes the download.
 pub async fn download_to(
     client: &reqwest::Client,
     url: &str,
     dest: &Path,
     cancel: &(dyn Fn() -> bool + Send + Sync),
     mut on_progress: impl FnMut(DownloadProgress),
+    expected_sha256: Option<&str>,
 ) -> Result<PathBuf> {
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    match download_from(client, url, dest, cancel, &mut on_progress).await {
+    match download_from(client, url, dest, cancel, &mut on_progress, expected_sha256).await {
         // Our offset is past EOF (stale oversized partial): start over.
         Err(e) if e.downcast_ref::<RangeUnsatisfiable>().is_some() => {
             let _ = std::fs::remove_file(dest);
-            download_from(client, url, dest, cancel, &mut on_progress).await
+            download_from(client, url, dest, cancel, &mut on_progress, expected_sha256).await
         }
         other => other,
     }
@@ -56,6 +60,7 @@ async fn download_from(
     dest: &Path,
     cancel: &(dyn Fn() -> bool + Send + Sync),
     on_progress: &mut impl FnMut(DownloadProgress),
+    expected_sha256: Option<&str>,
 ) -> Result<PathBuf> {
     let have = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
     let mut request = client.get(url);
@@ -72,6 +77,11 @@ async fn download_from(
             .and_then(|v| v.to_str().ok())
             .and_then(content_range_total);
         if remote == Some(have) {
+            if let Some(expected) = expected_sha256 {
+                let mut hasher = sha2::Sha256::new();
+                hash_file(&mut hasher, dest).await?;
+                check_sha256(&hex(&hasher.finalize()), expected, dest)?;
+            }
             return Ok(dest.to_path_buf());
         }
         return Err(RangeUnsatisfiable.into());
@@ -109,6 +119,12 @@ async fn download_from(
             }
         }
     }
+    // A resumed file is still verified from byte zero: hash the prefix that
+    // is already on disk, then the incoming stream.
+    let mut hasher = expected_sha256.map(|_| sha2::Sha256::new());
+    if let (Some(hasher), true) = (hasher.as_mut(), resumed) {
+        hash_file(hasher, dest).await?;
+    }
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .write(true)
@@ -130,6 +146,9 @@ async fn download_from(
         }
         let chunk = chunk.context("Download stream failed")?;
         file.write_all(&chunk).await?;
+        if let Some(hasher) = hasher.as_mut() {
+            hasher.update(&chunk);
+        }
         downloaded += chunk.len() as u64;
         if last_emit.elapsed() >= std::time::Duration::from_millis(100) {
             last_emit = std::time::Instant::now();
@@ -138,7 +157,49 @@ async fn download_from(
     }
     on_progress(DownloadProgress { downloaded, total });
     file.flush().await?;
+    if let Some(total) = total {
+        if downloaded < total {
+            anyhow::bail!("Download ended early: {downloaded} of {total} bytes");
+        }
+    }
+    if let (Some(hasher), Some(expected)) = (hasher, expected_sha256) {
+        check_sha256(&hex(&hasher.finalize()), expected, dest)?;
+    }
     Ok(dest.to_path_buf())
+}
+
+/// Stream a file through the hasher (a resume prefix, or a completed part).
+async fn hash_file(hasher: &mut sha2::Sha256, path: &Path) -> Result<()> {
+    use tokio::io::AsyncReadExt;
+    let mut file = tokio::fs::File::open(path).await?;
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buf).await?;
+        if n == 0 {
+            return Ok(());
+        }
+        hasher.update(&buf[..n]);
+    }
+}
+
+/// Compare a finished download against its pin; a mismatch removes the file
+/// so a retry starts clean.
+fn check_sha256(actual: &str, expected: &str, dest: &Path) -> Result<()> {
+    if actual.eq_ignore_ascii_case(expected) {
+        return Ok(());
+    }
+    let _ = std::fs::remove_file(dest);
+    anyhow::bail!(
+        "Checksum mismatch: expected {expected}, got {actual}. The file changed upstream; werk may need an update."
+    )
+}
+
+fn hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push_str(&format!("{b:02x}"));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -198,6 +259,7 @@ mod tests {
                         stop_flag.store(true, Ordering::SeqCst);
                     }
                 },
+                None,
             ),
         )
         .await
@@ -244,7 +306,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let dest = dir.join("f.bin");
         std::fs::write(&dest, b"hello").unwrap();
-        let out = download_to(&client, &format!("http://{addr}/f.bin"), &dest, &|| false, |_| {})
+        let out = download_to(&client, &format!("http://{addr}/f.bin"), &dest, &|| false, |_| {}, None)
             .await
             .unwrap();
         assert_eq!(std::fs::read(&out).unwrap(), b"hello");
@@ -280,10 +342,86 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let dest = dir.join("f.bin");
         std::fs::write(&dest, b"hello").unwrap();
-        let out = download_to(&client, &format!("http://{addr}/f.bin"), &dest, &|| false, |_| {})
+        let out = download_to(&client, &format!("http://{addr}/f.bin"), &dest, &|| false, |_| {}, None)
             .await
             .unwrap();
         assert_eq!(std::fs::read(&out).unwrap(), b"abc");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `sha256("hello")`, used by the pin tests below.
+    const HELLO_SHA256: &str = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+
+    #[tokio::test]
+    async fn verifies_sha256_while_streaming() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            for _ in 0..2 {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                read_head(&mut sock).await;
+                sock.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello",
+                )
+                .await
+                .unwrap();
+                let _ = sock.shutdown().await;
+            }
+        });
+        let client = reqwest::Client::new();
+        let dir = std::env::temp_dir().join(format!("werk-pin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dest = dir.join("f.bin");
+        let url = format!("http://{addr}/f.bin");
+        // The right pin passes.
+        let out = download_to(&client, &url, &dest, &|| false, |_| {}, Some(HELLO_SHA256))
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"hello");
+        // A wrong pin fails and removes the file so a retry starts clean.
+        std::fs::remove_file(&dest).unwrap();
+        let err = download_to(&client, &url, &dest, &|| false, |_| {}, Some("00"))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Checksum mismatch"), "{err}");
+        assert!(!dest.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn verifies_resumed_prefix_against_the_pin() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let (mut sock, _) = listener.accept().await.unwrap();
+            read_head(&mut sock).await;
+            sock.write_all(
+                b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 3-4/5\r\nContent-Length: 2\r\nConnection: close\r\n\r\nlo",
+            )
+            .await
+            .unwrap();
+            let _ = sock.shutdown().await;
+        });
+        let client = reqwest::Client::new();
+        let dir = std::env::temp_dir().join(format!("werk-pin-resume-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dest = dir.join("f.bin");
+        std::fs::write(&dest, b"hel").unwrap();
+        let out = download_to(
+            &client,
+            &format!("http://{addr}/f.bin"),
+            &dest,
+            &|| false,
+            |_| {},
+            Some(HELLO_SHA256),
+        )
+        .await
+        .unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"hello");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

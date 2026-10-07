@@ -308,6 +308,7 @@ pub async fn install_asset(
             &tmp,
             cancel,
             |p| on_progress(p.downloaded, p.total),
+            None,
         )
         .await?;
     }
