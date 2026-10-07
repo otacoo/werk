@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
@@ -22,7 +22,7 @@ import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
 import { getStreamResponses } from "../utils/appearance";
 import { playNotificationSound } from "../utils/sounds";
 import { Markdown } from "./chat/markdown";
-import { ContextRing, CopyButton, ReasoningBlock, SysNotice, ToolCard } from "./chat/components";
+import { ContextRing, CopyButton, ReasoningBlock, SysNotice, ToolCard, useStickToBottom } from "./chat/components";
 import type { Tab } from "../App";
 
 type Item =
@@ -356,15 +356,8 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
     };
   }, []);
 
-  // Stay pinned to the newest message.
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-    const raf = requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [items, streamText, reasoningText]);
+  // Stay pinned to the newest message unless the reader scrolled up.
+  const transcriptScroll = useStickToBottom(scrollRef, [items, streamText, reasoningText]);
 
   const canSend = (externalMode ? externalTarget !== "" : true) && activeProject != null;
 
@@ -437,6 +430,7 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
   };
 
   const send = async () => {
+    transcriptScroll.pin();
     const text = input.trim();
     if (!text || streaming || starting) return;
     if (text === "/help") {
@@ -722,7 +716,11 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-3 select-text">
+          <div
+            ref={scrollRef}
+            onScroll={transcriptScroll.onScroll}
+            className="flex-1 overflow-y-auto px-6 py-4 space-y-3 select-text"
+          >
         {items.length === 0 && streamText === null && (
           <div className="h-full flex flex-col items-center justify-center text-center gap-2">
             <Sparkles size={20} className="text-faint" />

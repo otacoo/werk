@@ -38,6 +38,7 @@ import { loadAppearance, setAutoCorners } from "./utils/appearance";
 import { getDevtools } from "./utils/debugPrefs";
 import { getQuickBench, setQuickBench, subscribeQuickBench, subscribeConfigChanged, setProfileMirror, subscribeProfile } from "./utils/appSettings";
 import { startServerStatusPolling, subscribeServerStatus } from "./utils/serverStatus";
+import { checkForUpdate, subscribeUpdate } from "./utils/updates";
 
 export type Tab = "dashboard" | "run" | "chat" | "talk" | "assistant" | "assistant-chat" | "webui" | "tools" | "agent" | "roleplay" | "bench" | "mode";
 
@@ -107,6 +108,8 @@ export default function App() {
   const [webuiEnabled, setWebuiEnabled] = useState(false);
   /// Assistant overlay visibility (Assistant → Behavior).
   const [overlayEnabled, setOverlayEnabled] = useState(true);
+  /// An update is waiting; the gear shows a dot.
+  const [updateReady, setUpdateReady] = useState(false);
 
   const closeSettings = () => setSettingsOpen(false);
 
@@ -116,6 +119,18 @@ export default function App() {
     return subscribeServerStatus((s) =>
       setServerRunning(s.type === "running" || s.type === "starting"),
     );
+  }, []);
+
+  // Auto-check once at startup (the Settings card shares this state); the
+  // gear keeps a dot while an update is available.
+  useEffect(() => {
+    const unsubscribe = subscribeUpdate((update) => setUpdateReady(update != null));
+    call(commands.getConfig())
+      .then((c) => {
+        if (c.auto_check_updates) void checkForUpdate().catch(() => {});
+      })
+      .catch(() => {});
+    return unsubscribe;
   }, []);
 
   // The Mode page flips the profile through the in-memory mirror.
@@ -320,12 +335,15 @@ export default function App() {
         <div className="relative z-10 flex items-center shrink-0 pointer-events-auto">
           <button
             onClick={() => (settingsOpen ? closeSettings() : setSettingsOpen(true))}
-            title="Settings"
-            className={`w-9 h-9 shrink-0 inline-flex items-center justify-center transition-colors ${
+            title={updateReady ? "Settings — update available" : "Settings"}
+            className={`relative w-9 h-9 shrink-0 inline-flex items-center justify-center transition-colors ${
               settingsOpen ? "bg-accent/20 text-ink" : "text-dim hover:text-ink hover:bg-surface-3"
             }`}
           >
             <SettingsIcon size={14} />
+            {updateReady && (
+              <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-accent" />
+            )}
           </button>
           <WindowControls />
         </div>

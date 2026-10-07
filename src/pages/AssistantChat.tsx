@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
@@ -26,7 +26,7 @@ import { playNotificationSound } from "../utils/sounds";
 import { SpeechQueue } from "../utils/speechQueue";
 import ProfileAvatar from "../components/ProfileAvatar";
 import { Markdown } from "./chat/markdown";
-import { ContextRing, CopyButton, ReasoningBlock, SysNotice, ToolCard } from "./chat/components";
+import { ContextRing, CopyButton, ReasoningBlock, SysNotice, ToolCard, useStickToBottom } from "./chat/components";
 import type { Tab } from "../App";
 
 type Item =
@@ -446,15 +446,8 @@ export default function AssistantChat({
     };
   }, []);
 
-  // Stay pinned to the newest message.
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-    const raf = requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [items, streamText, reasoningText]);
+  // Stay pinned to the newest message unless the reader scrolled up.
+  const transcriptScroll = useStickToBottom(scrollRef, [items, streamText, reasoningText]);
 
   const canSend = externalMode ? externalTarget !== "" : true;
 
@@ -564,6 +557,7 @@ export default function AssistantChat({
   };
 
   const send = async () => {
+    transcriptScroll.pin();
     const text = input.trim();
     if (!text || streaming || starting) return;
     if (text === "/help") {
@@ -891,7 +885,11 @@ export default function AssistantChat({
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-3 select-text">
+          <div
+            ref={scrollRef}
+            onScroll={transcriptScroll.onScroll}
+            className="flex-1 overflow-y-auto px-6 py-4 space-y-3 select-text"
+          >
         {interrupted && !streaming && (
           <div className="card border-accent/40 bg-accent/5 flex items-center gap-3">
             <AlertTriangle size={14} className="text-accent shrink-0" />

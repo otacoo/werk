@@ -1,9 +1,44 @@
-import { Fragment, memo, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { DependencyList, ReactNode, RefObject } from "react";
 import { Brain, Check, ChevronDown, Copy, ListChecks, Trash2, Wrench, X } from "lucide-react";
 import type { RunChange, TodoDto } from "../../bindings";
 import { formatElapsed } from "../../utils/format";
 import { getBubbleAlign, getShowToolSnippets, subscribeBubbleAlign, subscribeShowToolSnippets } from "../../utils/appearance";
+
+// ── Sticky transcript scrolling ────────────────────────────────────────────
+
+/// Keep a scroll container pinned to the bottom, unless the user scrolled
+/// up — then new content stops yanking the view back down. Returns the
+/// container's `onScroll` handler and a `pin` to re-attach (e.g. on send).
+export function useStickToBottom<T extends HTMLElement>(
+  ref: RefObject<T>,
+  deps: DependencyList,
+): { onScroll: () => void; pin: () => void } {
+  const pinned = useRef(true);
+  const onScroll = () => {
+    const el = ref.current;
+    if (!el) return;
+    pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  };
+  const pin = () => {
+    pinned.current = true;
+    const el = ref.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+  useLayoutEffect(() => {
+    if (!pinned.current) return;
+    const el = ref.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    const raf = requestAnimationFrame(() => {
+      const current = ref.current;
+      if (current && pinned.current) current.scrollTop = current.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return { onScroll, pin };
+}
+
 
 // ── System notice (compaction cards, restored summaries) ────────────────────
 // Renders as a 1px divider labeled "Compaction" with the details below;
@@ -339,9 +374,11 @@ export function ReasoningBlock({ text, streaming, open, onToggle }: {
   const isOpen = open ?? openLocal;
   const toggle = onToggle ?? (() => setOpenLocal((v) => !v));
   const preRef = useRef<HTMLPreElement>(null);
-  // Follow the reasoning while it streams in (and show the end on open).
+  const prePinned = useRef(true);
+  // Follow the reasoning while it streams in (and show the end on open),
+  // unless the user scrolled up to read earlier lines.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !prePinned.current) return;
     const el = preRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [text, isOpen]);
@@ -349,7 +386,10 @@ export function ReasoningBlock({ text, streaming, open, onToggle }: {
     <div className="rounded border border-border bg-surface-2 px-2.5 py-1.5 text-[0.6875rem] text-dim mb-1.5">
       <button
         className="w-full flex items-center gap-1.5 text-left"
-        onClick={toggle}
+        onClick={() => {
+          prePinned.current = true;
+          toggle();
+        }}
         title={isOpen ? "Hide reasoning" : "Show reasoning"}
       >
         <Brain size={11} className={`text-faint shrink-0 ${streaming ? "animate-pulse" : ""}`} />
@@ -363,6 +403,12 @@ export function ReasoningBlock({ text, streaming, open, onToggle }: {
       {isOpen && (
         <pre
           ref={preRef}
+          onScroll={() => {
+            const el = preRef.current;
+            if (el) {
+              prePinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+            }
+          }}
           className="whitespace-pre-wrap break-words text-[0.6875rem] leading-snug mt-1.5 max-h-56 overflow-y-auto select-text"
         >
           {text}

@@ -47,6 +47,7 @@ import {
   TodoStrip,
   ToolCard,
   fmtTok,
+  useStickToBottom,
 } from "./chat/components";
 import type { Tab } from "../App";
 
@@ -555,16 +556,8 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     };
   }, []);
 
-  // Stay pinned to the newest message: layout effect (post-DOM, pre-paint)
-  // plus a rAF pass for late layout (images, code blocks) shifting height.
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-    const raf = requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [items, streamText, reasoningText]);
+  // Stay pinned to the newest message unless the reader scrolled up.
+  const transcriptScroll = useStickToBottom(scrollRef, [items, streamText, reasoningText]);
 
   // Live transcript over the global bus; runs are exclusive so no filtering.
   useEffect(() => {
@@ -773,6 +766,7 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
     : [];
 
   const send = async () => {
+    transcriptScroll.pin();
     const text = input.trim();
     // A server launch is in flight; extra sends would queue duplicate runs.
     if (starting) return;
@@ -1207,7 +1201,12 @@ export default function Chat({ go, active = true }: { go: (t: Tab) => void; acti
         )}
 
         {/* Messages — select-text re-enables selection (body disables it for the title bar) */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-3 select-text" style={{ zoom: chatZoom }}>
+              <div
+                ref={scrollRef}
+                onScroll={transcriptScroll.onScroll}
+                className="flex-1 overflow-y-auto px-6 py-4 space-y-3 select-text"
+                style={{ zoom: chatZoom }}
+              >
           {interrupted && !streaming && (
             <div className="card border-accent/40 bg-accent/5 flex items-center gap-3">
               <span className="text-xs text-dim flex-1">

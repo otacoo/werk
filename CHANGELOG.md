@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Scrolling while streaming:** the transcript (and the reasoning box) no longer yank the view to the bottom when you scroll up to read; they re-attach when you return to the bottom or send
+- The Settings gear shows a dot when an update is available (shared with the App Updates card)
 - **Verified downloads:** every suggested voice model is checked against a pinned SHA-256 while it downloads — a file that was replaced or tampered with is rejected instead of installed (no extra pass over the file)
 - The 1.7B Qwen3-TTS downloads now come from the official llama.cpp org (Q8_0, Q4_K_M)
 - **Window control** works on macOS and Linux (X11) as well as Windows — list, focus, minimize, maximize, restore, close, and move; on Wayland it explains that compositors do not allow it

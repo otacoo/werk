@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import type { Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -18,6 +18,7 @@ import {
 import { commands } from "../bindings";
 import type { AppConfig } from "../bindings";
 import { call } from "../utils/ipc";
+import { checkForUpdate, subscribeUpdate } from "../utils/updates";
 import { useAppConfig } from "../utils/useAppConfig";
 import Toggle from "./Toggle";
 import { THEME_OPTIONS, ThemeIcon } from "./ThemeIcon";
@@ -204,25 +205,31 @@ function UpdatesCard() {
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
+    // The startup check (App) publishes here too, so the card shows the
+    // result without checking twice.
+    const unsubscribe = subscribeUpdate((update, hasChecked) => {
+      setUpdateAvailable(update != null);
+      setUpdateVersion(update?.version ?? null);
+      setPendingUpdate(update);
+      if (hasChecked) setChecked(true);
+    });
     call(commands.getConfig())
       .then((c) => {
         const on = c.auto_check_updates ?? false;
         setAutoCheck(on);
-        if (on) void checkForUpdate();
+        if (on) void runCheck();
       })
       .catch(() => {});
+    return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const checkForUpdate = async () => {
+  const runCheck = async () => {
     setChecking(true);
     setChecked(false);
     setError(null);
     try {
-      const update = await check();
-      setUpdateAvailable(update != null);
-      setUpdateVersion(update?.version ?? null);
-      setPendingUpdate(update);
+      await checkForUpdate();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -281,13 +288,13 @@ function UpdatesCard() {
             try {
               await call(commands.setAutoCheckUpdates(v));
             } catch {}
-            if (v) void checkForUpdate();
+            if (v) void runCheck();
           }}
         />
         <div className="flex flex-wrap items-center gap-3">
           <button
             className="btn-secondary text-xs"
-            onClick={checkForUpdate}
+            onClick={runCheck}
             disabled={checking || updating}
           >
             <RefreshCw size={13} className={checking ? "animate-spin" : ""} />
