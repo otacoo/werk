@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Bundles:** export your assistant — persona, prompt, memory, skills, plugins, and optionally the transcript — as one `.werk` file, and import setups others share
+  - The import shows the contents first; existing skills/plugins are never overwritten (imports get a suffix), imported plugins always ask for approval, and requested system-control tools stay off until enabled in Access
 - **Scrolling while streaming:** the transcript (and the reasoning box) no longer yank the view to the bottom when you scroll up to read; they re-attach when you return to the bottom or send
 - The Settings gear shows a dot when an update is available (shared with the App Updates card)
 - **Verified downloads:** every suggested voice model is checked against a pinned SHA-256 while it downloads — a file that was replaced or tampered with is rejected instead of installed (no extra pass over the file)

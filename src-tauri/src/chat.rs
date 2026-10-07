@@ -2896,9 +2896,44 @@ pub async fn assistant_reset(app: AppHandle, state: State<'_, AppState>) -> Resu
     Ok(())
 }
 
+/// Messages of the assistant's saved thread, for bundle export.
+pub(crate) fn assistant_transcript_messages() -> Vec<ChatMessage> {
+    transcript_path("current", RunMode::Assistant)
+        .and_then(|path| read_session_file(&path))
+        .map(|file| file.messages)
+        .unwrap_or_default()
+}
+
+/// Write an imported transcript as an assistant archive session.
+pub(crate) fn archive_imported_transcript(messages: Vec<ChatMessage>) -> Result<String, String> {
+    let dir = crate::assistant::sessions_dir()?.join("archive");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let base = format!("imported-{}", now_secs());
+    let mut id = base.clone();
+    let mut n = 2;
+    while dir.join(format!("{id}.json")).exists() || dir.join(format!("{id}.jsonl")).exists() {
+        id = format!("{base}-{n}");
+        n += 1;
+    }
+    let now = now_secs();
+    let file = SessionFile {
+        id: id.clone(),
+        title: "Imported bundle".to_string(),
+        project: None,
+        created: now,
+        updated: now,
+        message_count: messages.len() as u32,
+        messages,
+        meta: HashMap::new(),
+        todos: Vec::new(),
+        running: false,
+    };
+    write_session_file(&dir.join(format!("{id}.json")), &file, None).map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
 /// Move the assistant's current transcript aside so a reset starts clean.
-fn archive_assistant_transcript() {
-    let Some(path) = transcript_path("current", RunMode::Assistant) else {
+fn archive_assistant_transcript() {    let Some(path) = transcript_path("current", RunMode::Assistant) else {
         return;
     };
     if !path.is_file() {

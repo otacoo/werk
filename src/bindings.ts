@@ -198,6 +198,15 @@ export const commands = {
 	assistantClearTtsModel: () => typedError<null, string>(__TAURI_INVOKE("assistant_clear_tts_model")),
 	/**  Same for the speech-to-text model. */
 	assistantClearSttModel: () => typedError<null, string>(__TAURI_INVOKE("assistant_clear_stt_model")),
+	/**  Export the assistant setup to a `.werk` file. */
+	assistantBundleExport: (path: string, include: BundleInclude) => typedError<BundleInfo, string>(__TAURI_INVOKE("assistant_bundle_export", { path, include })),
+	/**  What a bundle file contains, for the import dialog. */
+	assistantBundleInspect: (path: string) => typedError<BundleInfo, string>(__TAURI_INVOKE("assistant_bundle_inspect", { path })),
+	/**
+	 *  Import the selected parts of a bundle. Tool toggles in the bundle are
+	 *  never enabled; skills and plugins land under suffixed names on collisions.
+	 */
+	assistantBundleImport: (path: string, include: BundleInclude) => typedError<BundleReport_Serialize, string>(__TAURI_INVOKE("assistant_bundle_import", { path, include })),
 	/**  Speak `text` with the configured voice; returns the WAV path and bytes. */
 	assistantTtsSpeak: (text: string) => typedError<TtsResult, string>(__TAURI_INVOKE("assistant_tts_speak", { text })),
 	/**  Transcribe a base64 WAV (16 kHz mono PCM16) recorded in the webview. */
@@ -846,6 +855,64 @@ export type BuiltinToolDto = {
 	approval: string,
 	note: string,
 	enabled: boolean,
+};
+
+/**
+ *  Which parts of a bundle to write on export, and which to apply on import.
+ *  Export always carries the identity; import always ignores the tool toggles
+ *  (they are shown, never enabled).
+ */
+export type BundleInclude = {
+	/**  Import only: replace the assistant identity and generation settings. */
+	identity: boolean,
+	memory: boolean,
+	skills: boolean,
+	plugins: boolean,
+	transcript: boolean,
+};
+
+/**  What a bundle contains, for the import dialog and export confirmation. */
+export type BundleInfo = {
+	name: string,
+	persona: string,
+	has_system_prompt: boolean,
+	created: number,
+	app: string,
+	memory: number,
+	skills: string[],
+	plugins: string[],
+	/**  Tool toggles the bundle asks for (always left off on import). */
+	tools: string[],
+	transcript: number,
+};
+
+/**  What an import actually wrote. */
+export type BundleReport = BundleReport_Serialize | BundleReport_Deserialize;
+
+/**  What an import actually wrote. */
+export type BundleReport_Deserialize = {
+	identity: boolean,
+	memory_added: number,
+	memory_skipped: number,
+	skills: string[],
+	plugins: string[],
+	/**  Archive id of the imported transcript, when one was written. */
+	transcript?: string | null,
+	/**  Requested tools that stay disabled until enabled by hand. */
+	tools_off: string[],
+};
+
+/**  What an import actually wrote. */
+export type BundleReport_Serialize = {
+	identity: boolean,
+	memory_added: number,
+	memory_skipped: number,
+	skills: string[],
+	plugins: string[],
+	/**  Archive id of the imported transcript, when one was written. */
+	transcript?: string | null,
+	/**  Requested tools that stay disabled until enabled by hand. */
+	tools_off: string[],
 };
 
 export type CardSummary = {

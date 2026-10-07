@@ -5,6 +5,7 @@ pub mod assistant;
 pub mod assistant_tools;
 pub mod bench;
 pub mod browser;
+pub mod bundle;
 pub mod chat;
 pub mod commands;
 pub mod config;
@@ -430,8 +431,11 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         assistant::assistant_import_voice_reference,
         assistant::assistant_remove_voice_reference,
         assistant::set_assistant_stt,
-        assistant::assistant_clear_tts_model,
-        assistant::assistant_clear_stt_model,
+    assistant::assistant_clear_tts_model,
+    assistant::assistant_clear_stt_model,
+    bundle::assistant_bundle_export,
+    bundle::assistant_bundle_inspect,
+    bundle::assistant_bundle_import,
         voice::assistant_tts_speak,
         stt::assistant_stt_transcribe,
         assistant::assistant_set_avatar,

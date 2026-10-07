@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import { AlertTriangle, Download, FolderOpen, ImagePlus, Mic, Play, RefreshCw, Square, Trash2, Upload, X } from "lucide-react";
 import { commands } from "../bindings";
-import type { AssistantConfig, MemoryFileDto, Reminder } from "../bindings";
+import type { AssistantConfig, BundleInfo, MemoryFileDto, Reminder } from "../bindings";
 import { call } from "../utils/ipc";
 import { subscribeConfigChanged } from "../utils/appSettings";
 import {
@@ -147,49 +147,52 @@ export default function Assistant({ active = true }: { active?: boolean }) {
 
         {tab === "persona" && persona && (
           <div className="grid grid-cols-2 gap-4 items-start">
-            <div className="card space-y-3">
-              <div>
-                <h2 className="section-title mb-0">Identity</h2>
-                <p className="section-desc">
-                  The assistant's name, profile image, and personality.
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <ProfileAvatar src={avatar} name={persona.name || "Werk"} size={48} />
-                <div className="flex items-center gap-1.5">
-                  <button className="btn-ghost text-[0.625rem] py-0.5 px-1.5" onClick={pickAvatar}>
-                    <ImagePlus size={11} /> Choose image
-                  </button>
-                  {avatar && (
-                    <button
-                      className="btn-ghost text-[0.625rem] py-0.5 px-1.5 text-accent-red"
-                      onClick={clearAvatar}
-                    >
-                      Clear
-                    </button>
-                  )}
+            <div className="space-y-4">
+              <div className="card space-y-3">
+                <div>
+                  <h2 className="section-title mb-0">Identity</h2>
+                  <p className="section-desc">
+                    The assistant's name, profile image, and personality.
+                  </p>
                 </div>
+                <div className="flex items-center gap-3">
+                  <ProfileAvatar src={avatar} name={persona.name || "Werk"} size={48} />
+                  <div className="flex items-center gap-1.5">
+                    <button className="btn-ghost text-[0.625rem] py-0.5 px-1.5" onClick={pickAvatar}>
+                      <ImagePlus size={11} /> Choose image
+                    </button>
+                    {avatar && (
+                      <button
+                        className="btn-ghost text-[0.625rem] py-0.5 px-1.5 text-accent-red"
+                        onClick={clearAvatar}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <label className="block">
+                  <span className="text-[0.6875rem] text-dim">Name</span>
+                  <input
+                    className="input w-full mt-1"
+                    value={persona.name}
+                    onChange={(e) => setPersona({ ...persona, name: e.target.value })}
+                    onBlur={() => savePersona(persona)}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[0.6875rem] text-dim">Personality</span>
+                  <textarea
+                    className="input w-full mt-1 text-xs"
+                    rows={4}
+                    placeholder="Voice, temperament, quirks, what it cares about…"
+                    value={persona.persona}
+                    onChange={(e) => setPersona({ ...persona, persona: e.target.value })}
+                    onBlur={() => savePersona(persona)}
+                  />
+                </label>
               </div>
-              <label className="block">
-                <span className="text-[0.6875rem] text-dim">Name</span>
-                <input
-                  className="input w-full mt-1"
-                  value={persona.name}
-                  onChange={(e) => setPersona({ ...persona, name: e.target.value })}
-                  onBlur={() => savePersona(persona)}
-                />
-              </label>
-              <label className="block">
-                <span className="text-[0.6875rem] text-dim">Personality</span>
-                <textarea
-                  className="input w-full mt-1 text-xs"
-                  rows={4}
-                  placeholder="Voice, temperament, quirks, what it cares about…"
-                  value={persona.persona}
-                  onChange={(e) => setPersona({ ...persona, persona: e.target.value })}
-                  onBlur={() => savePersona(persona)}
-                />
-              </label>
+              <BundleCard onImported={refreshConfig} />
             </div>
             <div className="space-y-4">
               <div className="card space-y-2">
@@ -2060,6 +2063,218 @@ function OverlayCard() {
         </span>
       </div>
       {error && <p className="text-xs text-accent-red">{error}</p>}
+    </div>
+  );
+}
+
+
+/// Portable bundles: export the assistant setup as one `.werk` file, or
+/// import a shared one with a contents preview. Imports never overwrite
+/// existing skills or plugins and never enable system-control tools.
+function BundleCard({ onImported }: { onImported: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [exportParts, setExportParts] = useState({
+    memory: true,
+    skills: true,
+    plugins: true,
+    transcript: false,
+  });
+  const [preview, setPreview] = useState<{ path: string; info: BundleInfo } | null>(null);
+  const [applyParts, setApplyParts] = useState({
+    identity: true,
+    memory: true,
+    skills: true,
+    plugins: true,
+    transcript: false,
+  });
+
+  const chip = (on: boolean) =>
+    `rounded border px-1.5 py-0.5 text-[0.6875rem] transition-colors ${
+      on ? "border-accent bg-accent/10 text-ink" : "border-border text-dim hover:text-ink"
+    }`;
+
+  const exportBundle = async () => {
+    let picked = await saveDialog({
+      title: "Export assistant bundle",
+      defaultPath: "assistant.werk",
+      filters: [{ name: "Werk bundle", extensions: ["werk"] }],
+    }).catch(() => null);
+    if (typeof picked !== "string" || !picked) return;
+    if (!picked.toLowerCase().endsWith(".werk")) picked = `${picked}.werk`;
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const info = await call(
+        commands.assistantBundleExport(picked, { identity: true, ...exportParts }),
+      );
+      const bits = [
+        `${info.skills.length} skills`,
+        `${info.plugins.length} plugins`,
+        `${info.memory} memory entries`,
+      ];
+      if (info.transcript > 0) bits.push(`${info.transcript} transcript messages`);
+      setNote(`Exported "${info.name}" — ${bits.join(", ")}.`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pickImport = async () => {
+    const picked = await openDialog({
+      multiple: false,
+      title: "Pick a werk bundle",
+      filters: [{ name: "Werk bundle", extensions: ["werk"] }],
+    }).catch(() => null);
+    if (typeof picked !== "string" || !picked) return;
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const info = await call(commands.assistantBundleInspect(picked));
+      setApplyParts({ identity: true, memory: true, skills: true, plugins: true, transcript: false });
+      setPreview({ path: picked, info });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runImport = async () => {
+    if (!preview) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const report = await call(commands.assistantBundleImport(preview.path, applyParts));
+      const bits: string[] = [];
+      if (report.identity) bits.push("identity");
+      if (report.skills.length) bits.push(`${report.skills.length} skills`);
+      if (report.plugins.length) bits.push(`${report.plugins.length} plugins`);
+      if (report.memory_added) bits.push(`${report.memory_added} memory entries`);
+      if (report.transcript) bits.push("a transcript");
+      let text = bits.length ? `Imported ${bits.join(", ")}.` : "Nothing to import.";
+      if (report.tools_off.length) {
+        text += ` Left off until enabled in Access: ${report.tools_off.join(", ")}.`;
+      }
+      setNote(text);
+      setPreview(null);
+      if (report.identity) onImported();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h2 className="section-title mb-0">Bundle</h2>
+        <p className="section-desc">
+          Export this assistant as one file, or import a shared one. Imports never overwrite
+          existing skills or plugins.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          className="btn-secondary text-xs py-1 px-2"
+          disabled={busy}
+          onClick={() => void exportBundle()}
+        >
+          <Download size={12} /> Export…
+        </button>
+        <button
+          className="btn-secondary text-xs py-1 px-2"
+          disabled={busy}
+          onClick={() => void pickImport()}
+        >
+          <Upload size={12} /> Import…
+        </button>
+        {busy && <RefreshCw size={12} className="animate-spin text-dim" />}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[0.6875rem] text-faint">Include:</span>
+        {(["memory", "skills", "plugins", "transcript"] as const).map((part) => (
+          <button
+            key={part}
+            className={chip(exportParts[part])}
+            onClick={() => setExportParts({ ...exportParts, [part]: !exportParts[part] })}
+          >
+            {part}
+          </button>
+        ))}
+      </div>
+      {note && <p className="text-xs text-dim">{note}</p>}
+      {error && <p className="text-xs text-accent-red">{error}</p>}
+
+      {preview && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="card w-full max-w-lg space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="section-title mb-0">Import "{preview.info.name}"</h2>
+                <p className="section-desc">
+                  Bundle from werk {preview.info.app || "?"}
+                  {preview.info.created > 0 &&
+                    ` · ${new Date(preview.info.created * 1000).toLocaleDateString()}`}
+                </p>
+              </div>
+              <button className="btn-ghost p-1" onClick={() => setPreview(null)} title="Close">
+                <X size={14} />
+              </button>
+            </div>
+            {preview.info.persona && (
+              <p className="text-xs text-dim whitespace-pre-wrap max-h-24 overflow-y-auto">
+                {preview.info.persona}
+              </p>
+            )}
+            <ul className="text-xs text-dim space-y-1">
+              <li>Memory: {preview.info.memory} entries</li>
+              <li>Skills: {preview.info.skills.length ? preview.info.skills.join(", ") : "none"}</li>
+              <li>Plugins: {preview.info.plugins.length ? preview.info.plugins.join(", ") : "none"}</li>
+              <li>
+                Transcript:{" "}
+                {preview.info.transcript ? `${preview.info.transcript} messages` : "none"}
+              </li>
+            </ul>
+            {preview.info.tools.length > 0 && (
+              <p className="text-[0.6875rem] text-accent-yellow">
+                Asks for {preview.info.tools.join(", ")} — stays off; enable it in Access after
+                importing.
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[0.6875rem] text-faint">Apply:</span>
+              {(["identity", "memory", "skills", "plugins", "transcript"] as const).map((part) => (
+                <button
+                  key={part}
+                  className={chip(applyParts[part])}
+                  onClick={() => setApplyParts({ ...applyParts, [part]: !applyParts[part] })}
+                >
+                  {part}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className="btn-secondary text-xs py-1 px-2" onClick={() => setPreview(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn-primary text-xs py-1 px-2"
+                disabled={busy}
+                onClick={() => void runImport()}
+              >
+                Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
