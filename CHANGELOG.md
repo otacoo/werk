@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Drop files to attach:** dragging a file onto Chat, Talk, or the assistant chat highlights the paperclip and attaches it on release
 - **Roleplay world info:** keys can match whole words or be case-sensitive (imported cards carry the setting), an oversized entry no longer blocks later entries from loading, and the context hover shows what was injected and why entries were skipped
 - **Roleplay prose:** dialogue and actions get their own color (actions sit softer than speech), partial emphasis formats while streaming, repeated speaker prefixes are dropped from the display and from the history sent back to the model, and every bubble is labeled with the character's name
 

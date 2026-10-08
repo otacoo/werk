@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   ArrowUp,
@@ -79,6 +80,8 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [reasoningLive, setReasoningLive] = useState(false);
   const [attachments, setAttachments] = useState<TalkAttachment[]>([]);
+  /// A file drag is over the page; the paperclip highlights until release.
+  const [dragOver, setDragOver] = useState(false);
   const [contextUsed, setContextUsed] = useState<number | null>(null);
   const [slotCtx, setSlotCtx] = useState<ContextStats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -583,14 +586,7 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
     }
   };
 
-  const attachFiles = async () => {
-    let picked: string | string[] | null = null;
-    try {
-      picked = await openDialog({ multiple: true, directory: false });
-    } catch {
-      return;
-    }
-    const paths: string[] = Array.isArray(picked) ? picked : picked ? [picked] : [];
+  const attachPaths = async (paths: string[]) => {
     for (const path of paths) {
       try {
         const read = await call(commands.harnessReadAttachment(path));
@@ -622,6 +618,46 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
       }
     }
   };
+
+  const attachFiles = async () => {
+    let picked: string | string[] | null = null;
+    try {
+      picked = await openDialog({ multiple: true, directory: false });
+    } catch {
+      return;
+    }
+    const paths: string[] = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    await attachPaths(paths);
+  };
+
+  // Native file drops: the paperclip lights up while a drag is over the page,
+  // and the dropped paths attach on release.
+  useEffect(() => {
+    if (!active) return;
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    getCurrentWindow()
+      .onDragDropEvent((event) => {
+        const p = event.payload;
+        if (p.type === "enter" || p.type === "over") setDragOver(true);
+        else if (p.type === "leave") setDragOver(false);
+        else if (p.type === "drop") {
+          setDragOver(false);
+          void attachPaths(p.paths);
+        }
+      })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+      setDragOver(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   const slashMatches =
     input.startsWith("/") && !input.includes(" ")
@@ -965,10 +1001,11 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
         )}
         <div className="flex items-end gap-2">
           <button
-            className="btn-secondary shrink-0 py-2 px-2.5"
+            className={`btn-secondary shrink-0 py-2 px-2.5 ${dragOver ? "ring-1 ring-accent text-ink" : ""}`}
+            style={dragOver ? { background: "rgb(var(--accent) / 0.25)" } : undefined}
             onClick={attachFiles}
             disabled={streaming || starting}
-            title="Attach images or text files"
+            title={dragOver ? "Drop to attach" : "Attach images or text files"}
           >
             <Paperclip size={13} />
           </button>
