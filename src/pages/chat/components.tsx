@@ -425,7 +425,7 @@ export function fmtTok(n: number): string {
   return `${n}`;
 }
 
-export function ContextRing({ used, total, avgTokps, model, genTokens, liveGenTps, livePromptTps, sessionPrompt, sessionGen, cost, dropDown = false }: {
+export function ContextRing({ used, total, avgTokps, model, genTokens, liveGenTps, livePromptTps, sessionPrompt, sessionGen, cost, lore = null, dropDown = false }: {
   used: number | null;
   total: number | null;
   avgTokps: number | null;
@@ -437,6 +437,13 @@ export function ContextRing({ used, total, avgTokps, model, genTokens, liveGenTp
   sessionPrompt?: number | null;
   sessionGen?: number | null;
   cost?: number | null;
+  /** World-info selection from the last roleplay prompt. */
+  lore?: {
+    injected: number;
+    over_budget: number;
+    not_triggered: number;
+    skipped?: string[];
+  } | null;
   /** Open the details downward (header placement) instead of upward. */
   dropDown?: boolean;
 }) {
@@ -527,6 +534,23 @@ export function ContextRing({ used, total, avgTokps, model, genTokens, liveGenTp
                     ${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}
                   </span>
                 </div>
+              )}
+            </div>
+          )}
+          {lore && (
+            <div className="border-t border-border mt-2 pt-1.5 space-y-1 text-[0.6875rem] text-dim">
+              <div className="flex items-center justify-between gap-2">
+                <span>World info</span>
+                <span className="tabular-nums text-ink">
+                  {lore.injected} in
+                  {lore.over_budget > 0 ? ` · ${lore.over_budget} over budget` : ""}
+                  {lore.not_triggered > 0 ? ` · ${lore.not_triggered} off` : ""}
+                </span>
+              </div>
+              {lore.skipped && lore.skipped.length > 0 && (
+                <p className="text-faint truncate" title={lore.skipped.join(", ")}>
+                  Skipped: {lore.skipped.join(", ")}
+                </p>
               )}
             </div>
           )}

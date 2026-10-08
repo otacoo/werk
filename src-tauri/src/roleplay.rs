@@ -20,6 +20,12 @@ pub struct LorebookEntry {
     pub constant: bool,
     pub enabled: bool,
     pub order: i32,
+    /// Whole-word key matching (Unicode-aware); off matches substrings.
+    #[serde(default)]
+    pub whole_word: bool,
+    /// Case-sensitive keys; off matches case-insensitively.
+    #[serde(default)]
+    pub case_sensitive: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -235,6 +241,15 @@ fn parse_lorebook(entries: Option<&Value>) -> Vec<LorebookEntry> {
                 constant: e.get("constant").and_then(Value::as_bool).unwrap_or(false),
                 enabled: e.get("enabled").and_then(Value::as_bool).unwrap_or(true),
                 order: e.get("insertion_order").and_then(Value::as_i64).unwrap_or(100) as i32,
+                whole_word: e
+                    .get("whole_word")
+                    .or_else(|| e.get("match_whole_words"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                case_sensitive: e
+                    .get("case_sensitive")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             })
         })
         .collect()
@@ -804,45 +819,178 @@ pub fn character_prompt(card: &CharacterCard, user_name: &str) -> String {
     parts.join("\n\n")
 }
 
+/// One key match: substring by default, whole-word when asked, case per
+/// entry. Keys shorter than two characters never match (a single letter fires
+/// on everything). Whole-word is Unicode-aware — `\b` is ASCII-only, so
+/// "café" or CJK keys would never match with it.
+pub fn key_matches(key: &str, text: &str, whole_word: bool, case_sensitive: bool) -> bool {
+    let key = key.trim();
+    if key.chars().count() < 2 || text.is_empty() {
+        return false;
+    }
+    if !whole_word {
+        return if case_sensitive {
+            text.contains(key)
+        } else {
+            text.to_lowercase().contains(&key.to_lowercase())
+        };
+    }
+    let (hay, needle) = if case_sensitive {
+        (text.to_string(), key.to_string())
+    } else {
+        (text.to_lowercase(), key.to_lowercase())
+    };
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut start = 0;
+    while let Some(pos) = hay[start..].find(&needle) {
+        let i = start + pos;
+        let j = i + needle.len();
+        let before_ok = hay[..i].chars().next_back().map(|c| !is_word(c)).unwrap_or(true);
+        let after_ok = hay[j..].chars().next().map(|c| !is_word(c)).unwrap_or(true);
+        if before_ok && after_ok {
+            return true;
+        }
+        start = j.max(i + 1);
+    }
+    false
+}
+
+/// What one prompt's world-info selection did, so the UI can explain skipped
+/// entries instead of silently dropping them.
+#[derive(Debug, Clone, Default, Serialize, specta::Type)]
+pub struct LorebookStats {
+    pub injected: u32,
+    pub over_budget: u32,
+    pub not_triggered: u32,
+    /// Titles of entries that matched but did not fit the budget.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<String>,
+}
+
 /// World-info entries whose keys appear in the recent transcript, plus
-/// constant entries, in insertion order.
-pub fn lorebook_block(card: &CharacterCard, recent_text: &str, user_name: &str) -> String {
-    let haystack = recent_text.to_lowercase();
+/// constant entries, in insertion order. Triggered entries that don't fit the
+/// budget are skipped (a smaller later entry may still fit) and reported.
+pub fn lorebook_selection(
+    card: &CharacterCard,
+    recent_text: &str,
+    user_name: &str,
+) -> (String, LorebookStats) {
     let mut hits: Vec<&LorebookEntry> = card
         .lorebook
         .iter()
         .filter(|e| e.enabled)
         .filter(|e| {
             e.constant
-                || e.keys
-                    .iter()
-                    .any(|k| !k.trim().is_empty() && haystack.contains(&k.to_lowercase()))
+                || e.keys.iter().any(|k| {
+                    key_matches(k, recent_text, e.whole_word, e.case_sensitive)
+                })
         })
         .collect();
     hits.sort_by_key(|e| e.order);
+    let triggered = hits.len() as u32;
     let mut out = String::new();
+    let mut stats = LorebookStats::default();
     for entry in hits {
         let content = substitute(&entry.content, &card.name, user_name);
         if content.is_empty() {
             continue;
         }
-        if out.len() + content.len() > LOREBOOK_CAP {
-            break;
+        let cost = content.len() + if out.is_empty() { 0 } else { 2 };
+        if out.len() + cost > LOREBOOK_CAP {
+            stats.over_budget += 1;
+            stats.skipped.push(entry.comment.clone());
+            continue;
         }
         if !out.is_empty() {
             out.push_str("\n\n");
         }
         out.push_str(&content);
+        stats.injected += 1;
     }
-    if out.is_empty() {
+    let enabled = card.lorebook.iter().filter(|e| e.enabled).count() as u32;
+    stats.not_triggered = enabled.saturating_sub(triggered);
+    let text = if out.is_empty() {
         String::new()
     } else {
         format!("## World info\n{out}")
-    }
+    };
+    (text, stats)
 }
 
-/// Full roleplay system prompt: the base prompt (custom or built-in), then the
-/// card's own prompt, the character blocks, and the user persona.
+/// World-info block for the prompt (see `lorebook_selection`).
+pub fn lorebook_block(card: &CharacterCard, recent_text: &str, user_name: &str) -> String {
+    lorebook_selection(card, recent_text, user_name).0
+}
+
+/// `(speaker, rest-of-line)` when a line starts with a known speaker prefix —
+/// `Name:`, `**Name:**` or `*Name*:` — or the literal `Narrator:`.
+/// Case-insensitive; unknown names return None (they stay plain text).
+pub fn split_speaker_prefix<'a>(line: &'a str, names: &[String]) -> Option<(String, &'a str)> {
+    let trimmed = line.trim_start();
+    let body = trimmed.trim_start_matches('*');
+    let colon = body.find(':')?;
+    let candidate = body[..colon].trim().trim_end_matches('*').trim();
+    if candidate.is_empty() {
+        return None;
+    }
+    let narrator = candidate.eq_ignore_ascii_case("narrator");
+    let name = if narrator {
+        "Narrator".to_string()
+    } else {
+        names
+            .iter()
+            .find(|n| n.trim().eq_ignore_ascii_case(candidate))?
+            .trim()
+            .to_string()
+    };
+    // Stars right after the colon only close a bold prefix (`**Name:**`); an
+    // action's opening star (`Name: *waves*`) must survive or the emphasis
+    // is left unpaired.
+    let rest = body[colon + 1..].trim_start();
+    let after_stars = rest.trim_start_matches('*');
+    let rest = if after_stars.len() < rest.len()
+        && (after_stars.is_empty() || after_stars.starts_with(char::is_whitespace))
+    {
+        after_stars.trim_start()
+    } else {
+        rest
+    };
+    Some((name, rest))
+}
+
+/// Drop speaker prefixes repeated inside the same speaker's stretch
+/// ("Mia: … Mia: …"). The stored transcript keeps them; the copy sent back to
+/// the model uses the clean form so weak models don't learn the repeat habit.
+pub fn collapse_speaker_repeats(text: &str, names: &[String]) -> String {
+    if text.is_empty() || names.is_empty() {
+        return text.to_string();
+    }
+    let mut current = String::new();
+    let mut out: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        match split_speaker_prefix(line, names) {
+            Some((speaker, rest)) if speaker == current => out.push(rest),
+            Some((speaker, _)) => {
+                current = speaker;
+                out.push(line);
+            }
+            None => out.push(line),
+        }
+    }
+    out.join("\n")
+}
+
+/// Roleplay prose conventions, always sent after the base prompt (custom or
+/// built-in) so replies keep one shape no matter which prompt is in use — the
+/// display parser and the speaker labels rely on it.
+pub const PROSE_RULES: &str = "\
+Format:
+- Wrap spoken dialogue in double quotation marks (\"like this\") and actions or non-verbal beats in single asterisks (*like this*).
+- When a named character speaks or acts, you may start their part with their full name and a colon on its own line (\"Name:\"); one prefix starts the whole part and is never repeated for the same character. Use \"Narrator:\" to resume scene-level narration. Prefix only names the story already knows.";
+
+/// Full roleplay system prompt: the base prompt (custom or built-in), the
+/// prose rules, then the card's own prompt, the character blocks, and the user
+/// persona.
 pub fn system_prompt(config: &AppConfig, card: Option<&CharacterCard>) -> String {
     let user_name = display_user_name(&config.roleplay);
     let char_name = card
@@ -855,6 +1003,8 @@ pub fn system_prompt(config: &AppConfig, card: Option<&CharacterCard>) -> String
         .filter(|p| !p.trim().is_empty())
         .unwrap_or(BUILT_IN_ROLEPLAY_PROMPT);
     let mut out = substitute(base, &char_name, &user_name);
+    out.push_str("\n\n");
+    out.push_str(PROSE_RULES);
     if let Some(card) = card {
         let card_prompt = card.system_prompt.trim();
         if !card_prompt.is_empty() {
@@ -1178,6 +1328,8 @@ mod tests {
                 constant: false,
                 enabled: true,
                 order: 50,
+                whole_word: false,
+                case_sensitive: false,
             }],
         };
         let json = serde_json::to_string(&export_value(&card)).unwrap();
@@ -1340,18 +1492,92 @@ mod tests {
             creator_notes: String::new(),
             tags: Vec::new(),
             lorebook: vec![
-                LorebookEntry { comment: "always".into(), keys: vec![], content: "Constant fact.".into(), constant: true, enabled: true, order: 100 },
-                LorebookEntry { comment: "hit".into(), keys: vec!["tavern".into()], content: "Tavern fact.".into(), constant: false, enabled: true, order: 50 },
-                LorebookEntry { comment: "miss".into(), keys: vec!["dragon".into()], content: "Dragon fact.".into(), constant: false, enabled: true, order: 10 },
+                LorebookEntry { comment: "always".into(), keys: vec![], content: "Constant fact.".into(), constant: true, enabled: true, order: 100, whole_word: false, case_sensitive: false },
+                LorebookEntry { comment: "hit".into(), keys: vec!["tavern".into()], content: "Tavern fact.".into(), constant: false, enabled: true, order: 50, whole_word: false, case_sensitive: false },
+                LorebookEntry { comment: "miss".into(), keys: vec!["dragon".into()], content: "Dragon fact.".into(), constant: false, enabled: true, order: 10, whole_word: false, case_sensitive: false },
             ],
         };
-        let block = lorebook_block(&card, "We walk into the Tavern.", "Sam");
+        let (block, stats) = lorebook_selection(&card, "We walk into the Tavern.", "Sam");
         assert!(block.contains("Constant fact."));
         assert!(block.contains("Tavern fact."));
         assert!(!block.contains("Dragon fact."));
         let order = block.find("Tavern fact.").unwrap();
         let constant = block.find("Constant fact.").unwrap();
         assert!(order < constant);
+        assert_eq!(stats.injected, 2);
+        assert_eq!(stats.not_triggered, 1);
+        assert_eq!(stats.over_budget, 0);
+    }
+
+    #[test]
+    fn key_matching_respects_word_and_case_options() {
+        // Substring by default: "cat" fires inside "cathedral".
+        assert!(key_matches("cat", "the cathedral", false, false));
+        // Whole-word: it does not.
+        assert!(!key_matches("cat", "the cathedral", true, false));
+        assert!(key_matches("cat", "the cat sat", true, false));
+        // Case-insensitive unless asked otherwise.
+        assert!(key_matches("Tavern", "the tavern", false, false));
+        assert!(!key_matches("Tavern", "the tavern", false, true));
+        assert!(key_matches("Tavern", "the Tavern", false, true));
+        // Single characters never match (they fire on everything); Unicode
+        // words do.
+        assert!(!key_matches("a", "a cat", false, false));
+        assert!(!key_matches("猫", "一只猫", false, false));
+        assert!(key_matches("café", "un café noir", true, false));
+        assert!(key_matches("猫咪", "一只猫咪", false, false));
+    }
+
+    #[test]
+    fn lorebook_skips_entries_that_do_not_fit() {
+        let big = "x".repeat(LOREBOOK_CAP + 1);
+        let card = CharacterCard {
+            id: "x".into(),
+            name: "Aria".into(),
+            spec: "v2".into(),
+            description: String::new(),
+            personality: String::new(),
+            scenario: String::new(),
+            first_mes: String::new(),
+            alternate_greetings: Vec::new(),
+            mes_example: String::new(),
+            system_prompt: String::new(),
+            post_history_instructions: String::new(),
+            creator_notes: String::new(),
+            tags: Vec::new(),
+            lorebook: vec![
+                LorebookEntry { comment: "huge".into(), keys: vec!["tavern".into()], content: big, constant: false, enabled: true, order: 10, whole_word: false, case_sensitive: false },
+                LorebookEntry { comment: "small".into(), keys: vec!["tavern".into()], content: "Small fact.".into(), constant: false, enabled: true, order: 20, whole_word: false, case_sensitive: false },
+            ],
+        };
+        let (block, stats) = lorebook_selection(&card, "the tavern", "Sam");
+        // The oversized entry is skipped and the later small one still fits.
+        assert!(block.contains("Small fact."));
+        assert_eq!(stats.injected, 1);
+        assert_eq!(stats.over_budget, 1);
+        assert_eq!(stats.skipped, vec!["huge".to_string()]);
+    }
+
+    #[test]
+    fn speaker_prefixes_collapse_repeats() {
+        let names = vec!["Mia".to_string(), "Ivan".to_string()];
+        let text = "Mia: hello\nMia: again\nIvan: hi\n*looks around*\nNarrator: later\nNarrator: still later";
+        let cleaned = collapse_speaker_repeats(text, &names);
+        assert_eq!(
+            cleaned,
+            "Mia: hello\nagain\nIvan: hi\n*looks around*\nNarrator: later\nstill later"
+        );
+        // Unknown names never match, so their lines are untouched.
+        let other = collapse_speaker_repeats("Zoe: hi\nZoe: ho", &names);
+        assert_eq!(other, "Zoe: hi\nZoe: ho");
+        // An action's opening star survives a stripped bold prefix.
+        let bold = collapse_speaker_repeats("**Mia:** *waves*", &names);
+        assert_eq!(bold, "**Mia:** *waves*");
+        assert_eq!(
+            split_speaker_prefix("**Mia:** waves.", &names),
+            Some(("Mia".to_string(), "waves."))
+        );
+        assert_eq!(split_speaker_prefix("Mia: *waves*", &names), Some(("Mia".to_string(), "*waves*")));
     }
 
     #[test]

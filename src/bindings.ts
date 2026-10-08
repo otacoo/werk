@@ -954,12 +954,16 @@ export type ContextStats = ContextStats_Serialize | ContextStats_Deserialize;
 export type ContextStats_Deserialize = {
 	used?: number | null,
 	total?: number | null,
+	/**  World-info selection from the last roleplay prompt, when there was one. */
+	lorebook?: LorebookStats_Deserialize | null,
 };
 
 /**  Live context gauge: slot usage first, GGUF length as fallback. */
 export type ContextStats_Serialize = {
 	used?: number | null,
 	total?: number | null,
+	/**  World-info selection from the last roleplay prompt, when there was one. */
+	lorebook?: LorebookStats_Serialize | null,
 };
 
 export type CustomRuntime = {
@@ -1150,6 +1154,40 @@ export type LorebookEntry = {
 	constant: boolean,
 	enabled: boolean,
 	order: number,
+	/**  Whole-word key matching (Unicode-aware); off matches substrings. */
+	whole_word?: boolean,
+	/**  Case-sensitive keys; off matches case-insensitively. */
+	case_sensitive?: boolean,
+};
+
+/**
+ *  What one prompt's world-info selection did, so the UI can explain skipped
+ *  entries instead of silently dropping them.
+ */
+export type LorebookStats = LorebookStats_Serialize | LorebookStats_Deserialize;
+
+/**
+ *  What one prompt's world-info selection did, so the UI can explain skipped
+ *  entries instead of silently dropping them.
+ */
+export type LorebookStats_Deserialize = {
+	injected: number,
+	over_budget: number,
+	not_triggered: number,
+	/**  Titles of entries that matched but did not fit the budget. */
+	skipped?: string[],
+};
+
+/**
+ *  What one prompt's world-info selection did, so the UI can explain skipped
+ *  entries instead of silently dropping them.
+ */
+export type LorebookStats_Serialize = {
+	injected: number,
+	over_budget: number,
+	not_triggered: number,
+	/**  Titles of entries that matched but did not fit the budget. */
+	skipped?: string[],
 };
 
 /**  A user-defined language server, spawned over stdio. */

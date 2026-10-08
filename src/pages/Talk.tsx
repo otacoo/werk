@@ -22,6 +22,7 @@ import { getServerStatus, subscribeServerStatus } from "../utils/serverStatus";
 import { getStreamResponses } from "../utils/appearance";
 import { playNotificationSound } from "../utils/sounds";
 import { Markdown } from "./chat/markdown";
+import { collapseSpeakerRepeats, speakerHue, speakerPrefixOf } from "../utils/prose";
 import { ContextRing, CopyButton, ReasoningBlock, SysNotice, ToolCard, useStickToBottom } from "./chat/components";
 import type { Tab } from "../App";
 
@@ -358,6 +359,8 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
 
   // Stay pinned to the newest message unless the reader scrolled up.
   const transcriptScroll = useStickToBottom(scrollRef, [items, streamText, reasoningText]);
+  /// Names the display may attribute speaker prefixes to.
+  const speakerNames = card?.name ? [card.name] : [];
 
   const canSend = (externalMode ? externalTarget !== "" : true) && activeProject != null;
 
@@ -664,14 +667,15 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
-          <ContextRing
-            used={slotCtx?.used ?? contextUsed}
-            total={slotCtx?.total ?? null}
-            avgTokps={null}
-            sessionPrompt={hasSessionUsage ? sessionUsage.prompt : null}
-            sessionGen={hasSessionUsage ? sessionUsage.gen : null}
-            dropDown
-          />
+            <ContextRing
+              used={slotCtx?.used ?? contextUsed}
+              total={slotCtx?.total ?? null}
+              avgTokps={null}
+              sessionPrompt={hasSessionUsage ? sessionUsage.prompt : null}
+              sessionGen={hasSessionUsage ? sessionUsage.gen : null}
+              lore={slotCtx?.lorebook ?? null}
+              dropDown
+            />
           <button
             className={`btn-ghost py-1 px-2 text-[0.625rem] ${
               showReasoning ? "text-ink bg-accent/15" : "opacity-50"
@@ -754,7 +758,7 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
                         : "bg-surface-2 text-ink"
                     }`}
                   >
-                    {isUser ? it.content : <Markdown content={it.content} />}
+                    {isUser ? it.content : <ProseReply text={it.content} names={speakerNames} />}
                   </div>
                   {it.images && it.images.length > 0 && (
                     <div className={`flex flex-wrap gap-1.5 mt-1.5 ${isUser ? "justify-end" : ""}`}>
@@ -811,7 +815,7 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
           <div className="flex gap-2.5 justify-start">
             <Avatar src={card?.avatar ?? null} name={card?.name ?? "?"} />
             <div className="max-w-[75%] rounded-2xl px-3.5 py-2.5 bg-surface-2 text-ink select-text">
-              <Markdown content={streamText} />
+              <ProseReply text={streamText} names={speakerNames} streaming />
               {streaming && (
                 <span className="ml-0.5 inline-block w-2 h-4 bg-dim animate-pulse align-middle" />
               )}
@@ -1005,5 +1009,35 @@ function Avatar({ src, name, size = 32 }: { src: string | null; name: string; si
     >
       {initials}
     </div>
+  );
+}
+
+
+/// Assistant prose with roleplay formatting: repeated speaker prefixes
+/// collapse, a known leading prefix becomes a colored name label, and quoted
+/// dialogue gets its own styling.
+function ProseReply({
+  text,
+  names,
+  streaming = false,
+}: {
+  text: string;
+  names: string[];
+  streaming?: boolean;
+}) {
+  const collapsed = collapseSpeakerRepeats(text, names);
+  const split = speakerPrefixOf(collapsed, names);
+  return (
+    <>
+      {split && (
+        <div
+          className="text-[0.6875rem] font-medium mb-0.5"
+          style={{ color: `hsl(${speakerHue(split.name)} 60% 62%)` }}
+        >
+          {split.name}
+        </div>
+      )}
+      <Markdown content={split?.text ?? collapsed} prose streaming={streaming} />
+    </>
   );
 }

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Roleplay world info:** keys can match whole words or be case-sensitive (imported cards carry the setting), an oversized entry no longer blocks later entries from loading, and the context hover shows what was injected and why entries were skipped
+- **Roleplay prose:** dialogue and actions get their own color, partial emphasis formats while streaming, repeated speaker prefixes are dropped from the display and from the history sent back to the model, and a leading name prefix becomes a colored speaker label
+
 ## 2026-10-07 – v0.8.6
 
 ### New options & features

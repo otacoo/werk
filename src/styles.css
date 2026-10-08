@@ -157,6 +157,14 @@ textarea::placeholder {
   .md {
     @apply text-sm leading-relaxed;
   }
+  /* Roleplay dialogue reads differently from prose; emphasis inside speech
+     keeps the speech color. */
+  .md .dialogue {
+    color: rgb(var(--accent-soft));
+  }
+  .md .dialogue em {
+    color: inherit;
+  }
   .md > :first-child {
     @apply mt-0;
   }

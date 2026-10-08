@@ -54,6 +54,9 @@ pub struct HarnessRuntime {
     /// Messages already on disk for the open session, so saves can append the
     /// delta instead of rewriting the JSONL transcript.
     pub saved: Mutex<Option<SavedSession>>,
+    /// World-info selection from the last roleplay prompt, for the context
+    /// hover: what was injected and why entries were skipped.
+    pub last_lorebook: Mutex<Option<crate::roleplay::LorebookStats>>,
 }
 
 /// What the transcript file already holds for the open session.
@@ -85,6 +88,7 @@ impl HarnessRuntime {
             abort: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             interrupted: std::sync::atomic::AtomicBool::new(false),
             saved: Mutex::new(None),
+            last_lorebook: Mutex::new(None),
         }
     }
 }
@@ -1993,8 +1997,12 @@ async fn agent_send_impl(
             let mut base = crate::roleplay::system_prompt(&app_config, card.as_ref());
             if let Some(card) = &card {
                 let user_name = crate::roleplay::display_user_name(&app_config.roleplay);
-                let world =
-                    crate::roleplay::lorebook_block(card, &recent_transcript(&history), &user_name);
+                let (world, lore_stats) = crate::roleplay::lorebook_selection(
+                    card,
+                    &recent_transcript(&history),
+                    &user_name,
+                );
+                *runtime.last_lorebook.lock().unwrap() = Some(lore_stats);
                 if !world.is_empty() {
                     base.push_str("\n\n");
                     base.push_str(&world);
@@ -2069,6 +2077,28 @@ async fn agent_send_impl(
             event_name,
             serde_json::json!({"type": "notice", "text": format!("Session save failed: {e}")}),
         );
+    }
+
+    // The copy sent to the model drops repeated speaker prefixes; the stored
+    // transcript keeps them.
+    if roleplay {
+        if let Some(card) = app_config
+            .roleplay
+            .card_id
+            .as_deref()
+            .and_then(|id| crate::roleplay::load_card(id).ok())
+        {
+            let names = vec![card.name];
+            for message in history.iter_mut().filter(|m| m.role == "assistant") {
+                let Some(text) = message.content.as_ref().and_then(serde_json::Value::as_str) else {
+                    continue;
+                };
+                let cleaned = crate::roleplay::collapse_speaker_repeats(text, &names);
+                if cleaned != text {
+                    message.content = Some(serde_json::Value::String(cleaned));
+                }
+            }
+        }
     }
 
     // External API mode resolves the configured provider target; local modes
@@ -3058,6 +3088,7 @@ fn reset_runtime(runtime: &HarnessRuntime) {
     truncate_meta(runtime, 0);
     *runtime.session_id.lock().unwrap() = None;
     *runtime.saved.lock().unwrap() = None;
+    *runtime.last_lorebook.lock().unwrap() = None;
     runtime.interrupted.store(false, Ordering::SeqCst);
     if let Some(tx) = runtime.pending.lock().unwrap().take() {
         let _ = tx.send(Approved::Denied);
@@ -3339,6 +3370,9 @@ pub struct ContextStats {
     pub used: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total: Option<u32>,
+    /// World-info selection from the last roleplay prompt, when there was one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lorebook: Option<crate::roleplay::LorebookStats>,
 }
 
 /// Effective context for the orchestrator with no live slot, in the same
@@ -3427,6 +3461,7 @@ async fn context_stats(
     let mut stats = ContextStats {
         used: Some(used.min(u32::MAX as u64) as u32),
         total: None,
+        lorebook: runtime.last_lorebook.lock().unwrap().clone(),
     };
     let mode = state.config.lock().unwrap().server_mode;
     // External API mode never reads the local server, even if one runs. A
