@@ -119,7 +119,7 @@ export function Markdown({
 }) {
   const text = prose && streaming ? closePartialEmphasis(content) : content;
   return (
-    <div className="md select-text">
+    <div className={`md select-text${prose ? " md-prose" : ""}`}>
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={prose ? REHYPE_PROSE_PLUGINS : REHYPE_PLUGINS}

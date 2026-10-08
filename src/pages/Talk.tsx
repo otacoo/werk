@@ -750,6 +750,14 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
               <div key={i} className={`flex gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}>
                 {!isUser && <Avatar src={card?.avatar ?? null} name={card?.name ?? "?"} />}
                 <div className="max-w-[75%] xl:max-w-[70%] min-w-0">
+                  {!isUser && card?.name && (
+                    <div
+                      className="text-[0.6875rem] font-medium mb-1 px-1"
+                      style={{ color: `hsl(${speakerHue(card.name)} 60% 62%)` }}
+                    >
+                      {card.name}
+                    </div>
+                  )}
                   {showReasoning && it.reasoning && <ReasoningBlock text={it.reasoning} />}
                   <div
                     className={`rounded-2xl px-3.5 py-2.5 ${
@@ -758,7 +766,15 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
                         : "bg-surface-2 text-ink"
                     }`}
                   >
-                    {isUser ? it.content : <ProseReply text={it.content} names={speakerNames} />}
+                    {isUser ? (
+                      it.content
+                    ) : (
+                      <ProseReply
+                        text={it.content}
+                        names={speakerNames}
+                        defaultName={card?.name ?? ""}
+                      />
+                    )}
                   </div>
                   {it.images && it.images.length > 0 && (
                     <div className={`flex flex-wrap gap-1.5 mt-1.5 ${isUser ? "justify-end" : ""}`}>
@@ -814,11 +830,26 @@ export default function Talk({ go, active = true }: { go: (t: Tab) => void; acti
         {streamText !== null && (
           <div className="flex gap-2.5 justify-start">
             <Avatar src={card?.avatar ?? null} name={card?.name ?? "?"} />
-            <div className="max-w-[75%] rounded-2xl px-3.5 py-2.5 bg-surface-2 text-ink select-text">
-              <ProseReply text={streamText} names={speakerNames} streaming />
-              {streaming && (
-                <span className="ml-0.5 inline-block w-2 h-4 bg-dim animate-pulse align-middle" />
+            <div className="max-w-[75%] min-w-0">
+              {card?.name && (
+                <div
+                  className="text-[0.6875rem] font-medium mb-1 px-1"
+                  style={{ color: `hsl(${speakerHue(card.name)} 60% 62%)` }}
+                >
+                  {card.name}
+                </div>
               )}
+              <div className="rounded-2xl px-3.5 py-2.5 bg-surface-2 text-ink select-text">
+                <ProseReply
+                  text={streamText}
+                  names={speakerNames}
+                  defaultName={card?.name ?? ""}
+                  streaming
+                />
+                {streaming && (
+                  <span className="ml-0.5 inline-block w-2 h-4 bg-dim animate-pulse align-middle" />
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1014,27 +1045,31 @@ function Avatar({ src, name, size = 32 }: { src: string | null; name: string; si
 
 
 /// Assistant prose with roleplay formatting: repeated speaker prefixes
-/// collapse, a known leading prefix becomes a colored name label, and quoted
-/// dialogue gets its own styling.
+/// collapse, a known leading prefix becomes a colored name label (only when
+/// it names someone other than the default speaker — the bubble already
+/// carries the card's name), and quoted dialogue gets its own styling.
 function ProseReply({
   text,
   names,
+  defaultName = "",
   streaming = false,
 }: {
   text: string;
   names: string[];
+  defaultName?: string;
   streaming?: boolean;
 }) {
   const collapsed = collapseSpeakerRepeats(text, names);
   const split = speakerPrefixOf(collapsed, names);
+  const label = split && split.name !== defaultName ? split.name : null;
   return (
     <>
-      {split && (
+      {label && (
         <div
           className="text-[0.6875rem] font-medium mb-0.5"
-          style={{ color: `hsl(${speakerHue(split.name)} 60% 62%)` }}
+          style={{ color: `hsl(${speakerHue(label)} 60% 62%)` }}
         >
-          {split.name}
+          {label}
         </div>
       )}
       <Markdown content={split?.text ?? collapsed} prose streaming={streaming} />

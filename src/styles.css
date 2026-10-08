@@ -158,12 +158,16 @@ textarea::placeholder {
     @apply text-sm leading-relaxed;
   }
   /* Roleplay dialogue reads differently from prose; emphasis inside speech
-     keeps the speech color. */
+     keeps the speech color. Actions and description (single asterisks) sit a
+     step softer so they don't blend into the spoken text. */
   .md .dialogue {
     color: rgb(var(--accent-soft));
   }
   .md .dialogue em {
     color: inherit;
+  }
+  .md-prose em {
+    color: rgb(var(--dim));
   }
   .md > :first-child {
     @apply mt-0;
