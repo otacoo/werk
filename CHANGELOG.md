@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The App Updates card links to the latest release notes
+
 ## 2026-10-08 – v0.8.7
 
 ### New options & features

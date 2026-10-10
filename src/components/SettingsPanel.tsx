@@ -276,9 +276,17 @@ function UpdatesCard() {
     <div className="card">
       <div className="flex items-center justify-between mb-3">
         <h2 className="section-title mb-0">App Updates</h2>
-        {appVersion && (
-          <span className="text-xs text-dim tabular-nums">v{appVersion}</span>
-        )}
+        <div className="flex items-center gap-3">
+          {appVersion && (
+            <span className="text-xs text-dim tabular-nums">v{appVersion}</span>
+          )}
+          <button
+            className="inline-flex items-center gap-1 text-xs text-dim hover:text-ink"
+            onClick={() => void openUrl(`${REPO_URL}/releases/latest`).catch(() => {})}
+          >
+            <ExternalLink size={12} /> {t("Release notes")}
+          </button>
+        </div>
       </div>
       <div className="space-y-3">
         <Toggle
