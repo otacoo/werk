@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Math:** formulas keep their proper sizing and alignment — the styles KaTeX applies to them were being blocked
 - The App Updates card links to the latest release notes
 
 ## 2026-10-08 – v0.8.7
