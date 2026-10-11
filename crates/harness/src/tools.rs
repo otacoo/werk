@@ -1922,6 +1922,7 @@ impl ToolRegistry {
             BuiltinToolInfo { name: "ask_user", summary: "Ask the user a multiple-choice question.", approval: "auto", note: "Orchestrator only." },
             BuiltinToolInfo { name: "skill", summary: "Load a learned skill.", approval: "auto", note: "" },
             BuiltinToolInfo { name: "remember", summary: "Curate long-term memory; showing it is free.", approval: "conditional", note: "" },
+            BuiltinToolInfo { name: "mcp", summary: "List, add, or remove MCP servers.", approval: "approval", note: "Writes the shared mcp.json." },
             BuiltinToolInfo { name: "lsp", summary: "Language-server navigation: definitions, references, symbols.", approval: "auto", note: "Requires a language server." },
         ]
     }

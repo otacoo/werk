@@ -562,6 +562,7 @@ pub(crate) fn load_permission_grants(state: &AppState) {
 /// Native tools + memory curator + skills + file-defined plugins.
 #[allow(clippy::too_many_arguments)]
 fn build_registry(
+    app: AppHandle,
     jail: Arc<PathJail>,
     project_root_dir: &Path,
     global_base: Option<&Path>,
@@ -611,6 +612,7 @@ fn build_registry(
     for tool in mcp_tools {
         registry = registry.add(tool);
     }
+    registry = registry.add(Arc::new(crate::assistant_tools::McpTool::with_approval(app)));
     if !agent_disabled.is_empty() {
         let names: Vec<&str> = agent_disabled.iter().map(String::as_str).collect();
         registry = registry.without(&names);
@@ -1855,6 +1857,7 @@ async fn agent_send_impl(
             registry.free_approvals()
         }
         RunMode::Agent => build_registry(
+            app.clone(),
             jail.clone(),
             &root,
             global_base.as_deref(),

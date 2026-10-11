@@ -215,11 +215,18 @@ impl Tool for PluginWriteTool {
 /// Manage MCP servers (Cursor-compatible `mcp.json`).
 pub struct McpTool {
     app: tauri::AppHandle,
+    approval: bool,
 }
 
 impl McpTool {
     pub fn new(app: tauri::AppHandle) -> Self {
-        Self { app }
+        Self { app, approval: false }
+    }
+
+    /// The coding agent's instance: the run parks for approval before the
+    /// shared mcp.json changes, since added servers spawn on the next run.
+    pub fn with_approval(app: tauri::AppHandle) -> Self {
+        Self { app, approval: true }
     }
 }
 
@@ -249,7 +256,8 @@ impl Tool for McpTool {
     }
 
     fn approval_key(&self, _args: &Value) -> Option<ApprovalKey> {
-        None
+        self.approval
+            .then(|| ApprovalKey { tool: self.name(), command: None })
     }
 
     fn execute(&self, args: &Value) -> Result<String> {

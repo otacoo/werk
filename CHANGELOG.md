@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **MCP:** the coding agent can list, add, or remove MCP servers when you ask, with an approval prompt first
 - **Math:** formulas keep their proper sizing and alignment — the styles KaTeX applies to them were being blocked
 - The App Updates card links to the latest release notes
 
