@@ -18,7 +18,8 @@ pub struct Skill {
     pub path: PathBuf,
 }
 
-fn valid_name(name: &str) -> bool {
+/// Spec-compatible slug: lowercase letters, digits, `-` or `_`, max 64.
+pub fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
         && name.chars().all(|c| {
@@ -27,7 +28,8 @@ fn valid_name(name: &str) -> bool {
 }
 
 /// Parse name/description from frontmatter (`name:`/`description:` lines).
-fn parse_skill_md(text: &str) -> Option<(String, String)> {
+/// Shared with the app's skill installer.
+pub fn parse_skill_md(text: &str) -> Option<(String, String)> {
     let mut name = None;
     let mut description = None;
     for line in text.lines().take(20) {

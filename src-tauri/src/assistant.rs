@@ -133,9 +133,10 @@ fn files_block(config: &AppConfig) -> String {
 
 /// Global skills the assistant may load on demand.
 pub fn skills() -> Vec<harness::skills::Skill> {
-    let roots: Vec<PathBuf> = crate::config::data_dir()
-        .map(|d| vec![d.join("werk").join("skills")])
-        .unwrap_or_default();
+    let roots: Vec<PathBuf> = crate::chat::skill_roots(None)
+        .into_iter()
+        .map(|(_, dir)| dir)
+        .collect();
     harness::skills::discover(&roots)
 }
 

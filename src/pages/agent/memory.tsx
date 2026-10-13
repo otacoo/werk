@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Check, FolderOpen, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Check, Download, FolderOpen, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { commands } from "../../bindings";
 import type { MemoryEntryDto, MemoryFileDto, SkillDto } from "../../bindings";
 import { call } from "../../utils/ipc";
+import { t } from "../../utils/i18n";
 
 export function MemoryCard() {
   const [reload, setReload] = useState(0);
@@ -291,6 +292,9 @@ function MemoryScopeEditor({
 export function SkillsCard() {
   const [skills, setSkills] = useState<SkillDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [installUrl, setInstallUrl] = useState("");
+  const [installing, setInstalling] = useState(false);
+  const [installNote, setInstallNote] = useState<string | null>(null);
 
   const load = () => {
     call(commands.skillsList())
@@ -306,6 +310,24 @@ export function SkillsCard() {
       await openPath(await call(commands.skillsEnsureDir()));
     } catch (e) {
       setError(String(e));
+    }
+  };
+
+  const install = async () => {
+    const url = installUrl.trim();
+    if (!url || installing) return;
+    setInstalling(true);
+    setError(null);
+    setInstallNote(null);
+    try {
+      const result = await call(commands.skillInstall(url));
+      setInstallUrl("");
+      setInstallNote(t("Installed {name} — available on the next run.", { name: result.name }));
+      load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setInstalling(false);
     }
   };
 
@@ -329,9 +351,33 @@ export function SkillsCard() {
           <RefreshCw size={11} /> Refresh
         </button>
       </div>
+      <div className="flex items-center gap-2 mt-3">
+        <input
+          className="input flex-1 min-w-0 py-1 px-2 text-xs"
+          placeholder="https://github.com/owner/repo"
+          value={installUrl}
+          onChange={(e) => setInstallUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void install();
+          }}
+          disabled={installing}
+        />
+        <button
+          className="btn-secondary text-xs shrink-0"
+          onClick={() => void install()}
+          disabled={installing || !installUrl.trim()}
+        >
+          {installing ? <RefreshCw size={11} className="animate-spin" /> : <Download size={11} />}
+          {t("Install")}
+        </button>
+      </div>
+      <p className="text-[0.625rem] text-faint mt-1.5">
+        {t("Paste a GitHub repo, folder, or SKILL.md link. Only SKILL.md is copied.")}
+      </p>
+      {installNote && <p className="text-[0.6875rem] text-accent-green mt-2">{installNote}</p>}
       {skills && skills.length === 0 && (
         <p className="text-[0.6875rem] text-dim mt-2">
-          No skills yet — ask the agent to save one (manage_skill).
+          No skills yet — ask the agent to save one (skill_write).
         </p>
       )}
       {skills && skills.length > 0 && (

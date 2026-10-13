@@ -305,6 +305,11 @@ export const commands = {
 	harnessMemoryEnsure: (scope: string) => typedError<string, string>(__TAURI_INVOKE("harness_memory_ensure", { scope })),
 	/**  Ensure the global skills folder exists so it can be opened; returns it. */
 	skillsEnsureDir: () => typedError<string, string>(__TAURI_INVOKE("skills_ensure_dir")),
+	/**
+	 *  Install a skill from a URL into the global skills folder. Only the
+	 *  SKILL.md is copied; scripts and reference files are not.
+	 */
+	skillInstall: (url: string) => typedError<SkillInstallResult, string>(__TAURI_INVOKE("skill_install", { url })),
 	/**  Platform idiom for corner/shape theming (no inputs needed). */
 	getPlatformStyle: () => typedError<PlatformStyle, string>(__TAURI_INVOKE("get_platform_style")),
 	setWizardCompleted: (completed: boolean) => typedError<null, string>(__TAURI_INVOKE("set_wizard_completed", { completed })),
@@ -1877,6 +1882,12 @@ export type SkillDto = {
 	description: string,
 	scope: string,
 	dir: string,
+};
+
+export type SkillInstallResult = {
+	name: string,
+	description: string,
+	path: string,
 };
 
 /**  Transcription result: the text plus the model's detected language. */

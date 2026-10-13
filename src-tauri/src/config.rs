@@ -760,6 +760,18 @@ pub fn data_dir() -> Option<PathBuf> {
     }
 }
 
+/// The user's home folder (for shared agent folders like `~/.agents`).
+pub fn home_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var_os("USERPROFILE").map(PathBuf::from)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var_os("HOME").map(PathBuf::from)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

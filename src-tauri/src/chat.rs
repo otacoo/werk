@@ -581,14 +581,11 @@ fn build_registry(
         global_base,
     )));
     registry = registry.add(Arc::new(harness::todos::TodoTool::new(todos.clone())));
-    let skill_roots: Vec<PathBuf> = [
-        global_base.map(|b| b.join("skills")),
-        Some(project_root_dir.join(".werk").join("skills")),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    let skills = harness::skills::discover(&skill_roots);
+    let roots: Vec<PathBuf> = skill_roots(Some(project_root_dir))
+        .into_iter()
+        .map(|(_, dir)| dir)
+        .collect();
+    let skills = harness::skills::discover(&roots);
     if !skills.is_empty() {
         registry = registry.add(Arc::new(harness::skills::SkillTool::new(skills)));
     }
@@ -622,6 +619,28 @@ fn build_registry(
 
 fn global_base_dir() -> Option<PathBuf> {
     crate::config::data_dir().map(|d| d.join("werk"))
+}
+
+/// Skill discovery roots in precedence order (later wins): werk's global
+/// folder, the shared agent folders the skills CLI writes to, then the
+/// project's own folders.
+pub fn skill_roots(project_root: Option<&Path>) -> Vec<(String, PathBuf)> {
+    let mut roots: Vec<(String, PathBuf)> = Vec::new();
+    if let Some(data) = crate::config::data_dir() {
+        roots.push(("global".to_string(), data.join("werk").join("skills")));
+    }
+    if let Some(home) = crate::config::home_dir() {
+        roots.push((
+            "global".to_string(),
+            home.join(".config").join("agents").join("skills"),
+        ));
+        roots.push(("global".to_string(), home.join(".agents").join("skills")));
+    }
+    if let Some(root) = project_root {
+        roots.push(("project".to_string(), root.join(".agents").join("skills")));
+        roots.push(("project".to_string(), root.join(".werk").join("skills")));
+    }
+    roots
 }
 
 /// Enabled MCP servers → registered tools. Servers start on first use and
@@ -4795,13 +4814,8 @@ pub struct SkillDto {
 #[tauri::command]
 #[specta::specta]
 pub async fn skills_list(state: State<'_, AppState>) -> Result<Vec<SkillDto>, String> {
-    let mut roots = Vec::new();
-    if let Some(data) = crate::config::data_dir() {
-        roots.push(("global".to_string(), data.join("werk").join("skills")));
-    }
-    if let Ok(root) = project_root(&state) {
-        roots.push(("project".to_string(), root.join(".werk").join("skills")));
-    }
+    let root = project_root(&state).ok();
+    let roots = skill_roots(root.as_deref());
     let mut out = Vec::new();
     for (scope, root) in roots {
         for s in harness::skills::discover(&[root]) {
@@ -4827,6 +4841,311 @@ pub async fn skills_ensure_dir() -> Result<String, String> {
         .ok_or_else(|| "Cannot find data directory".to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.to_string_lossy().to_string())
+}
+
+/// Where a pasted skill URL points: a direct file, or a GitHub repo/folder/file.
+#[derive(Debug, PartialEq)]
+enum SkillSource {
+    Direct(String),
+    GitHub {
+        owner: String,
+        repo: String,
+        reference: String,
+        path: Option<String>,
+    },
+}
+
+/// Classify a pasted skill URL. GitHub blob/tree links are translated to raw
+/// fetches; other http(s) URLs are fetched as-is.
+fn skill_source_from_url(url: &str) -> Result<SkillSource, String> {
+    let parsed = reqwest::Url::parse(url).map_err(|e| format!("Invalid URL: {e}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("Only http(s) URLs are supported".to_string());
+    }
+    if parsed.host_str() != Some("github.com") {
+        return Ok(SkillSource::Direct(url.to_string()));
+    }
+    let parts: Vec<&str> = parsed
+        .path()
+        .trim_matches('/')
+        .split('/')
+        .filter(|p| !p.is_empty())
+        .collect();
+    if parts.len() < 2 {
+        return Err("Expected a github.com/owner/repo link".to_string());
+    }
+    let owner = parts[0].to_string();
+    let repo = parts[1].trim_end_matches(".git").to_string();
+    match parts.get(2).copied() {
+        None => Ok(SkillSource::GitHub {
+            owner,
+            repo,
+            reference: "HEAD".to_string(),
+            path: None,
+        }),
+        Some("blob") | Some("tree") => {
+            let (reference, rest) = parts[3..]
+                .split_first()
+                .ok_or_else(|| "Missing branch in the GitHub link".to_string())?;
+            let path = if rest.is_empty() {
+                None
+            } else {
+                Some(rest.join("/"))
+            };
+            Ok(SkillSource::GitHub {
+                owner,
+                repo,
+                reference: reference.to_string(),
+                path,
+            })
+        }
+        Some(other) => Err(format!(
+            "Unsupported GitHub link ('{other}') — use the repo, a folder, or a file link"
+        )),
+    }
+}
+
+const SKILL_FETCH_CAP: usize = 512 * 1024;
+
+fn github_rate_limited(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::FORBIDDEN || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+}
+
+/// Fetch one SKILL.md, following the classified source.
+async fn fetch_skill_text(
+    client: &reqwest::Client,
+    source: SkillSource,
+) -> Result<String, String> {
+    match source {
+        SkillSource::Direct(url) => fetch_skill_file(client, &url).await,
+        SkillSource::GitHub {
+            owner,
+            repo,
+            mut reference,
+            path,
+        } => {
+            if reference == "HEAD" {
+                reference = github_default_branch(client, &owner, &repo).await?;
+            }
+            let path = match path {
+                Some(p) if p.to_ascii_lowercase().ends_with("skill.md") => p,
+                Some(p) => format!("{p}/SKILL.md"),
+                None => pick_github_skill(client, &owner, &repo, &reference).await?,
+            };
+            let raw =
+                format!("https://raw.githubusercontent.com/{owner}/{repo}/{reference}/{path}");
+            fetch_skill_file(client, &raw).await
+        }
+    }
+}
+
+async fn github_default_branch(
+    client: &reqwest::Client,
+    owner: &str,
+    repo: &str,
+) -> Result<String, String> {
+    let url = format!("https://api.github.com/repos/{owner}/{repo}");
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub request failed: {e}"))?;
+    if github_rate_limited(resp.status()) {
+        return Err(
+            "GitHub is rate-limiting this machine — try again later or paste a raw SKILL.md link"
+                .to_string(),
+        );
+    }
+    if !resp.status().is_success() {
+        return Err(format!("Repository not found ({})", resp.status()));
+    }
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    json.get("default_branch")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| "Could not read the repository's default branch".to_string())
+}
+
+/// Find the single SKILL.md in a repository; multiple skills ask for a
+/// folder link instead.
+async fn pick_github_skill(
+    client: &reqwest::Client,
+    owner: &str,
+    repo: &str,
+    reference: &str,
+) -> Result<String, String> {
+    let url =
+        format!("https://api.github.com/repos/{owner}/{repo}/git/trees/{reference}?recursive=1");
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub request failed: {e}"))?;
+    if github_rate_limited(resp.status()) {
+        return Err(
+            "GitHub is rate-limiting this machine — try again later or paste a raw SKILL.md link"
+                .to_string(),
+        );
+    }
+    if !resp.status().is_success() {
+        return Err(format!("Could not read the repository ({})", resp.status()));
+    }
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let candidates: Vec<String> = json
+        .get("tree")
+        .and_then(|v| v.as_array())
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|e| e.get("path").and_then(|p| p.as_str()))
+                .filter(|p| *p == "SKILL.md" || p.ends_with("/SKILL.md"))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    match candidates.len() {
+        0 => Err("No SKILL.md found in this repository".to_string()),
+        1 => Ok(candidates[0].clone()),
+        _ => {
+            let names: Vec<String> = candidates
+                .iter()
+                .map(|p| {
+                    let dir = p.trim_end_matches("/SKILL.md");
+                    if dir.is_empty() {
+                        "root".to_string()
+                    } else {
+                        dir.rsplit('/').next().unwrap_or(dir).to_string()
+                    }
+                })
+                .collect();
+            Err(format!(
+                "This repository has multiple skills ({}) — paste the link to the one you want",
+                names.join(", ")
+            ))
+        }
+    }
+}
+
+async fn fetch_skill_file(client: &reqwest::Client, url: &str) -> Result<String, String> {
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Fetch failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Fetch failed ({}) for {url}", resp.status()));
+    }
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if content_type.contains("text/html") {
+        return Err("That link is a web page, not a SKILL.md file".to_string());
+    }
+    if resp.content_length().is_some_and(|l| l as usize > SKILL_FETCH_CAP) {
+        return Err("That file is too large to be a SKILL.md".to_string());
+    }
+    let bytes = resp.bytes().await.map_err(|e| format!("Fetch failed: {e}"))?;
+    if bytes.len() > SKILL_FETCH_CAP {
+        return Err("That file is too large to be a SKILL.md".to_string());
+    }
+    String::from_utf8(bytes.to_vec()).map_err(|_| "SKILL.md is not valid UTF-8".to_string())
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct SkillInstallResult {
+    pub name: String,
+    pub description: String,
+    pub path: String,
+}
+
+/// Install a skill from a URL into the global skills folder. Only the
+/// SKILL.md is copied; scripts and reference files are not.
+#[tauri::command]
+#[specta::specta]
+pub async fn skill_install(url: String) -> Result<SkillInstallResult, String> {
+    let source = skill_source_from_url(url.trim())?;
+    let client = reqwest::Client::builder()
+        .user_agent(format!("werk/{}", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let text = fetch_skill_text(&client, source).await?;
+    let (name, description) = harness::skills::parse_skill_md(&text)
+        .ok_or_else(|| "No name/description frontmatter found — is this a SKILL.md?".to_string())?;
+    if !harness::skills::valid_name(&name) {
+        return Err(format!(
+            "Invalid skill name '{name}' (lowercase letters, digits, - or _; max 64)"
+        ));
+    }
+    let desc = description.trim();
+    if desc.is_empty() || desc.starts_with('>') || desc.starts_with('|') {
+        return Err(
+            "Multi-line descriptions are not supported yet — use a single-line description"
+                .to_string(),
+        );
+    }
+    let dir = crate::config::data_dir()
+        .map(|d| d.join("werk").join("skills").join(&name))
+        .ok_or_else(|| "Cannot find data directory".to_string())?;
+    let path = dir.join("SKILL.md");
+    if path.exists() {
+        return Err(format!(
+            "Skill '{name}' is already installed — remove it from the global folder first"
+        ));
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(&path, &text).map_err(|e| e.to_string())?;
+    Ok(SkillInstallResult {
+        name,
+        description,
+        path: path.to_string_lossy().to_string(),
+    })
+}
+
+#[cfg(test)]
+mod skill_url_tests {
+    use super::*;
+
+    #[test]
+    fn classifies_skill_urls() {
+        assert_eq!(
+            skill_source_from_url("https://example.com/a/SKILL.md").unwrap(),
+            SkillSource::Direct("https://example.com/a/SKILL.md".to_string())
+        );
+        assert_eq!(
+            skill_source_from_url("https://github.com/vercel-labs/skills").unwrap(),
+            SkillSource::GitHub {
+                owner: "vercel-labs".to_string(),
+                repo: "skills".to_string(),
+                reference: "HEAD".to_string(),
+                path: None,
+            }
+        );
+        assert_eq!(
+            skill_source_from_url("https://github.com/vercel-labs/skills/tree/main/skills/find-skills")
+                .unwrap(),
+            SkillSource::GitHub {
+                owner: "vercel-labs".to_string(),
+                repo: "skills".to_string(),
+                reference: "main".to_string(),
+                path: Some("skills/find-skills".to_string()),
+            }
+        );
+        assert_eq!(
+            skill_source_from_url("https://github.com/o/r/blob/main/x/SKILL.md").unwrap(),
+            SkillSource::GitHub {
+                owner: "o".to_string(),
+                repo: "r".to_string(),
+                reference: "main".to_string(),
+                path: Some("x/SKILL.md".to_string()),
+            }
+        );
+        assert!(skill_source_from_url("ftp://example.com/x").is_err());
+        assert!(skill_source_from_url("https://github.com/only-owner").is_err());
+        assert!(skill_source_from_url("not a url").is_err());
+    }
 }
 
 /// One editable memory file: where it lives and what it says.
