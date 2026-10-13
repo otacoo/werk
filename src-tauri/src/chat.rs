@@ -5104,6 +5104,27 @@ pub async fn skill_install(url: String) -> Result<SkillInstallResult, String> {
     })
 }
 
+/// Delete an installed skill folder. Only folders directly under a known
+/// skills root that contain a SKILL.md are accepted.
+#[tauri::command]
+#[specta::specta]
+pub async fn skill_delete(dir: String, state: State<'_, AppState>) -> Result<(), String> {
+    let root = project_root(&state).ok();
+    let target = std::fs::canonicalize(&dir).map_err(|e| format!("Cannot open {dir}: {e}"))?;
+    let allowed = skill_roots(root.as_deref())
+        .into_iter()
+        .filter_map(|(_, r)| std::fs::canonicalize(r).ok())
+        .any(|r| target.parent() == Some(r.as_path()));
+    if !allowed {
+        return Err("Not an installed skill folder".to_string());
+    }
+    if !target.join("SKILL.md").is_file() {
+        return Err("No SKILL.md in that folder".to_string());
+    }
+    std::fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod skill_url_tests {
     use super::*;

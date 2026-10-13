@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Download, FolderOpen, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Check, Download, FolderOpen, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { commands } from "../../bindings";
 import type { MemoryEntryDto, MemoryFileDto, SkillDto } from "../../bindings";
@@ -304,10 +304,30 @@ export function SkillsCard() {
 
   useEffect(load, []);
 
+  // Skills dropped into (or edited in) the folder while the app was in the
+  // background show up when the window regains focus.
+  useEffect(() => {
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
   const openGlobalFolder = async () => {
     setError(null);
     try {
       await openPath(await call(commands.skillsEnsureDir()));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const remove = async (skill: SkillDto) => {
+    if (!window.confirm(t('Delete the skill "{name}"?', { name: skill.name }))) return;
+    setError(null);
+    setInstallNote(null);
+    try {
+      await call(commands.skillDelete(skill.dir));
+      load();
     } catch (e) {
       setError(String(e));
     }
@@ -400,6 +420,13 @@ export function SkillsCard() {
                 onClick={() => void openPath(s.dir).catch((e) => setError(String(e)))}
               >
                 <FolderOpen size={11} />
+              </button>
+              <button
+                className="btn-ghost text-[0.625rem] py-0.5 px-1.5 shrink-0"
+                title="Delete skill"
+                onClick={() => void remove(s)}
+              >
+                <X size={11} />
               </button>
             </div>
           ))}

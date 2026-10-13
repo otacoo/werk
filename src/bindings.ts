@@ -310,6 +310,11 @@ export const commands = {
 	 *  SKILL.md is copied; scripts and reference files are not.
 	 */
 	skillInstall: (url: string) => typedError<SkillInstallResult, string>(__TAURI_INVOKE("skill_install", { url })),
+	/**
+	 *  Delete an installed skill folder. Only folders directly under a known
+	 *  skills root that contain a SKILL.md are accepted.
+	 */
+	skillDelete: (dir: string) => typedError<null, string>(__TAURI_INVOKE("skill_delete", { dir })),
 	/**  Platform idiom for corner/shape theming (no inputs needed). */
 	getPlatformStyle: () => typedError<PlatformStyle, string>(__TAURI_INVOKE("get_platform_style")),
 	setWizardCompleted: (completed: boolean) => typedError<null, string>(__TAURI_INVOKE("set_wizard_completed", { completed })),

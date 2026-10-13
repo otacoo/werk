@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Skills:** each skill row has an X to delete it, and the list refreshes when you return to the app
 - **Skills:** the Skills card can install one from a URL — a GitHub repo, a folder, or a direct SKILL.md link
 - Skills installed for other agents in the shared `.agents/skills` folders are picked up automatically
 - **MCP:** the coding agent can list, add, or remove MCP servers when you ask, with an approval prompt first

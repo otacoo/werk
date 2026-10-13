@@ -495,6 +495,7 @@ pub fn bindings_builder() -> Builder<tauri::Wry> {
         chat::harness_memory_ensure,
         chat::skills_ensure_dir,
         chat::skill_install,
+        chat::skill_delete,
         chat::get_platform_style,
         commands::set_wizard_completed,
         commands::get_system_info,
