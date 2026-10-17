@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2026-10-17 – v0.8.8
 
 - **Skills:** each skill row has an X to delete it, and the list refreshes when you return to the app
 - **Skills:** the Skills card can install one from a URL — a GitHub repo, a folder, or a direct SKILL.md link
@@ -135,6 +135,20 @@
 - `/new` archives the old transcript; overlay runs no longer duplicate in the chat
 - llama-tts retries on the CPU when CUDA fails and reports real errors
 - The overlay window is created at startup (no startup hang)
+
+## [0.8.8] - 2026-10-17
+
+### Added
+
+- 
+
+### Changed
+
+- 
+
+### Fixed
+
+- 
 
 ## [0.7.0] - 2026-10-04
 
