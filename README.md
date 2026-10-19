@@ -7,10 +7,10 @@
   <a href="https://github.com/otacoo/werk/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/otacoo/werk/total?style=for-the-badge&logo=github"></a>
   <br/>
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge">
-  &nbsp;&nbsp;<img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6?style=for-the-badge">
+  &nbsp;&nbsp;<img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D6?style=for-the-badge">
 </p>
 
-<p align="center"><b>werk runs your local GGUF models with <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a> and puts an agentic harness on top — tool-using chat, subagents, MCP servers and language-server diagnostics in one lean desktop app for Windows, macOS and Linux.</b></p>
+<p align="center"><b>werk runs your local GGUF models with <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a> and puts an agentic harness on top — tool-using chat, subagents, MCP servers and language-server diagnostics in one lean desktop app for Windows and Linux.</b></p>
 
 ---
 
@@ -42,7 +42,6 @@
 Grab the latest installer for your platform from the [Releases page](https://github.com/otacoo/werk/releases):
 
 - **Windows 10 / 11** — `Werk_x.y.z_x64-setup.exe` or the `.msi` package
-- **macOS** — `.dmg` (universal, Intel and Apple silicon)
 - **Linux** — `.AppImage` or `.deb`
 
 The app updates itself from GitHub releases, so you only need to install once.\
@@ -52,12 +51,11 @@ A **first-run wizard** will walk you through downloading a llama.cpp build, pick
 
 ## Download
 
-Pre-built binaries for Linux, macOS (Universal), and Windows are available on the [Releases](../../releases) page.
+Pre-built binaries for Linux and Windows are available on the [Releases](../../releases) page.
 
 | Platform | Format |
 |----------|--------|
 | Linux    | AppImage, .deb |
-| macOS    | .dmg (Universal: Intel + Apple Silicon) |
 | Windows  | .msi, .nsis |
 
 
@@ -72,7 +70,7 @@ Prerequisites:
 sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf
 # Arch: 
 sudo pacman -S --needed webkit2gtk-4.1 gtk3 librsvg gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad patchelf
-# macOS / Windows: 
+# Windows:
 no extra system dependencies
 ```
 
