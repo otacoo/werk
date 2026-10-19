@@ -145,15 +145,11 @@ impl Tool for WindowTool {
         {
             windows_action(action, title, args)
         }
-        #[cfg(target_os = "macos")]
-        {
-            macos_window_action(action, title, args)
-        }
         #[cfg(target_os = "linux")]
         {
             x11_window_action(action, title, args)
         }
-        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         {
             let _ = (action, title, args);
             bail!("Window control is not available on this platform")
@@ -199,17 +195,12 @@ fn list_windows() -> Result<String> {
     Ok(text)
 }
 
-#[cfg(target_os = "macos")]
-fn list_windows() -> Result<String> {
-    macos_list_windows()
-}
-
 #[cfg(target_os = "linux")]
 fn list_windows() -> Result<String> {
     x11_list_windows()
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn list_windows() -> Result<String> {
     bail!("Window control is not available on this platform")
 }
@@ -287,194 +278,6 @@ fn windows_action(action: &str, title: &str, args: &Value) -> Result<String> {
             }
             _ => bail!("Unknown action '{action}'"),
         }
-    }
-}
-
-// ── macOS windows (Accessibility API) ─────────────────────────────────────
-
-#[cfg(target_os = "macos")]
-struct MacWindow {
-    pid: i32,
-    window: accessibility::AXUIElement,
-    title: String,
-    minimized: bool,
-}
-
-/// Every window of every regular (Dock-visible) app.
-#[cfg(target_os = "macos")]
-#[allow(unexpected_cfgs)]
-fn macos_windows() -> Result<Vec<MacWindow>> {
-    use accessibility::{AXUIElement, AXUIElementAttributes};
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
-
-    let workspace: *mut Object = unsafe { msg_send![class!(NSWorkspace), sharedWorkspace] };
-    let apps: *mut Object = unsafe { msg_send![workspace, runningApplications] };
-    if apps.is_null() {
-        bail!("Cannot list running applications");
-    }
-    let count: usize = unsafe { msg_send![apps, count] };
-    let mut out = Vec::new();
-    for i in 0..count {
-        let app: *mut Object = unsafe { msg_send![apps, objectAtIndex: i] };
-        if app.is_null() {
-            continue;
-        }
-        // 0 = regular app; skip background helpers and agents.
-        let policy: i64 = unsafe { msg_send![app, activationPolicy] };
-        if policy != 0 {
-            continue;
-        }
-        let pid: i32 = unsafe { msg_send![app, processIdentifier] };
-        if pid <= 0 {
-            continue;
-        }
-        let element = AXUIElement::application(pid);
-        let Ok(windows) = element.windows() else {
-            continue; // no Accessibility permission for this app
-        };
-        for window in windows.iter() {
-            let window: AXUIElement = (*window).clone();
-            let title = window.title().map(|t| t.to_string()).unwrap_or_default();
-            let minimized = window.minimized().map(bool::from).unwrap_or(false);
-            out.push(MacWindow { pid, window, title, minimized });
-        }
-    }
-    Ok(out)
-}
-
-#[cfg(target_os = "macos")]
-fn macos_list_windows() -> Result<String> {
-    let mut titles = Vec::new();
-    for w in macos_windows()? {
-        if w.title.trim().is_empty() {
-            continue;
-        }
-        titles.push(if w.minimized { format!("{} (minimized)", w.title) } else { w.title });
-    }
-    if titles.is_empty() {
-        return Ok("No visible windows (grant Accessibility permission if needed).".to_string());
-    }
-    let mut text = String::new();
-    for (i, title) in titles.iter().take(50).enumerate() {
-        text.push_str(&format!("{}. {title}\n", i + 1));
-    }
-    Ok(text)
-}
-
-#[cfg(target_os = "macos")]
-fn macos_find_window(title: &str) -> Result<MacWindow> {
-    let windows = macos_windows()?;
-    let titles: Vec<String> = windows.iter().map(|w| w.title.clone()).collect();
-    let index = title_match(&titles, title).ok_or_else(|| {
-        anyhow!("No window matching '{title}' (grant Accessibility permission if needed)")
-    })?;
-    Ok(windows.into_iter().nth(index).unwrap())
-}
-
-/// Press one of a window's standard buttons (`AXCloseButton`, `AXZoomButton`).
-#[cfg(target_os = "macos")]
-fn macos_press_button(window: &accessibility::AXUIElement, name: &str) -> Result<()> {
-    use accessibility::{AXAttribute, AXUIElement, AXUIElementActions, AXUIElementAttributes};
-    use core_foundation::base::{CFType, TCFType};
-    use core_foundation::string::CFString;
-
-    let attr: AXAttribute<CFType> = AXAttribute::new(&CFString::new(name));
-    let value = window.attribute(&attr).map_err(|e| anyhow!("No {name}: {e}"))?;
-    let button: AXUIElement = value.downcast().ok_or_else(|| anyhow!("{name} is not an element"))?;
-    button.press().map_err(|e| anyhow!("Press {name} failed: {e}"))
-}
-
-/// Set an Accessibility window's frame from plain integers.
-#[cfg(target_os = "macos")]
-fn macos_move(window: &accessibility::AXUIElement, x: i32, y: i32, w: i32, h: i32) -> Result<()> {
-    use accessibility::{AXAttribute, AXUIElementAttributes};
-    use accessibility_sys::{kAXValueTypeCGPoint, kAXValueTypeCGSize, AXValueCreate};
-    use core_foundation::base::{CFType, TCFType};
-    use core_foundation::string::CFString;
-
-    #[repr(C)]
-    struct CGPoint {
-        x: f64,
-        y: f64,
-    }
-    #[repr(C)]
-    struct CGSize {
-        width: f64,
-        height: f64,
-    }
-
-    let point = CGPoint { x: x as f64, y: y as f64 };
-    let size = CGSize { width: w as f64, height: h as f64 };
-    let (position, dimensions) = unsafe {
-        (
-            AXValueCreate(kAXValueTypeCGPoint, &point as *const _ as *const std::ffi::c_void),
-            AXValueCreate(kAXValueTypeCGSize, &size as *const _ as *const std::ffi::c_void),
-        )
-    };
-    if position.is_null() || dimensions.is_null() {
-        bail!("Cannot build Accessibility geometry values");
-    }
-    let position = unsafe { CFType::wrap_under_create_rule(position as *const _) };
-    let dimensions = unsafe { CFType::wrap_under_create_rule(dimensions as *const _) };
-    let attr = |name: &str| AXAttribute::<CFType>::new(&CFString::new(name));
-    window
-        .set_attribute(&attr("AXPosition"), position)
-        .map_err(|e| anyhow!("Move failed: {e}"))?;
-    window
-        .set_attribute(&attr("AXSize"), dimensions)
-        .map_err(|e| anyhow!("Resize failed: {e}"))?;
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn macos_window_action(action: &str, title: &str, args: &Value) -> Result<String> {
-    use accessibility::{AXAttribute, AXUIElement, AXUIElementActions, AXUIElementAttributes};
-    use core_foundation::boolean::CFBoolean;
-
-    let found = macos_find_window(title)?;
-    let window = &found.window;
-    let app = AXUIElement::application(found.pid);
-    match action {
-        "focus" => {
-            let _ = app.set_frontmost(true);
-            let _ = window.set_attribute(&AXAttribute::main(), CFBoolean::from(true));
-            let _ = window.set_attribute(&AXAttribute::focused(), CFBoolean::from(true));
-            let _ = window.raise();
-            Ok(format!("Focused '{}'.", found.title))
-        }
-        "minimize" => {
-            window
-                .set_attribute(&AXAttribute::minimized(), CFBoolean::from(true))
-                .map_err(|e| anyhow!("Minimize failed: {e}"))?;
-            Ok(format!("Minimized '{}'.", found.title))
-        }
-        "maximize" => {
-            macos_press_button(window, "AXZoomButton")?;
-            Ok(format!("Zoomed '{}'.", found.title))
-        }
-        "restore" => {
-            let _ = window.set_attribute(&AXAttribute::minimized(), CFBoolean::from(false));
-            let _ = window.set_attribute(&AXAttribute::main(), CFBoolean::from(true));
-            let _ = window.raise();
-            Ok(format!("Restored '{}'.", found.title))
-        }
-        "close" => {
-            macos_press_button(window, "AXCloseButton")?;
-            Ok(format!("Asked '{}' to close.", found.title))
-        }
-        "move" => {
-            let num = |name: &str| {
-                args.get(name)
-                    .and_then(Value::as_i64)
-                    .ok_or_else(|| anyhow!("'{name}' is required for move"))
-            };
-            let (x, y, w, h) =
-                (num("x")? as i32, num("y")? as i32, num("width")? as i32, num("height")? as i32);
-            macos_move(window, x, y, w, h)?;
-            Ok(format!("Moved '{}' to {x},{y} ({w}x{h}).", found.title))
-        }
-        _ => bail!("Unknown action '{action}'"),
     }
 }
 
@@ -832,7 +635,6 @@ fn parse_key(name: &str) -> Result<enigo::Key> {
         "space" => Key::Space,
         "backspace" => Key::Backspace,
         "delete" | "del" => Key::Delete,
-        #[cfg(not(target_os = "macos"))]
         "insert" => Key::Insert,
         "home" => Key::Home,
         "end" => Key::End,
@@ -884,7 +686,7 @@ impl Tool for UiaTool {
 
     fn description(&self) -> String {
         "Interact with app controls through the platform accessibility API (Windows UI \
-         Automation, macOS Accessibility, Linux AT-SPI): find controls by name or id and \
+         Automation, Linux AT-SPI): find controls by name or id and \
          invoke, type into, toggle, focus, or read them without moving the mouse. Actions: \
          tree (list the window's controls), click, type, toggle, focus, read. Targets the \
          foreground window unless `window` names one. Prefer this over `input` for standard \
@@ -916,15 +718,11 @@ impl Tool for UiaTool {
         {
             uia_run(action, args)
         }
-        #[cfg(target_os = "macos")]
-        {
-            return ax_run(action, args);
-        }
         #[cfg(target_os = "linux")]
         {
             return atspi_run(action, args);
         }
-        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         {
             let _ = action;
             bail!("Accessibility control is not available on this platform")
@@ -1181,206 +979,6 @@ unsafe fn uia_find(
         }
     }
     bail!("No enabled control matches the given name/automation id")
-}
-
-// ── macOS Accessibility (AXUIElement) ─────────────────────────────────────
-
-#[cfg(target_os = "macos")]
-#[allow(unexpected_cfgs)]
-fn ax_run(action: &str, args: &Value) -> Result<String> {
-    use accessibility::{
-        AXAttribute, AXUIElement, AXUIElementActions, AXUIElementAttributes, ElementFinder,
-    };
-    use core_foundation::base::TCFType;
-    use core_foundation::boolean::CFBoolean;
-    use core_foundation::string::CFString;
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
-
-    let name = args
-        .get("name")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let id = args
-        .get("automation_id")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let window = args
-        .get("window")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-
-    let workspace: *mut Object = unsafe { msg_send![class!(NSWorkspace), sharedWorkspace] };
-    let front: *mut Object = unsafe { msg_send![workspace, frontmostApplication] };
-    let pid: i32 = unsafe { msg_send![front, processIdentifier] };
-    if pid <= 0 {
-        bail!("No frontmost application");
-    }
-    let app = AXUIElement::application(pid);
-
-    let root = match window {
-        Some(title) => {
-            let needle = title.to_lowercase();
-            let finder = ElementFinder::new(
-                &app,
-                move |el| {
-                    let role = el.role().map(|r| r.to_string()).unwrap_or_default();
-                    let t = el.title().map(|t| t.to_string()).unwrap_or_default();
-                    role == "AXWindow" && t.to_lowercase().contains(&needle)
-                },
-                None,
-            );
-            finder.find().map_err(|_| {
-                anyhow!("No window matching '{title}' (grant Accessibility permission if needed)")
-            })?
-        }
-        None => app,
-    };
-
-    match action {
-        "tree" => {
-            let mut out = String::new();
-            let mut shown = 0usize;
-            ax_tree(&root, 0, &mut out, &mut shown);
-            if out.is_empty() {
-                out.push_str("No named controls in the window.");
-            }
-            Ok(out)
-        }
-        "read" => {
-            let el = ax_find(&root, name, id)?;
-            Ok(format!(
-                "{} \"{}\"{} enabled={}{}",
-                el.role().map(|r| r.to_string()).unwrap_or_default(),
-                el.title().map(|t| t.to_string()).unwrap_or_default(),
-                el.identifier()
-                    .ok()
-                    .map(|i| i.to_string())
-                    .filter(|i| !i.is_empty())
-                    .map(|i| format!(" ({i})"))
-                    .unwrap_or_default(),
-                el.enabled().map(bool::from).unwrap_or(true),
-                el.value()
-                    .ok()
-                    .map(|v| ax_value_string(&v))
-                    .filter(|v| !v.is_empty())
-                    .map(|v| format!(" value=\"{v}\""))
-                    .unwrap_or_default(),
-            ))
-        }
-        "click" => {
-            let el = ax_find(&root, name, id)?;
-            el.press().map_err(|e| anyhow!("Press failed: {e}"))?;
-            Ok("Pressed the control.".to_string())
-        }
-        "type" => {
-            let text = args
-                .get("text")
-                .and_then(Value::as_str)
-                .ok_or_else(|| anyhow!("'text' is required for type"))?;
-            let el = ax_find(&root, name, id)?;
-            el.set_value(CFString::new(text).as_CFType())
-                .map_err(|e| anyhow!("Set value failed: {e}"))?;
-            Ok(format!("Set {} characters.", text.chars().count()))
-        }
-        "toggle" => {
-            let el = ax_find(&root, name, id)?;
-            el.press().map_err(|e| anyhow!("Press failed: {e}"))?;
-            Ok("Toggled the control.".to_string())
-        }
-        "focus" => {
-            let el = ax_find(&root, name, id)?;
-            el.set_attribute(&AXAttribute::focused(), CFBoolean::from(true))
-                .or_else(|_| el.press())
-                .map_err(|e| anyhow!("Focus failed: {e}"))?;
-            Ok("Focused the control.".to_string())
-        }
-        other => bail!("Unknown action '{other}'"),
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn ax_tree(el: &accessibility::AXUIElement, depth: usize, out: &mut String, shown: &mut usize) {
-    use accessibility::AXUIElementAttributes;
-    if depth > 12 || *shown >= 80 {
-        return;
-    }
-    if let Ok(children) = el.children() {
-        for child in children.into_iter() {
-            if *shown >= 80 {
-                out.push_str("[…more controls]\n");
-                return;
-            }
-            let role = child.role().map(|r| r.to_string()).unwrap_or_default();
-            let title = child.title().map(|t| t.to_string()).unwrap_or_default();
-            let desc = child.description().map(|t| t.to_string()).unwrap_or_default();
-            let id = child.identifier().map(|t| t.to_string()).unwrap_or_default();
-            let label = if !title.is_empty() { title } else { desc };
-            if !label.is_empty() {
-                out.push_str(&format!(
-                    "{} \"{}\"{}\n",
-                    role,
-                    label,
-                    if id.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({id})")
-                    }
-                ));
-                *shown += 1;
-            }
-            ax_tree(&child, depth + 1, out, shown);
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn ax_find(
-    root: &accessibility::AXUIElement,
-    name: Option<&str>,
-    id: Option<&str>,
-) -> Result<accessibility::AXUIElement> {
-    use accessibility::{AXUIElementAttributes, ElementFinder};
-    if name.is_none() && id.is_none() {
-        bail!("Provide 'name' or 'automation_id'");
-    }
-    let needle = name.map(|n| n.to_lowercase());
-    let id = id.map(|x| x.to_string());
-    let finder = ElementFinder::new(
-        root,
-        move |el| {
-            let title = el.title().map(|t| t.to_string()).unwrap_or_default();
-            let desc = el.description().map(|t| t.to_string()).unwrap_or_default();
-            let ident = el.identifier().map(|t| t.to_string()).unwrap_or_default();
-            let name_ok = needle.as_ref().map_or(true, |n| {
-                title.to_lowercase().contains(n) || desc.to_lowercase().contains(n)
-            });
-            let id_ok = id.as_ref().map_or(true, |x| ident.eq_ignore_ascii_case(x));
-            let enabled = el.enabled().map(bool::from).unwrap_or(true);
-            name_ok && id_ok && enabled
-        },
-        None,
-    );
-    finder
-        .find()
-        .map_err(|_| anyhow!("No matching control (grant Accessibility permission if needed)"))
-}
-
-#[cfg(target_os = "macos")]
-fn ax_value_string(value: &core_foundation::base::CFType) -> String {
-    use core_foundation::base::TCFType;
-    use core_foundation::boolean::CFBoolean;
-    use core_foundation::string::CFString;
-    if value.instance_of::<CFString>() {
-        unsafe { CFString::wrap_under_get_rule(value.as_CFTypeRef() as _) }.to_string()
-    } else if value.instance_of::<CFBoolean>() {
-        bool::from(unsafe { CFBoolean::wrap_under_get_rule(value.as_CFTypeRef() as _) }).to_string()
-    } else {
-        String::new()
-    }
 }
 
 // ── Linux AT-SPI ──────────────────────────────────────────────────────────

@@ -684,19 +684,11 @@ function SystemControlCard() {
             onChange={(v) => apply({ ...access, input: v })}
           />
           <Toggle
-            label={
-              os === "macos"
-                ? "Accessibility (AX)"
-                : os === "linux"
-                  ? "Accessibility (AT-SPI)"
-                  : "Accessibility (UIA)"
-            }
+            label={os === "linux" ? "Accessibility (AT-SPI)" : "Accessibility (UIA)"}
             hint={
-              os === "macos"
-                ? "Find and press app controls by name without moving the mouse; needs Accessibility permission."
-                : os === "linux"
-                  ? "Find and activate app controls by name without moving the mouse; needs at-spi2-core."
-                  : "Find and invoke app controls by name without moving the mouse."
+              os === "linux"
+                ? "Find and activate app controls by name without moving the mouse; needs at-spi2-core."
+                : "Find and invoke app controls by name without moving the mouse."
             }
             checked={access.uia}
             onChange={(v) => apply({ ...access, uia: v })}
@@ -1355,11 +1347,9 @@ function HotkeyField({
   );
 }
 
-const IS_MAC = /mac/i.test(navigator.userAgent);
-
-/// "CmdOrCtrl+Alt+D" -> "Ctrl+Alt+D" (or "Cmd+Alt+D" on macOS) for display.
+/// "CmdOrCtrl+Alt+D" -> "Ctrl+Alt+D" for display.
 function formatHotkey(value: string): string {
-  return value.replace(/CmdOrCtrl/gi, IS_MAC ? "Cmd" : "Ctrl");
+  return value.replace(/CmdOrCtrl/gi, "Ctrl");
 }
 
 /// Browser key event -> the accelerator syntax the global-shortcut parser takes.

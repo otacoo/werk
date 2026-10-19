@@ -162,7 +162,6 @@ fn chromium_candidates(kind: &str) -> Vec<PathBuf> {
             out.push(p.join("Microsoft/Edge/Application/msedge.exe"));
         }
         out.push(PathBuf::from("/usr/bin/microsoft-edge"));
-        out.push(PathBuf::from("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"));
     } else {
         if let Some(p) = &pf {
             out.push(p.join("Google/Chrome/Application/chrome.exe"));
@@ -176,7 +175,6 @@ fn chromium_candidates(kind: &str) -> Vec<PathBuf> {
         out.push(PathBuf::from("/usr/bin/google-chrome"));
         out.push(PathBuf::from("/usr/bin/chromium"));
         out.push(PathBuf::from("/usr/bin/chromium-browser"));
-        out.push(PathBuf::from("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"));
     }
     out
 }
@@ -364,7 +362,6 @@ fn firefox_candidates() -> Vec<PathBuf> {
         out.push(p.join("Mozilla Firefox/firefox.exe"));
     }
     out.push(PathBuf::from("/usr/bin/firefox"));
-    out.push(PathBuf::from("/Applications/Firefox.app/Contents/MacOS/firefox"));
     out
 }
 

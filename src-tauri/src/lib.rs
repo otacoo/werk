@@ -240,11 +240,7 @@ fn session_kind() -> Result<String, String> {
     {
         Ok("windows".to_string())
     }
-    #[cfg(target_os = "macos")]
-    {
-        Ok("macos".to_string())
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(target_os = "linux")]
     {
         let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
             || std::env::var("XDG_SESSION_TYPE")
@@ -255,6 +251,10 @@ fn session_kind() -> Result<String, String> {
         } else {
             Ok("x11".to_string())
         }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err("Unsupported platform".to_string())
     }
 }
 

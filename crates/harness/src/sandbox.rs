@@ -163,9 +163,8 @@ impl PathJail {
     }
 
     /// Absolute input: allowed when it lands inside a writable root, or a
-    /// read-only root on reads. Symlinks resolve against the filesystem so
-    /// macOS `/var` vs `/private/var` spellings compare equal; `..` may not
-    /// climb out.
+    /// read-only root on reads. Symlinks resolve against the filesystem;
+    /// `..` may not climb out.
     fn absolute(&self, path: &Path, writable: bool) -> Result<PathBuf> {
         let clean = canonical_spelling(path);
         let writable_hit =
@@ -181,8 +180,7 @@ impl PathJail {
 }
 
 /// Resolve symlinks in the deepest existing ancestor, keeping the rest of the
-/// path lexical. macOS temp dirs live under `/var` (a symlink to
-/// `/private/var`), so a raw model path would otherwise miss the jail root.
+/// path lexical, so a raw path still resolves against the jail root.
 fn canonical_spelling(path: &Path) -> PathBuf {
     if let Ok(resolved) = path.canonicalize() {
         return strip_verbatim(resolved);

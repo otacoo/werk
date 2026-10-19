@@ -5305,7 +5305,7 @@ pub async fn get_platform_style() -> Result<PlatformStyle, String> {
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct PlatformStyle {
     pub os: String,
-    /// "sharp" (Windows 10, KDE) or "round" (macOS, Windows 11, GNOME).
+    /// "sharp" (Windows 10, KDE) or "round" (Windows 11, GNOME).
     pub corners: String,
     pub desktop: String,
 }
@@ -5314,11 +5314,9 @@ impl PlatformStyle {
     pub fn detect() -> Self {
         let os = std::env::consts::OS.to_string();
         let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_lowercase();
-        #[cfg(target_os = "macos")]
-        let corners = "round".to_string();
         #[cfg(target_os = "windows")]
         let corners = if windows_build() >= 22000 { "round".to_string() } else { "sharp".to_string() };
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(not(target_os = "windows"))]
         let corners = if desktop.contains("gnome") {
             "round".to_string()
         } else {

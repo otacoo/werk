@@ -16,8 +16,8 @@ pub struct BackendInfo {
     pub available: bool,
 }
 
-/// CPU always; CUDA with an NVIDIA GPU; Metal on Apple Silicon.
-/// (Vulkan/ROCm/SYCL detection is M-polish; those users get CPU builds.)
+/// CPU always; CUDA with an NVIDIA GPU.
+/// (Vulkan/ROCm/SYCL detection is polish; those users get CPU builds.)
 pub fn detect_backends(gpus: &[GpuInfo]) -> Vec<BackendInfo> {
     let has_nvidia = gpus.iter().any(|g| {
         let n = g.name.to_lowercase();
@@ -25,11 +25,6 @@ pub fn detect_backends(gpus: &[GpuInfo]) -> Vec<BackendInfo> {
     });
     vec![
         BackendInfo { id: "cuda".into(), label: "CUDA".into(), available: has_nvidia },
-        BackendInfo {
-            id: "metal".into(),
-            label: "Metal".into(),
-            available: cfg!(all(target_os = "macos", target_arch = "aarch64")),
-        },
         BackendInfo { id: "cpu".into(), label: "CPU".into(), available: true },
     ]
 }
@@ -101,7 +96,6 @@ fn usable_asset(name: &str) -> bool {
     let platform_ok = match std::env::consts::OS {
         "linux" => lower.contains("linux") || lower.contains("ubuntu"),
         "windows" => lower.contains("win"),
-        "macos" => lower.contains("macos") || lower.contains("darwin"),
         _ => false,
     };
     if !platform_ok {
@@ -147,8 +141,6 @@ fn detect_asset_backend(lower: &str) -> (String, String, i64) {
         ("cuda".into(), format!("CUDA{}", cuda_suffix(lower)), 100)
     } else if lower.contains("rocm") || lower.contains("hip") {
         ("rocm".into(), "ROCm".into(), 90)
-    } else if lower.contains("metal") {
-        ("metal".into(), "Metal".into(), 95)
     } else if lower.contains("vulkan") {
         ("vulkan".into(), "Vulkan".into(), 70)
     } else if lower.contains("sycl") {
@@ -167,8 +159,6 @@ fn detect_asset_backend(lower: &str) -> (String, String, i64) {
         ("cpu-avx".into(), "CPU (AVX)".into(), 20)
     } else if lower.contains("cpu") {
         ("cpu".into(), "CPU".into(), 20)
-    } else if cfg!(target_os = "macos") {
-        ("metal".into(), "Metal".into(), 95)
     } else {
         ("cpu".into(), "CPU".into(), 20)
     }
@@ -588,7 +578,6 @@ mod tests {
     fn host_asset(rest: &str) -> String {
         let os = match std::env::consts::OS {
             "windows" => "win",
-            "macos" => "macos",
             _ => "linux",
         };
         let arch = match std::env::consts::ARCH {
@@ -615,8 +604,6 @@ mod tests {
         if cfg!(target_os = "windows") {
             assert!(!usable_asset("llama-b1-bin-linux-cpu-x64.zip"));
             assert!(usable_asset("llama-b1-bin-win-cpu-x64.zip"));
-        } else if cfg!(target_os = "macos") {
-            assert!(usable_asset("llama-b1-bin-macos-arm64.tar.gz"));
         } else {
             assert!(usable_asset("llama-b1-bin-linux-cpu-x64.tar.gz"));
         }

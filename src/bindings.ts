@@ -1423,7 +1423,7 @@ export type ModelDto_Serialize = {
 /**  OS + desktop idiom for corner/shape theming. */
 export type PlatformStyle = {
 	os: string,
-	/**  "sharp" (Windows 10, KDE) or "round" (macOS, Windows 11, GNOME). */
+	/**  "sharp" (Windows 10, KDE) or "round" (Windows 11, GNOME). */
 	corners: string,
 	desktop: string,
 };

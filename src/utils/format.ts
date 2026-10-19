@@ -24,8 +24,7 @@ export function shortCpuName(raw: string): string {
     clean.match(/Ryzen \d+ \w+/) ||
     clean.match(/Core Ultra \d+ \w+/) ||
     clean.match(/Xeon \w[\w-]*/) ||
-    clean.match(/EPYC \w+/) ||
-    clean.match(/Apple M\d\w*/);
+    clean.match(/EPYC \w+/);
   return m ? m[0] : clean.replace(/\s+CPU.*/, "").trim();
 }
 
@@ -35,7 +34,6 @@ export function shortGpuName(raw: string): string {
     raw.match(/GTX \w+(\s*Ti)?/) ||
     raw.match(/RX \w+(\s*XT)?(\s*X)?/) ||
     raw.match(/Arc \w+/) ||
-    raw.match(/Apple M\d\w*/) ||
     raw.match(/Radeon Pro \w+/) ||
     raw.match(/A\d{3,4}\b/);
   return m ? m[0] : raw.replace(/NVIDIA |GeForce |AMD |Intel /g, "").trim();

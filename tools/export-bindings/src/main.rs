@@ -1,6 +1,6 @@
 //! Regenerates `src/bindings.ts` from the app's canonical command list.
 //! Lives outside the Tauri package on purpose: extra bins there get built by
-//! `cargo build --bins` and then break bundling on universal macOS targets.
+//! `cargo build --bins` and end up in the bundle.
 //! CI runs this, then fails on a dirty tree if bindings went stale.
 
 use specta_typescript::Typescript;
